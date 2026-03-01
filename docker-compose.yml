@@ -1,0 +1,43 @@
+version: '3.8'
+services:
+  database:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: govai
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - govai-net
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - govai-net
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    networks:
+      - govai-net
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD}@database:5432/govai
+      LITELLM_URL: http://litellm:4000
+      SIGNING_SECRET: ${SIGNING_SECRET}
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3000:3000"
+    depends_on:
+      - database
+      - redis
+      - litellm
+    networks:
+      - govai-net
+
+networks:
+  govai-net:
+    driver: bridge
