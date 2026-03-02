@@ -1,7 +1,6 @@
-version: '3.8'
 services:
   database:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     environment:
       POSTGRES_DB: govai
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -17,8 +16,11 @@ services:
 
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
+    command: --config /app/config.yaml
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     networks:
       - govai-net
 
@@ -28,13 +30,26 @@ services:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD}@database:5432/govai
       LITELLM_URL: http://litellm:4000
       SIGNING_SECRET: ${SIGNING_SECRET}
+      AI_MODEL: ${AI_MODEL}
       REDIS_URL: redis://redis:6379
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
     ports:
       - "3000:3000"
     depends_on:
       - database
       - redis
       - litellm
+    networks:
+      - govai-net
+
+  admin-ui:
+    build:
+      context: ./admin-ui
+      dockerfile: Dockerfile.admin
+    ports:
+      - "3001:3001"
+    depends_on:
+      - api
     networks:
       - govai-net
 

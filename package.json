@@ -8,12 +8,16 @@
     "dev": "ts-node src/server.ts"
   },
   "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^10.3.0",
     "@open-policy-agent/opa-wasm": "^1.10.0",
+    "@types/jsonwebtoken": "^9.0.10",
     "axios": "^1.6.0",
     "bullmq": "^5.70.1",
     "dotenv": "^16.3.0",
     "fastify": "^5.0.0",
     "ioredis": "^5.10.0",
+    "jsonwebtoken": "^9.0.3",
     "pg": "^8.11.0",
     "pino": "^10.3.1",
     "pino-pretty": "^13.1.3",

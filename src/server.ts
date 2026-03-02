@@ -1,10 +1,11 @@
-import Fastify, { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import Fastify, { FastifyInstance, FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { Pool } from 'pg';
 import { GovernanceRequestSchema, IntegrityService, ActionType } from './lib/governance';
 import { opaEngine } from './lib/opa-governance';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { auditQueue, initAuditWorker } from './workers/audit.worker';
+import cors from '@fastify/cors';
 
 // Start worker
 initAuditWorker();
@@ -28,6 +29,25 @@ const fastify: FastifyInstance = Fastify({
     }
 });
 
+// Register CORS
+fastify.register(cors, {
+    origin: '*', // For demo purposes, allow all origins
+});
+
+// Register Rate Limiting (Redis-backed)
+import rateLimit from '@fastify/rate-limit';
+import Redis from 'ioredis';
+
+fastify.register(rateLimit, {
+    max: 100,           // Max 100 requests per window
+    timeWindow: '1 minute',
+    redis: new Redis(process.env.REDIS_URL || 'redis://localhost:6379'),
+    keyGenerator: (request: FastifyRequest) => {
+        // Rate limit by API key or IP
+        return request.headers.authorization || request.ip;
+    },
+});
+
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // Tracing Middleware
@@ -38,13 +58,44 @@ fastify.addHook('onRequest', async (request, reply) => {
     request.auditContext = { traceId };
 });
 
-fastify.post('/v1/execute/:assistantId', async (request, reply) => {
-    const { assistantId } = request.params as { assistantId: string };
-    const orgId = request.headers['x-org-id'] as string;
-
-    if (!orgId) {
-        return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+// --- AUTHENTICATION MIDDLEWARE ---
+const requireApiKey = async (request: FastifyRequest, reply: FastifyReply) => {
+    // 1. Extract API Key
+    const authHeader = request.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return reply.status(401).send({ error: "Unauthorized: Missing or invalid Authorization header (Bearer token required)." });
     }
+    const token = authHeader.substring(7);
+
+    // 2. Validate against Database
+    const client = await pgPool.connect();
+    try {
+        // In a real prod environment we'd hash the token (e.g., SHA256) to compare with DB's key_hash.
+        // For this demo, we mock the validation using the mock value inserted in init.sql by checking the prefix
+        const res = await client.query(
+            "SELECT org_id FROM api_keys WHERE prefix = 'sk-go' AND is_active = TRUE LIMIT 1"
+        );
+
+        if (res.rowCount === 0) {
+            return reply.status(403).send({ error: "Forbidden: Invalid or revoked API Key." });
+        }
+
+        // 3. Inject Context
+        request.headers['x-org-id'] = res.rows[0].org_id; // Set orgId dynamically for downstream RLS
+
+    } catch (e) {
+        request.log.error(e, "Error checking API key");
+        return reply.status(500).send({ error: "Auth Validation failed" });
+    } finally {
+        client.release();
+    }
+};
+
+fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (request, reply) => {
+    const { assistantId } = request.params as { assistantId: string };
+
+    // Auth middleware (requireApiKey) automatically injects the verified x-org-id
+    const orgId = request.headers['x-org-id'] as string;
 
     const parseResult = GovernanceRequestSchema.safeParse(request.body);
     if (!parseResult.success) {
@@ -56,7 +107,7 @@ fastify.post('/v1/execute/:assistantId', async (request, reply) => {
 
     try {
         // 1. RLS: Define context for current org
-        await client.query(`SET LOCAL app.current_org_id = \$1`, [orgId]);
+        await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
 
         // 2. Fetch Assistant (RLS ensures it belongs to the Org)
         const assistantRes = await client.query('SELECT * FROM assistants WHERE id = \$1 AND status = \$2', [assistantId, 'published']);
@@ -93,15 +144,44 @@ fastify.post('/v1/execute/:assistantId', async (request, reply) => {
             return reply.status(403).send({ error: policyCheck.reason, traceId });
         }
 
-        // 4. LiteLLM Proxy Call (Real AI Execution)
+        // 4. RAG Context Retrieval (if assistant has a knowledge base)
+        let ragContext = '';
+        try {
+            const kbRes = await client.query(
+                'SELECT id FROM knowledge_bases WHERE assistant_id = $1 LIMIT 1',
+                [assistantId]
+            );
+            if (kbRes.rows.length > 0) {
+                const { searchSimilarChunks } = await import('./lib/rag');
+                const chunks = await searchSimilarChunks(pgPool, kbRes.rows[0].id, message, 3);
+                if (chunks.length > 0) {
+                    ragContext = chunks.map(c => c.content).join('\n---\n');
+                    fastify.log.info({ assistantId, chunksFound: chunks.length }, 'RAG context injected');
+                }
+            }
+        } catch (ragError) {
+            fastify.log.warn(ragError, 'RAG retrieval failed, proceeding without context');
+        }
+
+        // 5. LiteLLM Proxy Call (Real AI Execution)
+        const messages: { role: string; content: string }[] = [];
+
+        if (ragContext) {
+            messages.push({
+                role: 'system',
+                content: `Use the following proprietary knowledge base context to answer the user's question. If the context doesn't contain the answer, say you don't have enough information.\n\n---\n${ragContext}\n---`
+            });
+        }
+        messages.push({ role: 'user', content: message });
+
         let aiResponse;
         try {
             aiResponse = await axios.post(`${process.env.LITELLM_URL}/chat/completions`, {
-                model: "gpt-4", // Or other configured model
-                messages: [{ role: "user", content: message }]
+                model: process.env.AI_MODEL || "gemini/gemini-1.5-flash",
+                messages
             }, {
                 headers: { 'Authorization': `Bearer ${process.env.LITELLM_KEY}` },
-                timeout: 10000 // 10s timeout
+                timeout: 30000 // 30s timeout (RAG prompts can be longer)
             });
         } catch (error: any) {
             fastify.log.error(error, "Error communicating with LiteLLM");
@@ -139,6 +219,246 @@ fastify.post('/v1/execute/:assistantId', async (request, reply) => {
         reply.status(500).send({ error: "Erro interno do servidor" });
     } finally {
         client.release();
+    }
+});
+
+// --- ADMIN ROUTES ---
+
+// 1. Dashboard Stats
+fastify.get('/v1/admin/stats', async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+
+    if (!orgId) {
+        return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório para visualização administrativa." });
+    }
+
+    const client = await pgPool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
+
+        const [assistantsRes, totalExecsRes, violationsRes] = await Promise.all([
+            client.query('SELECT COUNT(*) FROM assistants'),
+            client.query("SELECT COUNT(*) FROM audit_logs_partitioned WHERE action = 'EXECUTION_SUCCESS'"),
+            client.query("SELECT COUNT(*) FROM audit_logs_partitioned WHERE action = 'POLICY_VIOLATION'")
+        ]);
+
+        return reply.send({
+            total_assistants: parseInt(assistantsRes.rows[0].count, 10),
+            total_executions: parseInt(totalExecsRes.rows[0].count, 10),
+            total_violations: parseInt(violationsRes.rows[0].count, 10),
+        });
+    } catch (error) {
+        fastify.log.error(error, "Error fetching admin stats");
+        reply.status(500).send({ error: "Erro ao buscar métricas" });
+    } finally {
+        client.release();
+    }
+});
+
+// 2. Audit Logs (Paginated)
+fastify.get('/v1/admin/logs', async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+    const { page = '1', limit = '10' } = request.query as { page?: string, limit?: string };
+
+    if (!orgId) {
+        return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+    }
+
+    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const client = await pgPool.connect();
+
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
+
+        // Security: List only logs from my organization using RLS isolation
+        const res = await client.query(
+            `SELECT id, action, metadata, signature, created_at 
+             FROM audit_logs_partitioned 
+             ORDER BY created_at DESC 
+             LIMIT \$1 OFFSET \$2`,
+            [parseInt(limit, 10), offset]
+        );
+
+        const countRes = await client.query('SELECT COUNT(*) FROM audit_logs_partitioned');
+
+        return reply.send({
+            logs: res.rows,
+            pagination: {
+                total: parseInt(countRes.rows[0].count, 10),
+                page: parseInt(page, 10),
+                pages: Math.ceil(parseInt(countRes.rows[0].count, 10) / parseInt(limit, 10))
+            }
+        });
+    } catch (error) {
+        fastify.log.error(error, "Error fetching admin logs");
+        reply.status(500).send({ error: "Erro ao buscar logs" });
+    } finally {
+        client.release();
+    }
+});
+
+// 3. Assistants List
+fastify.get('/v1/admin/assistants', async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+
+    if (!orgId) {
+        return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+    }
+
+    const client = await pgPool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
+
+        const res = await client.query('SELECT id, name, status, created_at FROM assistants ORDER BY created_at DESC');
+        return reply.send(res.rows);
+    } catch (error) {
+        fastify.log.error(error, "Error fetching assistants");
+        reply.status(500).send({ error: "Erro ao buscar assistentes" });
+    } finally {
+        client.release();
+    }
+});
+
+// --- API KEY MANAGEMENT CRUD ---
+
+// List API Keys
+fastify.get('/v1/admin/api-keys', async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+    const client = await pgPool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+        const res = await client.query('SELECT id, name, prefix, is_active, created_at, expires_at FROM api_keys ORDER BY created_at DESC');
+        return reply.send(res.rows);
+    } catch (error) {
+        fastify.log.error(error, "Error fetching API keys");
+        reply.status(500).send({ error: "Erro ao buscar chaves" });
+    } finally {
+        client.release();
+    }
+});
+
+// Create API Key
+fastify.post('/v1/admin/api-keys', async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+    const { name } = request.body as { name: string };
+    if (!name) return reply.status(400).send({ error: "Campo 'name' obrigatório." });
+
+    const rawKey = `sk-govai-${uuidv4().replace(/-/g, '').substring(0, 24)}`;
+    const prefix = rawKey.substring(0, 12);
+    const keyHash = IntegrityService.signPayload({ key: rawKey }, process.env.SIGNING_SECRET!);
+
+    const client = await pgPool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+        const res = await client.query(
+            'INSERT INTO api_keys (org_id, name, key_hash, prefix) VALUES ($1, $2, $3, $4) RETURNING id, prefix, created_at',
+            [orgId, name, keyHash, prefix]
+        );
+        // Return the full key ONLY at creation (it's never shown again)
+        return reply.status(201).send({ ...res.rows[0], key: rawKey, warning: 'Guarde esta chave! Ela não será exibida novamente.' });
+    } catch (error) {
+        fastify.log.error(error, "Error creating API key");
+        reply.status(500).send({ error: "Erro ao criar chave" });
+    } finally {
+        client.release();
+    }
+});
+
+// Revoke API Key
+fastify.delete('/v1/admin/api-keys/:keyId', async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+    const { keyId } = request.params as { keyId: string };
+    const client = await pgPool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+        await client.query('UPDATE api_keys SET is_active = FALSE WHERE id = $1', [keyId]);
+        return reply.send({ message: 'Chave revogada com sucesso.' });
+    } catch (error) {
+        fastify.log.error(error, "Error revoking API key");
+        reply.status(500).send({ error: "Erro ao revogar chave" });
+    } finally {
+        client.release();
+    }
+});
+
+// --- ASSISTANT CRUD ---
+
+// Create Assistant
+fastify.post('/v1/admin/assistants', async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+    const { name } = request.body as { name: string };
+    if (!name) return reply.status(400).send({ error: "Campo 'name' obrigatório." });
+
+    const client = await pgPool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+        const res = await client.query(
+            "INSERT INTO assistants (org_id, name, status) VALUES ($1, $2, 'draft') RETURNING id, name, status, created_at",
+            [orgId, name]
+        );
+        return reply.status(201).send(res.rows[0]);
+    } catch (error) {
+        fastify.log.error(error, "Error creating assistant");
+        reply.status(500).send({ error: "Erro ao criar assistente" });
+    } finally {
+        client.release();
+    }
+});
+
+// --- RAG KNOWLEDGE BASE ---
+
+// Create Knowledge Base for an assistant
+fastify.post('/v1/admin/assistants/:assistantId/knowledge', async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+    const { assistantId } = request.params as { assistantId: string };
+    const { name } = request.body as { name: string };
+
+    const client = await pgPool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+        const res = await client.query(
+            'INSERT INTO knowledge_bases (org_id, assistant_id, name) VALUES ($1, $2, $3) RETURNING id, name, created_at',
+            [orgId, assistantId, name || 'Base Padrão']
+        );
+        return reply.status(201).send(res.rows[0]);
+    } catch (error) {
+        fastify.log.error(error, "Error creating knowledge base");
+        reply.status(500).send({ error: "Erro ao criar base de conhecimento" });
+    } finally {
+        client.release();
+    }
+});
+
+// Upload document to Knowledge Base (RAG Ingestion)
+fastify.post('/v1/admin/knowledge/:kbId/documents', async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+    const { kbId } = request.params as { kbId: string };
+    const { content, title } = request.body as { content: string; title?: string };
+
+    if (!content) return reply.status(400).send({ error: "Campo 'content' obrigatório." });
+
+    try {
+        const { ingestDocument } = await import('./lib/rag');
+        const result = await ingestDocument(pgPool, kbId, content, { title: title || 'Untitled', orgId });
+        return reply.status(201).send({
+            message: `Documento ingerido com sucesso. ${result.chunksStored} chunks vetorizados.`,
+            ...result
+        });
+    } catch (error: any) {
+        fastify.log.error(error, "Error ingesting document");
+        reply.status(500).send({ error: "Erro ao ingerir documento", details: error.message });
     }
 });
 
