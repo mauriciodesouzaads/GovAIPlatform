@@ -1,8 +1,15 @@
+'use client';
+
 import Link from 'next/link';
-import { LayoutDashboard, MessageSquareText, ShieldAlert, Settings, Key } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/components/AuthProvider';
 
 export function Sidebar() {
+    const pathname = usePathname();
+    const { logout } = useAuth();
+
     const navItems = [
         { label: 'Dashboard', href: '/', icon: LayoutDashboard },
         { label: 'Audit Logs', href: '/logs', icon: ShieldAlert },
@@ -24,7 +31,12 @@ export function Sidebar() {
                     <Link
                         key={item.href}
                         href={item.href}
-                        className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                        className={cn(
+                            "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                            pathname === item.href
+                                ? "bg-secondary text-foreground"
+                                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                        )}
                     >
                         <item.icon className="w-4 h-4" />
                         {item.label}
@@ -33,9 +45,12 @@ export function Sidebar() {
             </div>
 
             <div className="p-4 border-t border-border">
-                <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
-                    <Settings className="w-4 h-4" />
-                    Settings
+                <button
+                    onClick={logout}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-destructive/80 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                >
+                    <LogOut className="w-4 h-4" />
+                    Sair
                 </button>
             </div>
         </aside>
