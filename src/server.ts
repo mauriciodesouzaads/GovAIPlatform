@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { auditQueue, initAuditWorker } from './workers/audit.worker';
 import cors from '@fastify/cors';
 import fastifyJwt from '@fastify/jwt';
+import crypto from 'crypto';
 
 // Start worker
 initAuditWorker();
@@ -35,21 +36,27 @@ fastify.register(fastifyJwt, {
     secret: process.env.JWT_SECRET || 'super-secret-govai-key-in-prod'
 });
 
-// Admin Auth Hook
+// Admin Auth Hook — enforces JWT and injects orgId from token claims
 export const requireAdminAuth = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
         await request.jwtVerify();
-    } catch (err) {
-        // Fallback for demo ease: allow x-org-id for now while we transition
-        if (!request.headers['x-org-id']) {
-            return reply.status(401).send({ error: 'Unauthorized: Missing valid JWT token or x-org-id' });
+        // Extract orgId from JWT claims and inject into headers for downstream RLS
+        const user = request.user as { orgId?: string; email?: string; role?: string };
+        if (user?.orgId) {
+            request.headers['x-org-id'] = user.orgId;
         }
+    } catch (err) {
+        return reply.status(401).send({ error: 'Unauthorized: Invalid or expired JWT token.' });
     }
 };
 
-// Register CORS
+// Register CORS (restricted to admin UI origins)
 fastify.register(cors, {
-    origin: '*', // For demo purposes, allow all origins
+    origin: [
+        'http://localhost:3001',                   // Admin UI (dev/docker)
+        process.env.ADMIN_UI_ORIGIN || ''          // Production override via env
+    ].filter(Boolean),
+    credentials: true,
 });
 
 // Register Rate Limiting (Redis-backed)
@@ -78,28 +85,32 @@ fastify.addHook('onRequest', async (request, reply) => {
 
 // --- AUTHENTICATION MIDDLEWARE ---
 const requireApiKey = async (request: FastifyRequest, reply: FastifyReply) => {
-    // 1. Extract API Key
+    // 1. Extract API Key from Bearer token
     const authHeader = request.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return reply.status(401).send({ error: "Unauthorized: Missing or invalid Authorization header (Bearer token required)." });
     }
     const token = authHeader.substring(7);
 
-    // 2. Validate against Database
+    // 2. Compute SHA-256 hash of provided token and compare against DB
+    const tokenHash = crypto.createHmac('sha256', process.env.SIGNING_SECRET || 'govai-default-secret')
+        .update(JSON.stringify({ key: token }))
+        .digest('hex');
+    const prefix = token.substring(0, 12);
+
     const client = await pgPool.connect();
     try {
-        // In a real prod environment we'd hash the token (e.g., SHA256) to compare with DB's key_hash.
-        // For this demo, we mock the validation using the mock value inserted in init.sql by checking the prefix
         const res = await client.query(
-            "SELECT org_id FROM api_keys WHERE prefix = 'sk-go' AND is_active = TRUE LIMIT 1"
+            'SELECT org_id FROM api_keys WHERE key_hash = $1 AND prefix = $2 AND is_active = TRUE LIMIT 1',
+            [tokenHash, prefix]
         );
 
         if (res.rowCount === 0) {
             return reply.status(403).send({ error: "Forbidden: Invalid or revoked API Key." });
         }
 
-        // 3. Inject Context
-        request.headers['x-org-id'] = res.rows[0].org_id; // Set orgId dynamically for downstream RLS
+        // 3. Inject org context for downstream RLS
+        request.headers['x-org-id'] = res.rows[0].org_id;
 
     } catch (e) {
         request.log.error(e, "Error checking API key");
@@ -265,7 +276,7 @@ fastify.post('/v1/admin/login', async (request, reply) => {
 });
 
 // 1. Dashboard Stats
-fastify.get('/v1/admin/stats', async (request, reply) => {
+fastify.get('/v1/admin/stats', { preHandler: requireAdminAuth }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
 
     if (!orgId) {
@@ -315,7 +326,7 @@ fastify.get('/v1/admin/stats', async (request, reply) => {
 });
 
 // 2. Audit Logs (Paginated)
-fastify.get('/v1/admin/logs', async (request, reply) => {
+fastify.get('/v1/admin/logs', { preHandler: requireAdminAuth }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
     const { page = '1', limit = '10' } = request.query as { page?: string, limit?: string };
 
@@ -357,7 +368,7 @@ fastify.get('/v1/admin/logs', async (request, reply) => {
 });
 
 // 3. Assistants List
-fastify.get('/v1/admin/assistants', async (request, reply) => {
+fastify.get('/v1/admin/assistants', { preHandler: requireAdminAuth }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
 
     if (!orgId) {
@@ -381,7 +392,7 @@ fastify.get('/v1/admin/assistants', async (request, reply) => {
 // --- API KEY MANAGEMENT CRUD ---
 
 // List API Keys
-fastify.get('/v1/admin/api-keys', async (request, reply) => {
+fastify.get('/v1/admin/api-keys', { preHandler: requireAdminAuth }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
     if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -399,7 +410,7 @@ fastify.get('/v1/admin/api-keys', async (request, reply) => {
 });
 
 // Create API Key
-fastify.post('/v1/admin/api-keys', async (request, reply) => {
+fastify.post('/v1/admin/api-keys', { preHandler: requireAdminAuth }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
     if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -428,7 +439,7 @@ fastify.post('/v1/admin/api-keys', async (request, reply) => {
 });
 
 // Revoke API Key
-fastify.delete('/v1/admin/api-keys/:keyId', async (request, reply) => {
+fastify.delete('/v1/admin/api-keys/:keyId', { preHandler: requireAdminAuth }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
     if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -449,7 +460,7 @@ fastify.delete('/v1/admin/api-keys/:keyId', async (request, reply) => {
 // --- ASSISTANT CRUD ---
 
 // Create Assistant
-fastify.post('/v1/admin/assistants', async (request, reply) => {
+fastify.post('/v1/admin/assistants', { preHandler: requireAdminAuth }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
     if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -475,7 +486,7 @@ fastify.post('/v1/admin/assistants', async (request, reply) => {
 // --- RAG KNOWLEDGE BASE ---
 
 // Create Knowledge Base for an assistant
-fastify.post('/v1/admin/assistants/:assistantId/knowledge', async (request, reply) => {
+fastify.post('/v1/admin/assistants/:assistantId/knowledge', { preHandler: requireAdminAuth }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
     if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -499,7 +510,7 @@ fastify.post('/v1/admin/assistants/:assistantId/knowledge', async (request, repl
 });
 
 // Upload document to Knowledge Base (RAG Ingestion)
-fastify.post('/v1/admin/knowledge/:kbId/documents', async (request, reply) => {
+fastify.post('/v1/admin/knowledge/:kbId/documents', { preHandler: requireAdminAuth }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
     if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 

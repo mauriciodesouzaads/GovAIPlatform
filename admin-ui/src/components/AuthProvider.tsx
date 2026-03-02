@@ -25,10 +25,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (storedToken) {
             setToken(storedToken);
-            // Setup global axios defaults
+            // Setup global axios defaults — JWT carries orgId, no need for manual header
             axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-            // Fallback x-org-id for smooth transition (until we remove it fully from backend)
-            axios.defaults.headers.common['x-org-id'] = '00000000-0000-0000-0000-000000000001';
         } else if (pathname !== '/login') {
             router.push('/login');
         }

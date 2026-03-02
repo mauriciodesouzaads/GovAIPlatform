@@ -51,6 +51,13 @@ CREATE TABLE documents (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Performance: HNSW index for fast cosine similarity search (RAG)
+CREATE INDEX IF NOT EXISTS idx_documents_embedding_hnsw ON documents 
+    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+
+-- Performance: B-tree index for filtering by knowledge base
+CREATE INDEX IF NOT EXISTS idx_documents_kb_id ON documents (kb_id);
+
 -- 3. Audit Log Imutável com Particionamento Declarativo
 CREATE TABLE audit_logs_partitioned (
     id UUID NOT NULL DEFAULT uuid_generate_v4(),

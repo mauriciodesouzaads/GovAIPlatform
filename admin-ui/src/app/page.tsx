@@ -5,6 +5,8 @@ import { Activity, ShieldCheck, Zap, Coins } from 'lucide-react';
 import axios from 'axios';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
+import { API_BASE } from '@/lib/api';
+
 interface DashboardStats {
   total_assistants: number;
   total_executions: number;
@@ -21,7 +23,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await axios.get('http://localhost:3000/v1/admin/stats');
+        const response = await axios.get(`${API_BASE}/v1/admin/stats`);
         setStats(response.data);
       } catch (error) {
         console.error("Error fetching stats:", error);

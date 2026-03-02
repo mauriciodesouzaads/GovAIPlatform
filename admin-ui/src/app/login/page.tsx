@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import axios from 'axios';
 import { ShieldAlert, Loader2 } from 'lucide-react';
 
+import { API_BASE } from '@/lib/api';
+
 export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -18,7 +20,7 @@ export default function LoginPage() {
         setLoading(true);
 
         try {
-            const res = await axios.post('http://localhost:3000/v1/admin/login', { email, password });
+            const res = await axios.post(`${API_BASE}/v1/admin/login`, { email, password });
 
             // Store token
             localStorage.setItem('govai_admin_token', res.data.token);

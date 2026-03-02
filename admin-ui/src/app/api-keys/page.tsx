@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Key, Copy, Trash2, Plus, ShieldCheck } from 'lucide-react';
+import { API_BASE } from '@/lib/api';
 
 interface ApiKey {
     id: string;
@@ -19,12 +20,12 @@ export default function ApiKeysPage() {
     const [createdKey, setCreatedKey] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
 
-    const orgId = '00000000-0000-0000-0000-000000000001';
-    const apiBase = 'http://localhost:3000';
+
+
 
     const fetchKeys = async () => {
         try {
-            const res = await axios.get(`${apiBase}/v1/admin/api-keys`, { headers: { 'x-org-id': orgId } });
+            const res = await axios.get(`${API_BASE}/v1/admin/api-keys`);
             setKeys(res.data);
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
@@ -36,7 +37,7 @@ export default function ApiKeysPage() {
         if (!newKeyName) return;
         setCreating(true);
         try {
-            const res = await axios.post(`${apiBase}/v1/admin/api-keys`, { name: newKeyName }, { headers: { 'x-org-id': orgId } });
+            const res = await axios.post(`${API_BASE}/v1/admin/api-keys`, { name: newKeyName });
             setCreatedKey(res.data.key);
             setNewKeyName('');
             fetchKeys();
@@ -46,7 +47,7 @@ export default function ApiKeysPage() {
 
     const revokeKey = async (keyId: string) => {
         try {
-            await axios.delete(`${apiBase}/v1/admin/api-keys/${keyId}`, { headers: { 'x-org-id': orgId } });
+            await axios.delete(`${API_BASE}/v1/admin/api-keys/${keyId}`);
             fetchKeys();
         } catch (e) { console.error(e); }
     };

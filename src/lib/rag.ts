@@ -15,16 +15,30 @@ const CHUNK_OVERLAP = 50;
 
 /**
  * Split a long text into overlapping chunks for better retrieval.
+ * Prefers to break at sentence boundaries (period + space) to avoid
+ * cutting words or ideas mid-sentence.
  */
 export function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP): string[] {
     const chunks: string[] = [];
     let start = 0;
     while (start < text.length) {
-        const end = Math.min(start + chunkSize, text.length);
-        chunks.push(text.substring(start, end));
-        start += chunkSize - overlap;
+        let end = Math.min(start + chunkSize, text.length);
+
+        // Try to break at a sentence boundary ('. ') if not at end of text
+        if (end < text.length) {
+            const lastPeriod = text.lastIndexOf('. ', end);
+            if (lastPeriod > start + chunkSize * 0.5) {
+                end = lastPeriod + 2; // Include the period and space
+            }
+        }
+
+        chunks.push(text.substring(start, end).trim());
+        start = end - overlap;
+
+        // Prevent infinite loop if overlap >= chunk
+        if (start >= text.length) break;
     }
-    return chunks;
+    return chunks.filter(c => c.length > 0);
 }
 
 /**

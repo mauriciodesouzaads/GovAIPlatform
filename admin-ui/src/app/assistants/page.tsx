@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Users, Plus, Upload, Database, FileText, CheckCircle2 } from 'lucide-react';
+import { API_BASE } from '@/lib/api';
 
 interface Assistant { id: string; name: string; status: string; created_at: string; }
 interface KnowledgeBase { id: string; name: string; created_at: string; }
@@ -21,12 +22,11 @@ export default function AssistantsPage() {
     const [uploading, setUploading] = useState(false);
     const [uploadResult, setUploadResult] = useState<string | null>(null);
 
-    const orgId = '00000000-0000-0000-0000-000000000001';
-    const apiBase = 'http://localhost:3000';
+
 
     const fetchAssistants = async () => {
         try {
-            const res = await axios.get(`${apiBase}/v1/admin/assistants`, { headers: { 'x-org-id': orgId } });
+            const res = await axios.get(`${API_BASE}/v1/admin/assistants`);
             setAssistants(res.data);
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
@@ -38,7 +38,7 @@ export default function AssistantsPage() {
         if (!newName) return;
         setCreating(true);
         try {
-            await axios.post(`${apiBase}/v1/admin/assistants`, { name: newName }, { headers: { 'x-org-id': orgId } });
+            await axios.post(`${API_BASE}/v1/admin/assistants`, { name: newName });
             setNewName('');
             fetchAssistants();
         } catch (e) { console.error(e); }
@@ -50,9 +50,8 @@ export default function AssistantsPage() {
         setUploadResult(null);
         // Create a knowledge base for this assistant
         try {
-            const res = await axios.post(`${apiBase}/v1/admin/assistants/${assistantId}/knowledge`,
-                { name: 'Base Principal' },
-                { headers: { 'x-org-id': orgId } }
+            const res = await axios.post(`${API_BASE}/v1/admin/assistants/${assistantId}/knowledge`,
+                { name: 'Base Principal' }
             );
             setKbId(res.data.id);
         } catch (e) { console.error(e); }
@@ -63,9 +62,8 @@ export default function AssistantsPage() {
         setUploading(true);
         setUploadResult(null);
         try {
-            const res = await axios.post(`${apiBase}/v1/admin/knowledge/${kbId}/documents`,
-                { content: docContent, title: docTitle },
-                { headers: { 'x-org-id': orgId } }
+            const res = await axios.post(`${API_BASE}/v1/admin/knowledge/${kbId}/documents`,
+                { content: docContent, title: docTitle }
             );
             setUploadResult(res.data.message);
             setDocContent('');
