@@ -6,6 +6,7 @@ import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { auditQueue, initAuditWorker } from './workers/audit.worker';
 import cors from '@fastify/cors';
+import fastifyJwt from '@fastify/jwt';
 
 // Start worker
 initAuditWorker();
@@ -28,6 +29,23 @@ const fastify: FastifyInstance = Fastify({
         },
     }
 });
+
+// Register JWT
+fastify.register(fastifyJwt, {
+    secret: process.env.JWT_SECRET || 'super-secret-govai-key-in-prod'
+});
+
+// Admin Auth Hook
+export const requireAdminAuth = async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+        await request.jwtVerify();
+    } catch (err) {
+        // Fallback for demo ease: allow x-org-id for now while we transition
+        if (!request.headers['x-org-id']) {
+            return reply.status(401).send({ error: 'Unauthorized: Missing valid JWT token or x-org-id' });
+        }
+    }
+};
 
 // Register CORS
 fastify.register(cors, {
@@ -224,6 +242,28 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
 
 // --- ADMIN ROUTES ---
 
+// 0. Login
+fastify.post('/v1/admin/login', async (request, reply) => {
+    const { email, password } = request.body as any;
+
+    // Hardcoded for demo/MVP
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@govai.com';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
+
+    if (email === adminEmail && password === adminPassword) {
+        const token = fastify.jwt.sign({
+            email,
+            role: 'admin',
+            // Hardcode orgId for demo
+            orgId: '00000000-0000-0000-0000-000000000001'
+        }, { expiresIn: '8h' });
+
+        return reply.send({ token, message: 'Login successful' });
+    }
+
+    return reply.status(401).send({ error: 'Invalid credentials' });
+});
+
 // 1. Dashboard Stats
 fastify.get('/v1/admin/stats', async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
@@ -236,16 +276,35 @@ fastify.get('/v1/admin/stats', async (request, reply) => {
     try {
         await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
 
-        const [assistantsRes, totalExecsRes, violationsRes] = await Promise.all([
+        const [assistantsRes, totalExecsRes, violationsRes, tokensRes] = await Promise.all([
             client.query('SELECT COUNT(*) FROM assistants'),
             client.query("SELECT COUNT(*) FROM audit_logs_partitioned WHERE action = 'EXECUTION_SUCCESS'"),
-            client.query("SELECT COUNT(*) FROM audit_logs_partitioned WHERE action = 'POLICY_VIOLATION'")
+            client.query("SELECT COUNT(*) FROM audit_logs_partitioned WHERE action = 'POLICY_VIOLATION'"),
+            client.query("SELECT SUM((metadata->'usage'->>'total_tokens')::int) as total_tokens FROM audit_logs_partitioned WHERE action = 'EXECUTION_SUCCESS' AND metadata->'usage'->>'total_tokens' IS NOT NULL")
         ]);
+
+        // Mock usage history for charts (Last 7 days)
+        const usage_history = Array.from({ length: 7 }).map((_, i) => {
+            const date = new Date();
+            date.setDate(date.getDate() - (6 - i));
+            return {
+                name: date.toLocaleDateString('pt-BR', { weekday: 'short' }),
+                requests: Math.floor(Math.random() * 500) + 100,
+                violations: Math.floor(Math.random() * 50)
+            };
+        });
+
+        const totalTokens = parseInt(tokensRes.rows[0].total_tokens || '0', 10);
+        // Estimate cost (assume averaged $0.15 per 1M tokens)
+        const estimatedCost = (totalTokens / 1000000) * 0.15;
 
         return reply.send({
             total_assistants: parseInt(assistantsRes.rows[0].count, 10),
             total_executions: parseInt(totalExecsRes.rows[0].count, 10),
             total_violations: parseInt(violationsRes.rows[0].count, 10),
+            total_tokens: totalTokens,
+            estimated_cost_usd: estimatedCost.toFixed(4),
+            usage_history
         });
     } catch (error) {
         fastify.log.error(error, "Error fetching admin stats");

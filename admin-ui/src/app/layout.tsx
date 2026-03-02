@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import { Sidebar } from '@/components/Sidebar';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -9,6 +8,9 @@ export const metadata: Metadata = {
   title: 'GovAI Platform',
   description: 'Enterprise AI Governance Gateway',
 };
+
+import { AuthProvider } from '@/components/AuthProvider';
+import { LayoutWrapper } from '@/components/LayoutWrapper';
 
 export default function RootLayout({
   children,
@@ -18,10 +20,11 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-background text-foreground h-screen flex overflow-hidden`}>
-        <Sidebar />
-        <main className="flex-1 flex flex-col h-full overflow-hidden">
-          {children}
-        </main>
+        <AuthProvider>
+          <LayoutWrapper>
+            {children}
+          </LayoutWrapper>
+        </AuthProvider>
       </body>
     </html>
   );
