@@ -51,9 +51,18 @@ const fastify: FastifyInstance = Fastify({
     }
 });
 
+// ---------------------------------------------------------------------------
+// B2 FIX: Hard-fail if JWT_SECRET is missing — prevents forged admin tokens
+// ---------------------------------------------------------------------------
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    console.error('\n\x1b[31m[FATAL] JWT_SECRET is not defined or too short (minimum 32 characters).\x1b[0m');
+    console.error('Use a cryptographically strong secret: openssl rand -hex 32\n');
+    process.exit(1);
+}
+
 // Register JWT
 fastify.register(fastifyJwt, {
-    secret: process.env.JWT_SECRET || 'super-secret-govai-key-in-prod'
+    secret: process.env.JWT_SECRET
 });
 
 // Admin Auth Hook — enforces JWT and injects orgId from token claims
