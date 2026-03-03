@@ -10,6 +10,16 @@ import fastifyJwt from '@fastify/jwt';
 import crypto from 'crypto';
 import { dlpEngine } from './lib/dlp-engine';
 
+// ---------------------------------------------------------------------------
+// C1 FIX: Hard-fail if SIGNING_SECRET is missing — prevents silent crypto failures
+// ---------------------------------------------------------------------------
+if (!process.env.SIGNING_SECRET || process.env.SIGNING_SECRET.trim() === '') {
+    console.error('\n\x1b[31m[FATAL] SIGNING_SECRET is not defined or is empty.\x1b[0m');
+    console.error('The server CANNOT start without a valid signing secret.');
+    console.error('Set SIGNING_SECRET in your .env file or environment variables.\n');
+    process.exit(1);
+}
+
 // Start worker
 initAuditWorker();
 
@@ -639,22 +649,23 @@ fastify.post('/v1/admin/approvals/:approvalId/approve', { preHandler: requireAdm
     try {
         await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
 
-        // 1. Fetch and validate pending approval
+        // C2 FIX: Atomic UPDATE ... WHERE status='pending' RETURNING * eliminates race condition
+        // If another admin already approved/rejected, zero rows are returned → 409 Conflict
         const approvalRes = await client.query(
-            'SELECT * FROM pending_approvals WHERE id = $1 AND status = $2',
-            [approvalId, 'pending']
+            `UPDATE pending_approvals 
+             SET status = 'approved', reviewer_email = $1, reviewed_at = NOW() 
+             WHERE id = $2 AND status = 'pending' 
+             RETURNING *`,
+            [user?.email || 'admin', approvalId]
         );
         if (approvalRes.rows.length === 0) {
-            return reply.status(404).send({ error: 'Aprovação não encontrada ou já processada.' });
+            return reply.status(409).send({
+                error: 'Conflito: esta aprovação já foi processada por outro administrador.',
+                approvalId
+            });
         }
 
         const approval = approvalRes.rows[0];
-
-        // 2. Mark as approved
-        await client.query(
-            `UPDATE pending_approvals SET status = 'approved', reviewer_email = $1, reviewed_at = NOW() WHERE id = $2`,
-            [user?.email || 'admin', approvalId]
-        );
 
         // 3. Audit log for approval
         const approvalPayload = { approvalId, action: 'approved', reviewer: user?.email, originalMessage: approval.message, traceId: approval.trace_id };
@@ -747,20 +758,22 @@ fastify.post('/v1/admin/approvals/:approvalId/reject', { preHandler: requireAdmi
     try {
         await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
 
+        // C2 FIX: Atomic UPDATE RETURNING — prevents race condition on concurrent reject
         const approvalRes = await client.query(
-            'SELECT * FROM pending_approvals WHERE id = $1 AND status = $2',
-            [approvalId, 'pending']
+            `UPDATE pending_approvals 
+             SET status = 'rejected', reviewer_email = $1, review_note = $2, reviewed_at = NOW() 
+             WHERE id = $3 AND status = 'pending' 
+             RETURNING *`,
+            [user?.email || 'admin', note || 'Rejeitado pelo administrador', approvalId]
         );
         if (approvalRes.rows.length === 0) {
-            return reply.status(404).send({ error: 'Aprovação não encontrada ou já processada.' });
+            return reply.status(409).send({
+                error: 'Conflito: esta aprovação já foi processada por outro administrador.',
+                approvalId
+            });
         }
 
         const approval = approvalRes.rows[0];
-
-        await client.query(
-            `UPDATE pending_approvals SET status = 'rejected', reviewer_email = $1, review_note = $2, reviewed_at = NOW() WHERE id = $3`,
-            [user?.email || 'admin', note || 'Rejeitado pelo administrador', approvalId]
-        );
 
         const rejectPayload = { approvalId, action: 'rejected', reviewer: user?.email, note, originalMessage: approval.message, traceId: approval.trace_id };
         const rejectSig = IntegrityService.signPayload(rejectPayload, process.env.SIGNING_SECRET!);
