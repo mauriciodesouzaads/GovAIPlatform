@@ -226,19 +226,29 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
             }, 'DLP: PII detected and masked before pipeline');
         }
 
-        // 4. RAG Context Retrieval (if assistant has a knowledge base)
+        // 4. RAG Context Retrieval (token-aware)
         let ragContext = '';
+        let ragMeta = { chunksUsed: 0, estimatedTokens: 0, truncated: false };
         try {
             const kbRes = await client.query(
                 'SELECT id FROM knowledge_bases WHERE assistant_id = $1 LIMIT 1',
                 [assistantId]
             );
             if (kbRes.rows.length > 0) {
-                const { searchSimilarChunks } = await import('./lib/rag');
-                const chunks = await searchSimilarChunks(pgPool, kbRes.rows[0].id, message, 3);
-                if (chunks.length > 0) {
-                    ragContext = chunks.map(c => c.content).join('\n---\n');
-                    fastify.log.info({ assistantId, chunksFound: chunks.length }, 'RAG context injected');
+                const { searchWithTokenLimit } = await import('./lib/rag');
+                const aiModel = process.env.AI_MODEL || 'gemini/gemini-1.5-flash';
+                const ragResult = await searchWithTokenLimit(pgPool, kbRes.rows[0].id, message, aiModel, 10);
+                ragContext = ragResult.context;
+                ragMeta = { chunksUsed: ragResult.chunksUsed, estimatedTokens: ragResult.estimatedTokens, truncated: ragResult.truncated };
+                if (ragResult.chunksUsed > 0) {
+                    fastify.log.info({
+                        assistantId,
+                        chunksUsed: ragResult.chunksUsed,
+                        chunksAvailable: ragResult.chunksAvailable,
+                        estimatedTokens: ragResult.estimatedTokens,
+                        tokenBudget: ragResult.tokenBudget,
+                        truncated: ragResult.truncated,
+                    }, 'RAG context injected (token-aware)');
                 }
             }
         } catch (ragError) {
@@ -663,9 +673,10 @@ fastify.post('/v1/admin/approvals/:approvalId/approve', { preHandler: requireAdm
         try {
             const kbRes = await client.query('SELECT id FROM knowledge_bases WHERE assistant_id = $1 LIMIT 1', [approval.assistant_id]);
             if (kbRes.rows.length > 0) {
-                const { searchSimilarChunks } = await import('./lib/rag');
-                const chunks = await searchSimilarChunks(pgPool, kbRes.rows[0].id, approval.message, 3);
-                if (chunks.length > 0) ragContext = chunks.map(c => c.content).join('\n---\n');
+                const { searchWithTokenLimit } = await import('./lib/rag');
+                const aiModel = process.env.AI_MODEL || 'gemini/gemini-1.5-flash';
+                const ragResult = await searchWithTokenLimit(pgPool, kbRes.rows[0].id, approval.message, aiModel, 10);
+                if (ragResult.chunksUsed > 0) ragContext = ragResult.context;
             }
         } catch { /* RAG optional */ }
 
