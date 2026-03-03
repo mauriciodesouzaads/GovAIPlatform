@@ -78,16 +78,30 @@ CREATE TABLE pending_approvals (
     message TEXT NOT NULL,
     policy_reason TEXT NOT NULL,
     trace_id TEXT,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'expired')),
     reviewer_email TEXT,
     review_note TEXT,
     reviewed_at TIMESTAMPTZ,
-    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '72 hours'),
+    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '48 hours'),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Performance: Index for querying pending approvals efficiently
 CREATE INDEX IF NOT EXISTS idx_pending_approvals_status ON pending_approvals (status, expires_at);
+
+-- 8. Per-tenant HITL Keywords (configurable risk dictionary)
+CREATE TABLE org_hitl_keywords (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    org_id UUID NOT NULL REFERENCES organizations(id),
+    keyword TEXT NOT NULL,
+    category TEXT DEFAULT 'high_risk',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(org_id, keyword)
+);
+
+ALTER TABLE org_hitl_keywords ENABLE ROW LEVEL SECURITY;
+CREATE POLICY org_hitl_keywords_isolation ON org_hitl_keywords
+    USING (org_id = current_setting('app.current_org_id', true)::uuid);
 
 -- Automação: Criar partição automaticamente para novos clientes
 CREATE OR REPLACE FUNCTION create_org_partition()

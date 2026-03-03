@@ -1,5 +1,6 @@
 import { loadPolicy } from '@open-policy-agent/opa-wasm';
 import { dlpEngine, SanitizationResult } from './dlp-engine';
+import { Pool } from 'pg';
 
 export interface GovernanceDecision {
     allowed: boolean;
@@ -14,8 +15,8 @@ export interface GovernanceDecision {
     };
 }
 
-/** High-risk keywords that trigger human review */
-const HIGH_RISK_KEYWORDS = [
+/** Default high-risk keywords (fallback when org has no custom keywords in DB) */
+const DEFAULT_HITL_KEYWORDS = [
     'dados financeiros', 'transferência', 'transferencia',
     'excluir dados', 'deletar', 'apagar registros',
     'acesso root', 'acesso administrativo', 'acesso total',
@@ -28,11 +29,36 @@ const HIGH_RISK_KEYWORDS = [
 
 export class OpaGovernanceEngine {
     private opaIns: any = null;
+    private pool: Pool | null = null;
 
-    async initialize(policyWasmBuffer?: Buffer) {
+    async initialize(policyWasmBuffer?: Buffer, pgPool?: Pool) {
         if (policyWasmBuffer) {
             this.opaIns = await loadPolicy(policyWasmBuffer);
         }
+        if (pgPool) {
+            this.pool = pgPool;
+        }
+    }
+
+    /**
+     * Load HITL keywords from org_hitl_keywords table.
+     * Falls back to DEFAULT_HITL_KEYWORDS if no custom keywords exist for the org.
+     */
+    private async loadOrgKeywords(orgId: string): Promise<string[]> {
+        if (!this.pool) return DEFAULT_HITL_KEYWORDS;
+
+        try {
+            const result = await this.pool.query(
+                'SELECT keyword FROM org_hitl_keywords WHERE org_id = $1',
+                [orgId]
+            );
+            if (result.rows.length > 0) {
+                return result.rows.map((r: any) => r.keyword.toLowerCase());
+            }
+        } catch {
+            // DB error — fall back to defaults silently
+        }
+        return DEFAULT_HITL_KEYWORDS;
     }
 
     async evaluate(input: any, policyContext: any): Promise<GovernanceDecision> {
@@ -87,10 +113,12 @@ export class OpaGovernanceEngine {
         }
 
         // 4. HIGH-RISK ACTION DETECTION → Human-in-the-Loop
-        // M3 FIX: Keywords are now configurable via policyContext; falls back to built-in defaults
+        // Keywords loaded from org_hitl_keywords table (per-tenant) or defaults
         if (policyContext?.rules?.hitl_enabled !== false) {
-            const keywords: string[] = policyContext?.rules?.hitl_keywords || HIGH_RISK_KEYWORDS;
-            const matchedKeyword = keywords.find(kw => text.includes(kw.toLowerCase()));
+            const orgId = policyContext?.orgId || input.orgId;
+            const keywords = policyContext?.rules?.hitl_keywords
+                || (orgId ? await this.loadOrgKeywords(orgId) : DEFAULT_HITL_KEYWORDS);
+            const matchedKeyword = keywords.find((kw: string) => text.includes(kw.toLowerCase()));
             if (matchedKeyword) {
                 return {
                     allowed: false,

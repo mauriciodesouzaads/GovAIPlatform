@@ -9,6 +9,8 @@ import cors from '@fastify/cors';
 import fastifyJwt from '@fastify/jwt';
 import crypto from 'crypto';
 import { dlpEngine } from './lib/dlp-engine';
+import { dispatchNotification } from './lib/notification-service';
+import { initExpirationWorker } from './workers/expiration.worker';
 
 // ---------------------------------------------------------------------------
 // C1 FIX: Hard-fail if SIGNING_SECRET is missing — prevents silent crypto failures
@@ -26,8 +28,9 @@ if (process.env.SIGNING_SECRET.length < 32) {
     process.exit(1);
 }
 
-// Start worker
+// Start workers
 initAuditWorker();
+initExpirationWorker();
 
 declare module 'fastify' {
     interface FastifyRequest {
@@ -164,14 +167,20 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
         const traceId = request.auditContext?.traceId;
 
         // 3. Active Governance Validation (OPA + Native Rules)
+        // Initialize OPA with pgPool for DB-driven keyword lookup
+        if (!opaEngine['pool']) {
+            await opaEngine.initialize(undefined, pgPool);
+        }
+
         const policyContext = {
+            orgId, // Passed to OPA for per-tenant keyword lookup from org_hitl_keywords
             rules: {
                 pii_filter: true,
                 forbidden_topics: ['hack', 'bypass']
             }
         };
 
-        const policyCheck = await opaEngine.evaluate({ message }, policyContext);
+        const policyCheck = await opaEngine.evaluate({ message, orgId }, policyContext);
 
         // HITL: If OPA says PENDING_APPROVAL, pause execution and queue for human review
         if (policyCheck.action === 'PENDING_APPROVAL') {
@@ -198,28 +207,15 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
                 traceId
             }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
 
-            // A1 FIX: Structured webhook notification (real HTTP POST if WEBHOOK_URL configured)
-            const webhookPayload = {
+            // Structured webhook notification via notification service
+            await dispatchNotification({
                 event: 'PENDING_APPROVAL',
                 orgId, assistantId, approvalId,
-                reason: policyCheck.reason,
+                reason: policyCheck.reason || 'Ação de alto risco',
                 traceId,
-                expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+                expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
                 timestamp: new Date().toISOString(),
-            };
-            if (process.env.WEBHOOK_URL) {
-                try {
-                    await axios.post(process.env.WEBHOOK_URL, webhookPayload, {
-                        headers: { 'Content-Type': 'application/json', 'X-GovAI-Event': 'PENDING_APPROVAL' },
-                        timeout: 5000,
-                    });
-                    fastify.log.info({ orgId, approvalId, webhookUrl: process.env.WEBHOOK_URL }, 'HITL: Webhook dispatched');
-                } catch (whErr: any) {
-                    fastify.log.warn({ orgId, approvalId, error: whErr.message }, 'HITL: Webhook dispatch failed (non-blocking)');
-                }
-            } else {
-                fastify.log.warn(webhookPayload, 'HITL: No WEBHOOK_URL configured — logging notification payload');
-            }
+            }, fastify.log);
 
             return reply.status(202).send({
                 status: 'PENDING_APPROVAL',
@@ -931,6 +927,56 @@ fastify.get('/v1/admin/reports/compliance', { preHandler: requireAdminAuth }, as
     } catch (error) {
         fastify.log.error(error, "Error generating compliance report");
         reply.status(500).send({ error: "Erro ao gerar relatório de compliance" });
+    } finally {
+        client.release();
+    }
+});
+
+// CSV Export — Full audit log without record limits
+fastify.get('/v1/admin/reports/compliance/csv', { preHandler: requireAdminAuth }, async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+    const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+    const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const client = await pgPool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+
+        const logsRes = await client.query(
+            `SELECT id, action, metadata, signature, created_at 
+             FROM audit_logs_partitioned 
+             WHERE created_at >= $1 AND created_at <= $2 
+             ORDER BY created_at DESC`,
+            [start.toISOString(), end.toISOString()]
+        );
+
+        const signingSecret = process.env.SIGNING_SECRET!;
+
+        // CSV header
+        const csvLines = ['"ID","Ação","Data/Hora","Assinatura","Verificação","Metadados"'];
+
+        for (const row of logsRes.rows) {
+            let sigValid = 'INVÁLIDA';
+            try {
+                const recomputed = IntegrityService.signPayload(row.metadata, signingSecret);
+                if (row.signature === recomputed) sigValid = 'VÁLIDA';
+            } catch { /* sig check failed */ }
+
+            const metaStr = JSON.stringify(row.metadata || {}).replace(/"/g, '""');
+            csvLines.push(
+                `"${row.id}","${row.action}","${new Date(row.created_at).toISOString()}","${row.signature}","${sigValid}","${metaStr}"`
+            );
+        }
+
+        reply.header('Content-Type', 'text/csv; charset=utf-8');
+        reply.header('Content-Disposition', `attachment; filename="audit-log-${start.toISOString().split('T')[0]}-${end.toISOString().split('T')[0]}.csv"`);
+        return reply.send(csvLines.join('\n'));
+    } catch (error) {
+        fastify.log.error(error, "Error generating CSV export");
+        reply.status(500).send({ error: "Erro ao exportar CSV" });
     } finally {
         client.release();
     }
