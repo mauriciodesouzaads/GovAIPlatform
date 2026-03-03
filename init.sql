@@ -63,12 +63,27 @@ CREATE TABLE audit_logs_partitioned (
     id UUID NOT NULL DEFAULT uuid_generate_v4(),
     org_id UUID NOT NULL REFERENCES organizations(id),
     assistant_id UUID REFERENCES assistants(id),
-    action TEXT NOT NULL CHECK (action IN ('EXECUTION_SUCCESS', 'EXECUTION_ERROR', 'POLICY_VIOLATION', 'ASSISTANT_MODIFICATION')),
+    action TEXT NOT NULL CHECK (action IN ('EXECUTION_SUCCESS', 'EXECUTION_ERROR', 'POLICY_VIOLATION', 'ASSISTANT_MODIFICATION', 'PENDING_APPROVAL', 'APPROVAL_GRANTED', 'APPROVAL_REJECTED')),
     metadata JSONB,
     signature TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (id, org_id) -- Necessário para particionamento
 ) PARTITION BY LIST (org_id);
+
+-- 7. Human-in-the-Loop: Pending Approvals
+CREATE TABLE pending_approvals (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    org_id UUID NOT NULL REFERENCES organizations(id),
+    assistant_id UUID NOT NULL REFERENCES assistants(id),
+    message TEXT NOT NULL,
+    policy_reason TEXT NOT NULL,
+    trace_id TEXT,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    reviewer_email TEXT,
+    review_note TEXT,
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- Automação: Criar partição automaticamente para novos clientes
 CREATE OR REPLACE FUNCTION create_org_partition()
@@ -101,6 +116,10 @@ CREATE POLICY org_isolation_knowledge ON knowledge_bases
 
 CREATE POLICY org_audit_isolation ON audit_logs_partitioned 
     FOR SELECT USING (org_id = current_setting('app.current_org_id')::UUID);
+
+ALTER TABLE pending_approvals ENABLE ROW LEVEL SECURITY;
+CREATE POLICY org_isolation_approvals ON pending_approvals 
+    FOR ALL USING (org_id = current_setting('app.current_org_id')::UUID);
 
 -- 5. Trigger de Imutabilidade Estrita
 CREATE OR REPLACE FUNCTION protect_audit_logs() RETURNS TRIGGER AS $$

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText } from 'lucide-react';
+import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -15,6 +15,7 @@ export function Sidebar() {
         { label: 'Audit Logs', href: '/logs', icon: ShieldAlert },
         { label: 'Assistants & RAG', href: '/assistants', icon: MessageSquareText },
         { label: 'API Keys', href: '/api-keys', icon: Key },
+        { label: 'Approvals', href: '/approvals', icon: ShieldCheck },
         { label: 'Reports', href: '/reports', icon: FileText },
     ];
 

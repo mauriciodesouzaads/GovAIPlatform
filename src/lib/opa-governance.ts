@@ -4,7 +4,7 @@ import { dlpEngine, SanitizationResult } from './dlp-engine';
 export interface GovernanceDecision {
     allowed: boolean;
     reason?: string;
-    action?: 'BLOCK' | 'FLAG' | 'ALLOW';
+    action?: 'BLOCK' | 'FLAG' | 'ALLOW' | 'PENDING_APPROVAL';
     /** When PII is detected, this contains the sanitized (masked) version of the input */
     sanitizedInput?: string;
     /** DLP detection report for audit enrichment */
@@ -14,11 +14,20 @@ export interface GovernanceDecision {
     };
 }
 
+/** High-risk keywords that trigger human review */
+const HIGH_RISK_KEYWORDS = [
+    'dados financeiros', 'transferência', 'transferencia',
+    'excluir dados', 'deletar', 'apagar registros',
+    'acesso root', 'acesso administrativo', 'acesso total',
+    'produção', 'ambiente de produção',
+    'dados bancários', 'dados bancarios',
+    'alterar permissões', 'alterar permissoes',
+    'revogar acesso', 'desativar segurança',
+    'exportar banco', 'dump database',
+];
+
 export class OpaGovernanceEngine {
     private opaIns: any = null;
-
-    // In a real environment, this WASM or Rego policy would be loaded dynamically from a database or storage
-    // For this example, we'll demonstrate the architecture using a mock that behaves like the OPA evaluation
 
     async initialize(policyWasmBuffer?: Buffer) {
         if (policyWasmBuffer) {
@@ -27,7 +36,6 @@ export class OpaGovernanceEngine {
     }
 
     async evaluate(input: any, policyContext: any): Promise<GovernanceDecision> {
-        // Fallback or demonstration logic matching what OPA would do based on OPA rules
         if (this.opaIns != null) {
             const resultSet = this.opaIns.evaluate({ input, ...policyContext });
             const result = resultSet[0]?.result;
@@ -42,22 +50,18 @@ export class OpaGovernanceEngine {
             return { allowed: true, action: 'ALLOW' };
         }
 
-        // --- MOCK OPA BEHAVIOR FOR REFINEMENT ---
-        // If no WASM is loaded, we simulate the OPA engine evaluating the Rego rules locally
-
+        // --- MOCK OPA BEHAVIOR ---
         const text = (input.message || '').toLowerCase();
 
-        // 1. OPA Rule: DLP Semantic PII Detection (replaces naive regex)
+        // 1. DLP Semantic PII Detection
         if (policyContext?.rules?.pii_filter) {
             const dlpResult: SanitizationResult = dlpEngine.sanitize(input.message || '');
 
             if (dlpResult.hasPII) {
                 const detectedTypes = [...new Set(dlpResult.detections.map(d => d.type))];
-
-                // FLAG + sanitize instead of blocking — the pipeline continues with masked input
                 return {
-                    allowed: true,               // Allow the request to proceed
-                    action: 'FLAG',               // Mark as flagged for audit
+                    allowed: true,
+                    action: 'FLAG',
                     reason: `DLP: PII detectado e mascarado (${detectedTypes.join(', ')})`,
                     sanitizedInput: dlpResult.sanitizedText,
                     dlpReport: {
@@ -68,7 +72,7 @@ export class OpaGovernanceEngine {
             }
         }
 
-        // 2. OPA Rule: Topic blacklisting
+        // 2. Topic blacklisting
         const forbiddenTopics = policyContext?.rules?.forbidden_topics || [];
         for (const topic of forbiddenTopics) {
             if (text.includes(topic.toLowerCase())) {
@@ -76,15 +80,26 @@ export class OpaGovernanceEngine {
             }
         }
 
-        // 3. OPA Rule: Jailbreak / Prompt Injection Prevention
+        // 3. Jailbreak / Prompt Injection Prevention
         const bypassPhrases = ["ignore previous", "admin mode", "bypass"];
         if (bypassPhrases.some(p => text.includes(p))) {
             return { allowed: false, reason: `Bloqueado pela Política (OPA): Tentativa de Evasão de Regras`, action: 'BLOCK' }
+        }
+
+        // 4. HIGH-RISK ACTION DETECTION → Human-in-the-Loop
+        if (policyContext?.rules?.hitl_enabled !== false) {
+            const matchedKeyword = HIGH_RISK_KEYWORDS.find(kw => text.includes(kw));
+            if (matchedKeyword) {
+                return {
+                    allowed: false,
+                    action: 'PENDING_APPROVAL',
+                    reason: `Ação de alto risco detectada: "${matchedKeyword}" — requer aprovação humana`
+                };
+            }
         }
 
         return { allowed: true, action: 'ALLOW' };
     }
 }
 
-// Export singleton instance for app-wide usage
 export const opaEngine = new OpaGovernanceEngine();

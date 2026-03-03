@@ -157,6 +157,46 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
 
         const policyCheck = await opaEngine.evaluate({ message }, policyContext);
 
+        // HITL: If OPA says PENDING_APPROVAL, pause execution and queue for human review
+        if (policyCheck.action === 'PENDING_APPROVAL') {
+            const sanitizedMessage = dlpEngine.sanitize(message).sanitizedText;
+
+            // Save to pending_approvals table
+            const approvalRes = await client.query(
+                `INSERT INTO pending_approvals (org_id, assistant_id, message, policy_reason, trace_id) 
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
+                [orgId, assistantId, sanitizedMessage, policyCheck.reason, traceId]
+            );
+            const approvalId = approvalRes.rows[0].id;
+
+            // Audit log
+            const hitlPayload = { reason: policyCheck.reason, input: sanitizedMessage, approvalId, traceId };
+            const signature = IntegrityService.signPayload(hitlPayload, process.env.SIGNING_SECRET!);
+
+            await auditQueue.add('persist-log', {
+                org_id: orgId,
+                assistant_id: assistantId,
+                action: 'PENDING_APPROVAL' satisfies ActionType,
+                metadata: hitlPayload,
+                signature,
+                traceId
+            }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+
+            // Simulated webhook notification
+            fastify.log.warn({
+                orgId, assistantId, approvalId, reason: policyCheck.reason,
+                webhook: 'SIMULATED — notify assistant owner for human review'
+            }, 'HITL: Execution paused — awaiting human approval');
+
+            return reply.status(202).send({
+                status: 'PENDING_APPROVAL',
+                approvalId,
+                message: 'Ação de alto risco detectada. Execução pausada e aguardando aprovação humana.',
+                reason: policyCheck.reason,
+                traceId,
+            });
+        }
+
         if (!policyCheck.allowed) {
             // DLP-sanitize even the violation payload before signing
             const sanitizedMessage = policyCheck.sanitizedInput || dlpEngine.sanitize(message).sanitizedText;
@@ -544,6 +584,192 @@ fastify.post('/v1/admin/knowledge/:kbId/documents', { preHandler: requireAdminAu
     } catch (error: any) {
         fastify.log.error(error, "Error ingesting document");
         reply.status(500).send({ error: "Erro ao ingerir documento", details: error.message });
+    }
+});
+
+// --- HUMAN-IN-THE-LOOP: APPROVAL MANAGEMENT ---
+
+// List Pending Approvals
+fastify.get('/v1/admin/approvals', { preHandler: requireAdminAuth }, async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+    const { status = 'pending' } = request.query as { status?: string };
+    const client = await pgPool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+
+        const res = await client.query(
+            `SELECT pa.id, pa.assistant_id, a.name as assistant_name, pa.message, pa.policy_reason, 
+                    pa.trace_id, pa.status, pa.reviewer_email, pa.review_note, pa.reviewed_at, pa.created_at
+             FROM pending_approvals pa
+             LEFT JOIN assistants a ON a.id = pa.assistant_id
+             WHERE pa.status = $1
+             ORDER BY pa.created_at DESC`,
+            [status]
+        );
+        return reply.send(res.rows);
+    } catch (error) {
+        fastify.log.error(error, "Error fetching approvals");
+        reply.status(500).send({ error: "Erro ao buscar aprovações" });
+    } finally {
+        client.release();
+    }
+});
+
+// Approve a pending request (executes the AI call)
+fastify.post('/v1/admin/approvals/:approvalId/approve', { preHandler: requireAdminAuth }, async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+    const { approvalId } = request.params as { approvalId: string };
+    const user = request.user as { email?: string };
+
+    const client = await pgPool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+
+        // 1. Fetch and validate pending approval
+        const approvalRes = await client.query(
+            'SELECT * FROM pending_approvals WHERE id = $1 AND status = $2',
+            [approvalId, 'pending']
+        );
+        if (approvalRes.rows.length === 0) {
+            return reply.status(404).send({ error: 'Aprovação não encontrada ou já processada.' });
+        }
+
+        const approval = approvalRes.rows[0];
+
+        // 2. Mark as approved
+        await client.query(
+            `UPDATE pending_approvals SET status = 'approved', reviewer_email = $1, reviewed_at = NOW() WHERE id = $2`,
+            [user?.email || 'admin', approvalId]
+        );
+
+        // 3. Audit log for approval
+        const approvalPayload = { approvalId, action: 'approved', reviewer: user?.email, originalMessage: approval.message, traceId: approval.trace_id };
+        const approvalSig = IntegrityService.signPayload(approvalPayload, process.env.SIGNING_SECRET!);
+        await auditQueue.add('persist-log', {
+            org_id: orgId,
+            assistant_id: approval.assistant_id,
+            action: 'APPROVAL_GRANTED' satisfies ActionType,
+            metadata: approvalPayload,
+            signature: approvalSig,
+            traceId: approval.trace_id
+        }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+
+        // 4. Execute the original AI call (now approved)
+        let ragContext = '';
+        try {
+            const kbRes = await client.query('SELECT id FROM knowledge_bases WHERE assistant_id = $1 LIMIT 1', [approval.assistant_id]);
+            if (kbRes.rows.length > 0) {
+                const { searchSimilarChunks } = await import('./lib/rag');
+                const chunks = await searchSimilarChunks(pgPool, kbRes.rows[0].id, approval.message, 3);
+                if (chunks.length > 0) ragContext = chunks.map(c => c.content).join('\n---\n');
+            }
+        } catch { /* RAG optional */ }
+
+        const messages: { role: string; content: string }[] = [];
+        if (ragContext) {
+            messages.push({ role: 'system', content: `Use the following proprietary knowledge base context to answer the user's question.\n\n---\n${ragContext}\n---` });
+        }
+        messages.push({ role: 'user', content: approval.message });
+
+        let aiResponse;
+        try {
+            aiResponse = await axios.post(`${process.env.LITELLM_URL}/chat/completions`, {
+                model: process.env.AI_MODEL || 'gemini/gemini-1.5-flash',
+                messages
+            }, {
+                headers: { 'Authorization': `Bearer ${process.env.LITELLM_KEY}` },
+                timeout: 30000
+            });
+        } catch (error: any) {
+            return reply.status(502).send({ error: 'Falha ao executar IA após aprovação', details: error.message });
+        }
+
+        // 5. Audit log for execution (after approval)
+        const { sanitized: logContent } = dlpEngine.sanitizeObject({
+            input: approval.message,
+            output: aiResponse.data.choices[0],
+            usage: aiResponse.data.usage,
+            traceId: approval.trace_id,
+            approvedBy: user?.email,
+            approvalId,
+        });
+        const execSig = IntegrityService.signPayload(logContent, process.env.SIGNING_SECRET!);
+        await auditQueue.add('persist-log', {
+            org_id: orgId,
+            assistant_id: approval.assistant_id,
+            action: 'EXECUTION_SUCCESS' satisfies ActionType,
+            metadata: logContent,
+            signature: execSig,
+            traceId: approval.trace_id
+        }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+
+        fastify.log.info({ orgId, approvalId, reviewer: user?.email }, 'HITL: Execution approved and completed');
+
+        return reply.send({
+            status: 'APPROVED_AND_EXECUTED',
+            approvalId,
+            response: aiResponse.data,
+            _govai: { traceId: approval.trace_id, signature: execSig }
+        });
+    } catch (error) {
+        fastify.log.error(error, "Error processing approval");
+        reply.status(500).send({ error: "Erro ao processar aprovação" });
+    } finally {
+        client.release();
+    }
+});
+
+// Reject a pending request
+fastify.post('/v1/admin/approvals/:approvalId/reject', { preHandler: requireAdminAuth }, async (request, reply) => {
+    const orgId = request.headers['x-org-id'] as string;
+    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+    const { approvalId } = request.params as { approvalId: string };
+    const { note } = request.body as { note?: string };
+    const user = request.user as { email?: string };
+
+    const client = await pgPool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+
+        const approvalRes = await client.query(
+            'SELECT * FROM pending_approvals WHERE id = $1 AND status = $2',
+            [approvalId, 'pending']
+        );
+        if (approvalRes.rows.length === 0) {
+            return reply.status(404).send({ error: 'Aprovação não encontrada ou já processada.' });
+        }
+
+        const approval = approvalRes.rows[0];
+
+        await client.query(
+            `UPDATE pending_approvals SET status = 'rejected', reviewer_email = $1, review_note = $2, reviewed_at = NOW() WHERE id = $3`,
+            [user?.email || 'admin', note || 'Rejeitado pelo administrador', approvalId]
+        );
+
+        const rejectPayload = { approvalId, action: 'rejected', reviewer: user?.email, note, originalMessage: approval.message, traceId: approval.trace_id };
+        const rejectSig = IntegrityService.signPayload(rejectPayload, process.env.SIGNING_SECRET!);
+        await auditQueue.add('persist-log', {
+            org_id: orgId,
+            assistant_id: approval.assistant_id,
+            action: 'APPROVAL_REJECTED' satisfies ActionType,
+            metadata: rejectPayload,
+            signature: rejectSig,
+            traceId: approval.trace_id
+        }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+
+        fastify.log.info({ orgId, approvalId, reviewer: user?.email }, 'HITL: Execution rejected');
+
+        return reply.send({ status: 'REJECTED', approvalId, message: 'Solicitação rejeitada pelo administrador.' });
+    } catch (error) {
+        fastify.log.error(error, "Error rejecting approval");
+        reply.status(500).send({ error: "Erro ao rejeitar aprovação" });
+    } finally {
+        client.release();
     }
 });
 
