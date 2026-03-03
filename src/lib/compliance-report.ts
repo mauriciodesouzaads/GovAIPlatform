@@ -199,8 +199,7 @@ export function generateComplianceReport(data: ComplianceReportData): PDFKit.PDF
     const logWidths = [100, 140, 145, 110];
     y = drawTableHeader(doc, logHeaders, logWidths, y);
 
-    const displayLogs = data.executions.slice(0, 50); // Cap at 50 for PDF size
-    displayLogs.forEach((log, i) => {
+    data.executions.forEach((log, i) => {
         y = checkPageBreak(doc, y);
         const sigStatus = log.signatureValid ? '✓ VÁLIDA' : '✗ INVÁLIDA';
         y = drawTableRow(doc, [
@@ -210,13 +209,6 @@ export function generateComplianceReport(data: ComplianceReportData): PDFKit.PDF
             sigStatus,
         ], logWidths, y, i % 2 === 0);
     });
-
-    if (data.executions.length > 50) {
-        y += 5;
-        doc.fontSize(7).font('Helvetica').fillColor(COLORS.secondary)
-            .text(`... e mais ${data.executions.length - 50} registros não exibidos.`, 55, y);
-        y += 15;
-    }
 
     // ===== FOOTER (all pages) =====
     const pages = doc.bufferedPageRange();

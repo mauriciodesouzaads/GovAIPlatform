@@ -19,6 +19,12 @@ if (!process.env.SIGNING_SECRET || process.env.SIGNING_SECRET.trim() === '') {
     console.error('Set SIGNING_SECRET in your .env file or environment variables.\n');
     process.exit(1);
 }
+if (process.env.SIGNING_SECRET.length < 32) {
+    console.error('\n\x1b[31m[FATAL] SIGNING_SECRET is too short (minimum 32 characters required).\x1b[0m');
+    console.error(`Current length: ${process.env.SIGNING_SECRET.length} characters.`);
+    console.error('Use a cryptographically strong secret: openssl rand -hex 32\n');
+    process.exit(1);
+}
 
 // Start worker
 initAuditWorker();
@@ -192,11 +198,28 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
                 traceId
             }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
 
-            // Simulated webhook notification
-            fastify.log.warn({
-                orgId, assistantId, approvalId, reason: policyCheck.reason,
-                webhook: 'SIMULATED — notify assistant owner for human review'
-            }, 'HITL: Execution paused — awaiting human approval');
+            // A1 FIX: Structured webhook notification (real HTTP POST if WEBHOOK_URL configured)
+            const webhookPayload = {
+                event: 'PENDING_APPROVAL',
+                orgId, assistantId, approvalId,
+                reason: policyCheck.reason,
+                traceId,
+                expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+                timestamp: new Date().toISOString(),
+            };
+            if (process.env.WEBHOOK_URL) {
+                try {
+                    await axios.post(process.env.WEBHOOK_URL, webhookPayload, {
+                        headers: { 'Content-Type': 'application/json', 'X-GovAI-Event': 'PENDING_APPROVAL' },
+                        timeout: 5000,
+                    });
+                    fastify.log.info({ orgId, approvalId, webhookUrl: process.env.WEBHOOK_URL }, 'HITL: Webhook dispatched');
+                } catch (whErr: any) {
+                    fastify.log.warn({ orgId, approvalId, error: whErr.message }, 'HITL: Webhook dispatch failed (non-blocking)');
+                }
+            } else {
+                fastify.log.warn(webhookPayload, 'HITL: No WEBHOOK_URL configured — logging notification payload');
+            }
 
             return reply.status(202).send({
                 status: 'PENDING_APPROVAL',
@@ -647,20 +670,22 @@ fastify.post('/v1/admin/approvals/:approvalId/approve', { preHandler: requireAdm
 
     const client = await pgPool.connect();
     try {
+        // C2-residual FIX: Explicit transaction — if LiteLLM fails, we ROLLBACK the approval
+        await client.query('BEGIN');
         await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
 
-        // C2 FIX: Atomic UPDATE ... WHERE status='pending' RETURNING * eliminates race condition
-        // If another admin already approved/rejected, zero rows are returned → 409 Conflict
+        // C2 FIX: Atomic UPDATE with TTL check (A2: expires_at > NOW())
         const approvalRes = await client.query(
             `UPDATE pending_approvals 
              SET status = 'approved', reviewer_email = $1, reviewed_at = NOW() 
-             WHERE id = $2 AND status = 'pending' 
+             WHERE id = $2 AND status = 'pending' AND expires_at > NOW()
              RETURNING *`,
             [user?.email || 'admin', approvalId]
         );
         if (approvalRes.rows.length === 0) {
+            await client.query('ROLLBACK');
             return reply.status(409).send({
-                error: 'Conflito: esta aprovação já foi processada por outro administrador.',
+                error: 'Conflito: esta aprovação já foi processada por outro administrador ou expirou.',
                 approvalId
             });
         }
@@ -707,7 +732,10 @@ fastify.post('/v1/admin/approvals/:approvalId/approve', { preHandler: requireAdm
                 timeout: 30000
             });
         } catch (error: any) {
-            return reply.status(502).send({ error: 'Falha ao executar IA após aprovação', details: error.message });
+            // C2-residual FIX: Rollback approval if AI execution fails
+            await client.query('ROLLBACK');
+            fastify.log.error({ approvalId, error: error.message }, 'HITL: AI execution failed, rolling back approval');
+            return reply.status(502).send({ error: 'Falha ao executar IA após aprovação — aprovação revertida', details: error.message });
         }
 
         // 5. Audit log for execution (after approval)
@@ -729,6 +757,8 @@ fastify.post('/v1/admin/approvals/:approvalId/approve', { preHandler: requireAdm
             traceId: approval.trace_id
         }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
 
+        // COMMIT transaction only after AI execution succeeds
+        await client.query('COMMIT');
         fastify.log.info({ orgId, approvalId, reviewer: user?.email }, 'HITL: Execution approved and completed');
 
         return reply.send({
@@ -738,6 +768,7 @@ fastify.post('/v1/admin/approvals/:approvalId/approve', { preHandler: requireAdm
             _govai: { traceId: approval.trace_id, signature: execSig }
         });
     } catch (error) {
+        await client.query('ROLLBACK').catch(() => { });
         fastify.log.error(error, "Error processing approval");
         reply.status(500).send({ error: "Erro ao processar aprovação" });
     } finally {
@@ -758,17 +789,17 @@ fastify.post('/v1/admin/approvals/:approvalId/reject', { preHandler: requireAdmi
     try {
         await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
 
-        // C2 FIX: Atomic UPDATE RETURNING — prevents race condition on concurrent reject
+        // C2 FIX: Atomic UPDATE RETURNING with TTL check
         const approvalRes = await client.query(
             `UPDATE pending_approvals 
              SET status = 'rejected', reviewer_email = $1, review_note = $2, reviewed_at = NOW() 
-             WHERE id = $3 AND status = 'pending' 
+             WHERE id = $3 AND status = 'pending' AND expires_at > NOW()
              RETURNING *`,
             [user?.email || 'admin', note || 'Rejeitado pelo administrador', approvalId]
         );
         if (approvalRes.rows.length === 0) {
             return reply.status(409).send({
-                error: 'Conflito: esta aprovação já foi processada por outro administrador.',
+                error: 'Conflito: esta aprovação já foi processada por outro administrador ou expirou.',
                 approvalId
             });
         }

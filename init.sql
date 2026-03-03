@@ -82,8 +82,12 @@ CREATE TABLE pending_approvals (
     reviewer_email TEXT,
     review_note TEXT,
     reviewed_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '72 hours'),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Performance: Index for querying pending approvals efficiently
+CREATE INDEX IF NOT EXISTS idx_pending_approvals_status ON pending_approvals (status, expires_at);
 
 -- Automação: Criar partição automaticamente para novos clientes
 CREATE OR REPLACE FUNCTION create_org_partition()

@@ -196,8 +196,9 @@ const emailDetector: PIIDetector = {
 };
 
 /**
- * Phone detector — requires formatting markers (parentheses or +55 or dashes)
- * to avoid false positives on bare digit sequences like CPFs or card numbers.
+ * Phone detector — requires formatting markers (parentheses, +55, dashes)
+ * OR contextual keywords (tel, telefone, celular, whatsapp, contato)
+ * to avoid false positives on bare digit sequences.
  */
 const phoneDetector: PIIDetector = {
     type: 'PHONE',
@@ -213,6 +214,20 @@ const phoneDetector: PIIDetector = {
                 detections.push({
                     type: 'PHONE', original: m[1].trim(), masked: '[PHONE_REDACTED]',
                     startIndex: m.index, endIndex: m.index + m[1].length, confidence: 'MEDIUM'
+                });
+            }
+        }
+        // A3 FIX: Context-aware detection for unformatted phones
+        const contextPattern = /\b(tel(?:efone)?|celular|whatsapp|contato|fone)\s*:?\s*(\d{10,11})\b/gi;
+        let cm;
+        while ((cm = contextPattern.exec(text)) !== null) {
+            const overlap = detections.some(d =>
+                d.startIndex <= cm!.index && d.endIndex >= cm!.index + cm![0].length
+            );
+            if (!overlap) {
+                detections.push({
+                    type: 'PHONE', original: cm[0], masked: '[PHONE_REDACTED]',
+                    startIndex: cm.index, endIndex: cm.index + cm[0].length, confidence: 'MEDIUM'
                 });
             }
         }

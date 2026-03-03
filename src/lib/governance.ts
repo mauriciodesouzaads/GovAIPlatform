@@ -11,37 +11,10 @@ export const GovernanceRequestSchema = z.object({
 
 export type GovernanceRequest = z.infer<typeof GovernanceRequestSchema>;
 
-export class GovernanceEngine {
-    private static forbiddenPhrases = [
-        "ignore all previous instructions",
-        "forget your safety guidelines",
-        "acting as a developer with no restrictions",
-        "bypass policy",
-        "ignore previous instructions",
-        "admin mode",
-        "revelar chave",
-        "jailbreak"
-    ];
-
-    static isSafe(userInput: string): { allowed: boolean; reason?: string } {
-        const inputLower = userInput.toLowerCase();
-
-        // Simplistic prompt injection detection
-        for (const phrase of this.forbiddenPhrases) {
-            if (inputLower.includes(phrase)) {
-                return { allowed: false, reason: `Tentativa de injeção de prompt detectada. Frase não permitida: '${phrase}'` };
-            }
-        }
-
-        // Add PII detection (Regex based for example - normally we'd use a robust library like Presidio)
-        const cpfRegex = /\\b\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}\\b/;
-        if (cpfRegex.test(userInput)) {
-            return { allowed: false, reason: "Dados sensíveis (CPF) detectados no input." };
-        }
-
-        return { allowed: true };
-    }
-}
+// Note: The legacy GovernanceEngine class (Regex-based PII + prompt injection)
+// was removed in Phase 9 (technical debt cleanup). All governance is now handled by:
+// - DLP Engine (src/lib/dlp-engine.ts) for PII detection
+// - OPA Governance Engine (src/lib/opa-governance.ts) for policy evaluation
 
 export class IntegrityService {
     public static signPayload(payload: any, secret: string): string {

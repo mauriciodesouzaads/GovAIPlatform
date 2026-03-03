@@ -87,8 +87,10 @@ export class OpaGovernanceEngine {
         }
 
         // 4. HIGH-RISK ACTION DETECTION → Human-in-the-Loop
+        // M3 FIX: Keywords are now configurable via policyContext; falls back to built-in defaults
         if (policyContext?.rules?.hitl_enabled !== false) {
-            const matchedKeyword = HIGH_RISK_KEYWORDS.find(kw => text.includes(kw));
+            const keywords: string[] = policyContext?.rules?.hitl_keywords || HIGH_RISK_KEYWORDS;
+            const matchedKeyword = keywords.find(kw => text.includes(kw.toLowerCase()));
             if (matchedKeyword) {
                 return {
                     allowed: false,
