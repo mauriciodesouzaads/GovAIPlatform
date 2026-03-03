@@ -8,6 +8,7 @@ import { auditQueue, initAuditWorker } from './workers/audit.worker';
 import cors from '@fastify/cors';
 import fastifyJwt from '@fastify/jwt';
 import crypto from 'crypto';
+import { dlpEngine } from './lib/dlp-engine';
 
 // Start worker
 initAuditWorker();
@@ -157,7 +158,9 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
         const policyCheck = await opaEngine.evaluate({ message }, policyContext);
 
         if (!policyCheck.allowed) {
-            const violationPayload = { reason: policyCheck.reason, input: message, traceId };
+            // DLP-sanitize even the violation payload before signing
+            const sanitizedMessage = policyCheck.sanitizedInput || dlpEngine.sanitize(message).sanitizedText;
+            const violationPayload = { reason: policyCheck.reason, input: sanitizedMessage, traceId };
             const signature = IntegrityService.signPayload(violationPayload, process.env.SIGNING_SECRET!);
 
             await auditQueue.add('persist-log', {
@@ -171,6 +174,16 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
 
             fastify.log.warn({ orgId, assistantId, reason: policyCheck.reason }, "Policy Violation");
             return reply.status(403).send({ error: policyCheck.reason, traceId });
+        }
+
+        // If DLP flagged PII, use the sanitized (masked) version for downstream processing
+        const safeMessage = policyCheck.sanitizedInput || message;
+        if (policyCheck.action === 'FLAG') {
+            fastify.log.info({
+                orgId, assistantId,
+                dlpDetections: policyCheck.dlpReport?.totalDetections,
+                dlpTypes: policyCheck.dlpReport?.types
+            }, 'DLP: PII detected and masked before pipeline');
         }
 
         // 4. RAG Context Retrieval (if assistant has a knowledge base)
@@ -201,7 +214,7 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
                 content: `Use the following proprietary knowledge base context to answer the user's question. If the context doesn't contain the answer, say you don't have enough information.\n\n---\n${ragContext}\n---`
             });
         }
-        messages.push({ role: 'user', content: message });
+        messages.push({ role: 'user', content: safeMessage });
 
         let aiResponse;
         try {
@@ -217,16 +230,18 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
             return reply.status(502).send({ error: "Falha ao comunicar com o provedor de IA", details: error.message, traceId });
         }
 
-        // 5. Digital Signature for Audit Log
-        const logContent = {
-            input: message,
+        // 5. DLP: Sanitize the ENTIRE audit payload (input + AI output) before signing
+        const rawLogContent = {
+            input: safeMessage,
             output: aiResponse.data.choices[0],
             usage: aiResponse.data.usage,
-            traceId
+            traceId,
+            ...(policyCheck.dlpReport ? { dlp: policyCheck.dlpReport } : {})
         };
+        const { sanitized: logContent } = dlpEngine.sanitizeObject(rawLogContent);
         const signature = IntegrityService.signPayload(logContent, process.env.SIGNING_SECRET!);
 
-        // 6. Persist Audit Log
+        // 6. Persist Audit Log (contains ONLY masked data)
         await auditQueue.add('persist-log', {
             org_id: orgId,
             assistant_id: assistantId,

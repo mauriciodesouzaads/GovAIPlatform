@@ -1,9 +1,17 @@
 import { loadPolicy } from '@open-policy-agent/opa-wasm';
+import { dlpEngine, SanitizationResult } from './dlp-engine';
 
 export interface GovernanceDecision {
     allowed: boolean;
     reason?: string;
     action?: 'BLOCK' | 'FLAG' | 'ALLOW';
+    /** When PII is detected, this contains the sanitized (masked) version of the input */
+    sanitizedInput?: string;
+    /** DLP detection report for audit enrichment */
+    dlpReport?: {
+        totalDetections: number;
+        types: string[];
+    };
 }
 
 export class OpaGovernanceEngine {
@@ -39,10 +47,25 @@ export class OpaGovernanceEngine {
 
         const text = (input.message || '').toLowerCase();
 
-        // 1. OPA Rule: Block sensitive information (Mocked logic)
-        const piiRegex = /\\b\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}\\b/;
-        if (policyContext?.rules?.pii_filter && piiRegex.test(text)) {
-            return { allowed: false, reason: "Bloqueado pela Política (OPA): PII/CPF  Identificado", action: 'BLOCK' }
+        // 1. OPA Rule: DLP Semantic PII Detection (replaces naive regex)
+        if (policyContext?.rules?.pii_filter) {
+            const dlpResult: SanitizationResult = dlpEngine.sanitize(input.message || '');
+
+            if (dlpResult.hasPII) {
+                const detectedTypes = [...new Set(dlpResult.detections.map(d => d.type))];
+
+                // FLAG + sanitize instead of blocking — the pipeline continues with masked input
+                return {
+                    allowed: true,               // Allow the request to proceed
+                    action: 'FLAG',               // Mark as flagged for audit
+                    reason: `DLP: PII detectado e mascarado (${detectedTypes.join(', ')})`,
+                    sanitizedInput: dlpResult.sanitizedText,
+                    dlpReport: {
+                        totalDetections: dlpResult.detections.length,
+                        types: detectedTypes
+                    }
+                };
+            }
         }
 
         // 2. OPA Rule: Topic blacklisting
