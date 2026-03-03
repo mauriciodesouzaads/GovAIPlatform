@@ -356,8 +356,20 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
 
 // --- ADMIN ROUTES ---
 
-// 0. Login
-fastify.post('/v1/admin/login', async (request, reply) => {
+// 0. Login — with strict brute-force protection (R5 FIX)
+fastify.post('/v1/admin/login', {
+    config: {
+        rateLimit: {
+            max: 5,                    // Max 5 login attempts per minute per IP
+            timeWindow: '1 minute',
+            keyGenerator: (request: FastifyRequest) => request.ip,
+            errorResponseBuilder: (_request: FastifyRequest, context: any) => ({
+                error: 'Muitas tentativas de login. Tente novamente em 1 minuto.',
+                retryAfter: context.ttl,
+            }),
+        }
+    }
+}, async (request, reply) => {
     const { email, password } = request.body as any;
 
     // Hardcoded for demo/MVP
