@@ -12,6 +12,15 @@
 
 ---
 
+## 📚 Documentação e Manuais
+
+Para uma compreensão aprofundada da plataforma, arquitetura de segurança, auditoria e operações do dia-a-dia, consulte os documentos detalhados gerados para o projeto:
+* 🏛️ [Dossiê Técnico e Visão Executiva](./docs/dossie_tecnico.md)
+* 🚀 [Manual de Instalação e Implantação](./docs/manual_implantacao.md)
+* 🛠️ [Manual de Operação e Manutenção (SRE/SecOps)](./docs/manual_manutencao.md)
+
+---
+
 ## 📐 Arquitetura
 
 ```mermaid
