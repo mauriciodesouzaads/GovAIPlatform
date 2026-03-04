@@ -53,42 +53,42 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bg-card border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-all">
+            <div className="bg-card border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-all" title="Total de chamadas ao Gateway de IA processadas pela plataforma. Cada execução passa pelo pipeline completo: OPA → DLP → LLM → Auditoria. Volume alto indica adoção saudável da governação.">
               <div className="flex flex-row items-center justify-between pb-2">
                 <h3 className="text-sm font-medium text-muted-foreground">Execuções de IA</h3>
                 <Activity className="h-4 w-4 text-blue-500" />
               </div>
               <div className="text-3xl font-bold">{stats?.total_executions.toLocaleString() || 0}</div>
-              <p className="text-xs text-muted-foreground mt-1">Prompt calls processadas</p>
+              <p className="text-xs text-muted-foreground mt-1" title="Cada prompt call representa uma interação governada entre o utilizador e o modelo de IA, sujeita a DLP e OPA.">Prompt calls processadas</p>
             </div>
 
-            <div className="bg-card border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
+            <div className="bg-card border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-all relative overflow-hidden group" title="Consumo acumulado de tokens por todos os agentes. O custo estimado é calculado a ~$0.15/1M tokens. Use FinOps → Quotas para definir Hard Caps e Soft Caps por agente ou departamento.">
               <div className="absolute -right-6 -top-6 w-24 h-24 bg-violet-500/10 rounded-full group-hover:bg-violet-500/20 transition-colors pointer-events-none" />
               <div className="flex flex-row items-center justify-between pb-2 relative z-10">
                 <h3 className="text-sm font-medium text-muted-foreground">Tokens Processados</h3>
                 <Coins className="h-4 w-4 text-violet-500" />
               </div>
               <div className="text-3xl font-bold relative z-10">{stats?.total_tokens?.toLocaleString() || 0}</div>
-              <p className="text-xs text-violet-400 mt-1 font-medium relative z-10">≈ ${stats?.estimated_cost_usd || '0.00'}</p>
+              <p className="text-xs text-violet-400 mt-1 font-medium relative z-10" title="Custo estimado baseado no modelo médio. Consulte a fatura real no Langfuse ou no provedor LLM.">≈ ${stats?.estimated_cost_usd || '0.00'}</p>
             </div>
 
-            <div className="bg-card border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-all">
+            <div className="bg-card border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-all" title="Número total de agentes IA publicados e em produção na organização. Cada agente tem versões imutáveis e políticas OPA associadas, garantindo rastreabilidade completa.">
               <div className="flex flex-row items-center justify-between pb-2">
                 <h3 className="text-sm font-medium text-muted-foreground">Assistentes Ativos</h3>
                 <Zap className="h-4 w-4 text-amber-500" />
               </div>
               <div className="text-3xl font-bold">{stats?.total_assistants.toLocaleString() || 0}</div>
-              <p className="text-xs text-muted-foreground mt-1">Agents em produção</p>
+              <p className="text-xs text-muted-foreground mt-1" title="Cada agente é registado no Cartório Digital com versionamento imutável e alvarás MCP que controlam quais ferramentas externas pode utilizar.">Agents em produção</p>
             </div>
 
-            <div className="bg-card border border-destructive/30 rounded-xl p-6 shadow-sm hover:shadow-md transition-all bg-destructive/5 relative overflow-hidden">
+            <div className="bg-card border border-destructive/30 rounded-xl p-6 shadow-sm hover:shadow-md transition-all bg-destructive/5 relative overflow-hidden" title="Tentativas bloqueadas pelo motor OPA: inclui tópicos proibidos, tentativas de evasão (prompt injection), e dados sensíveis interceptados pelo DLP. Cada violação gera um registo de auditoria imutável assinado com HMAC-SHA256.">
               <div className="absolute top-0 right-0 w-24 h-24 bg-destructive/10 rounded-bl-full pointer-events-none" />
               <div className="flex flex-row items-center justify-between pb-2 relative z-10">
                 <h3 className="text-sm font-medium text-destructive">Violações Bloqueadas</h3>
                 <ShieldCheck className="h-4 w-4 text-destructive" />
               </div>
               <div className="text-3xl font-bold text-destructive relative z-10">{stats?.total_violations.toLocaleString() || 0}</div>
-              <p className="text-xs text-destructive/80 mt-1 relative z-10">Interceptados pelo OPA</p>
+              <p className="text-xs text-destructive/80 mt-1 relative z-10" title="O motor OPA opera em 4 estágios: DLP (PII), Blacklist de tópicos, Prevenção de Evasão e HITL (Human-in-the-Loop). Este número reflete apenas os BLOCKs, não os FLAGs ou PENDING_APPROVAL.">Interceptados pelo OPA</p>
             </div>
           </div>
         )}

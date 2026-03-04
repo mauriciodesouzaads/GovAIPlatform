@@ -36,11 +36,23 @@ services:
     networks:
       - govai-net
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:4000/health" ]
+      test: [ "CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:4000/health\")'" ]
       interval: 15s
       timeout: 10s
-      retries: 3
-      start_period: 20s
+      retries: 5
+      start_period: 40s
+
+  presidio:
+    build:
+      context: ./presidio
+    networks:
+      - govai-net
+    healthcheck:
+      test: [ "CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:5001/health\")'" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   api:
     build: .
@@ -53,6 +65,17 @@ services:
       REDIS_URL: redis://redis:6379
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       LITELLM_KEY: ${LITELLM_KEY}
+      # --- Presidio NLP (Tier 2 DLP) ---
+      PRESIDIO_URL: http://presidio:5001
+      # --- Langfuse Observability ---
+      LANGFUSE_URL: ${LANGFUSE_URL:-https://cloud.langfuse.com}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      # --- SSO OIDC ---
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
     ports:
       - "3000:3000"
     depends_on:
@@ -62,10 +85,12 @@ services:
         condition: service_healthy
       litellm:
         condition: service_healthy
+      presidio:
+        condition: service_healthy
     networks:
       - govai-net
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health" ]
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/health" ]
       interval: 30s
       timeout: 10s
       retries: 3

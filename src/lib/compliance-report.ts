@@ -88,139 +88,145 @@ function checkPageBreak(doc: PDFKit.PDFDocument, y: number, needed: number = 60)
 // Generate Compliance Report PDF
 // ---------------------------------------------------------------------------
 
-export function generateComplianceReport(data: ComplianceReportData): PDFKit.PDFDocument {
-    const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+export function generateComplianceReport(data: ComplianceReportData): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+        const chunks: Buffer[] = [];
 
-    // ===== HEADER =====
-    doc.rect(0, 0, 595, 100).fill(COLORS.primary);
-    doc.fontSize(22).font('Helvetica-Bold').fillColor(COLORS.white).text('GovAI Platform', 50, 25);
-    doc.fontSize(10).font('Helvetica').fillColor('#94A3B8').text('Relatório de Compliance — BCB 4.557 / LGPD', 50, 52);
-    doc.fontSize(8).fillColor('#64748B')
-        .text(`Organização: ${data.organization.name}`, 50, 72)
-        .text(`Período: ${data.period.start} a ${data.period.end}`, 250, 72)
-        .text(`Gerado em: ${data.generatedAt}`, 420, 72);
+        doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', reject);
 
-    // Compliance badge
-    const rate = parseFloat(data.summary.complianceRate);
-    const badgeColor = rate >= 95 ? COLORS.success : rate >= 80 ? COLORS.warning : COLORS.danger;
-    doc.roundedRect(450, 20, 95, 40, 5).fill(badgeColor);
-    doc.fontSize(16).font('Helvetica-Bold').fillColor(COLORS.white).text(`${data.summary.complianceRate}%`, 460, 26, { width: 75, align: 'center' });
-    doc.fontSize(7).text('COMPLIANCE', 460, 44, { width: 75, align: 'center' });
+        // ===== HEADER =====
+        doc.rect(0, 0, 595, 100).fill(COLORS.primary);
+        doc.fontSize(22).font('Helvetica-Bold').fillColor(COLORS.white).text('GovAI Platform', 50, 25);
+        doc.fontSize(10).font('Helvetica').fillColor('#94A3B8').text('Relatório de Compliance — BCB 4.557 / LGPD', 50, 52);
+        doc.fontSize(8).fillColor('#64748B')
+            .text(`Organização: ${data.organization.name}`, 50, 72)
+            .text(`Período: ${data.period.start} a ${data.period.end}`, 250, 72)
+            .text(`Gerado em: ${data.generatedAt}`, 420, 72);
 
-    let y = 120;
+        // Compliance badge
+        const rate = parseFloat(data.summary.complianceRate);
+        const badgeColor = rate >= 95 ? COLORS.success : rate >= 80 ? COLORS.warning : COLORS.danger;
+        doc.roundedRect(450, 20, 95, 40, 5).fill(badgeColor);
+        doc.fontSize(16).font('Helvetica-Bold').fillColor(COLORS.white).text(`${data.summary.complianceRate}%`, 460, 26, { width: 75, align: 'center' });
+        doc.fontSize(7).text('COMPLIANCE', 460, 44, { width: 75, align: 'center' });
 
-    // ===== SUMMARY CARDS =====
-    const cards = [
-        { label: 'Execuções', value: data.summary.totalExecutions.toString(), color: COLORS.accent },
-        { label: 'Violações', value: data.summary.totalViolations.toString(), color: COLORS.danger },
-        { label: 'Erros', value: data.summary.totalErrors.toString(), color: COLORS.warning },
-        { label: 'Assistentes', value: data.assistants.length.toString(), color: COLORS.success },
-    ];
+        let y = 120;
 
-    cards.forEach((card, i) => {
-        const cx = 50 + i * 125;
-        doc.roundedRect(cx, y, 115, 50, 4).fillAndStroke(COLORS.lightBg, COLORS.border);
-        doc.fontSize(18).font('Helvetica-Bold').fillColor(card.color).text(card.value, cx + 10, y + 8, { width: 95 });
-        doc.fontSize(8).font('Helvetica').fillColor(COLORS.secondary).text(card.label, cx + 10, y + 32, { width: 95 });
-    });
+        // ===== SUMMARY CARDS =====
+        const cards = [
+            { label: 'Execuções', value: data.summary.totalExecutions.toString(), color: COLORS.accent },
+            { label: 'Violações', value: data.summary.totalViolations.toString(), color: COLORS.danger },
+            { label: 'Erros', value: data.summary.totalErrors.toString(), color: COLORS.warning },
+            { label: 'Assistentes', value: data.assistants.length.toString(), color: COLORS.success },
+        ];
 
-    y += 70;
-
-    // ===== SECTION 1: AGENT INVENTORY =====
-    y = drawSectionTitle(doc, '1. Inventário de Agentes de IA Ativos', y);
-    const agentHeaders = ['Nome', 'ID', 'Status', 'Criado em'];
-    const agentWidths = [160, 170, 80, 85];
-    y = drawTableHeader(doc, agentHeaders, agentWidths, y);
-
-    data.assistants.forEach((a, i) => {
-        y = checkPageBreak(doc, y);
-        y = drawTableRow(doc, [
-            a.name,
-            a.id.substring(0, 20) + '...',
-            a.status.toUpperCase(),
-            new Date(a.created_at).toLocaleDateString('pt-BR'),
-        ], agentWidths, y, i % 2 === 0);
-    });
-
-    if (data.assistants.length === 0) {
-        doc.fontSize(9).font('Helvetica').fillColor(COLORS.secondary).text('Nenhum assistente cadastrado.', 55, y + 5);
-        y += 25;
-    }
-
-    y += 15;
-    y = checkPageBreak(doc, y, 80);
-
-    // ===== SECTION 2: OPA VIOLATIONS SUMMARY =====
-    y = drawSectionTitle(doc, '2. Violações Interceptadas pelo Motor de Governança (OPA)', y);
-
-    if (data.violationsByType.length > 0) {
-        const vHeaders = ['Tipo de Violação', 'Ocorrências', '% do Total'];
-        const vWidths = [300, 100, 95];
-        y = drawTableHeader(doc, vHeaders, vWidths, y);
-
-        data.violationsByType.forEach((v, i) => {
-            y = checkPageBreak(doc, y);
-            const pct = data.summary.totalViolations > 0
-                ? ((v.count / data.summary.totalViolations) * 100).toFixed(1) + '%'
-                : '0%';
-            y = drawTableRow(doc, [v.reason, v.count.toString(), pct], vWidths, y, i % 2 === 0);
+        cards.forEach((card, i) => {
+            const cx = 50 + i * 125;
+            doc.roundedRect(cx, y, 115, 50, 4).fillAndStroke(COLORS.lightBg, COLORS.border);
+            doc.fontSize(18).font('Helvetica-Bold').fillColor(card.color).text(card.value, cx + 10, y + 8, { width: 95 });
+            doc.fontSize(8).font('Helvetica').fillColor(COLORS.secondary).text(card.label, cx + 10, y + 32, { width: 95 });
         });
 
-        // Visual bar chart (text-based proportional bars)
-        y += 10;
-        y = checkPageBreak(doc, y, 40);
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.secondary).text('Distribuição Visual:', 55, y);
-        y += 14;
-        const maxCount = Math.max(...data.violationsByType.map(v => v.count), 1);
-        data.violationsByType.forEach(v => {
+        y += 70;
+
+        // ===== SECTION 1: AGENT INVENTORY =====
+        y = drawSectionTitle(doc, '1. Inventário de Agentes de IA Ativos', y);
+        const agentHeaders = ['Nome', 'ID', 'Status', 'Criado em'];
+        const agentWidths = [160, 170, 80, 85];
+        y = drawTableHeader(doc, agentHeaders, agentWidths, y);
+
+        data.assistants.forEach((a, i) => {
             y = checkPageBreak(doc, y);
-            const barWidth = Math.max((v.count / maxCount) * 300, 5);
-            doc.fontSize(7).font('Helvetica').fillColor(COLORS.primary).text(v.reason.substring(0, 40), 55, y + 2, { width: 150 });
-            doc.rect(210, y, barWidth, 12).fill(COLORS.danger);
-            doc.fontSize(7).font('Helvetica-Bold').fillColor(COLORS.white).text(v.count.toString(), 215, y + 2);
-            y += 16;
+            y = drawTableRow(doc, [
+                a.name,
+                a.id.substring(0, 20) + '...',
+                a.status.toUpperCase(),
+                new Date(a.created_at).toLocaleDateString('pt-BR'),
+            ], agentWidths, y, i % 2 === 0);
         });
-    } else {
-        doc.fontSize(9).font('Helvetica').fillColor(COLORS.success).text('✓ Nenhuma violação registrada no período.', 55, y + 5);
-        y += 25;
-    }
 
-    y += 15;
-    y = checkPageBreak(doc, y, 80);
+        if (data.assistants.length === 0) {
+            doc.fontSize(9).font('Helvetica').fillColor(COLORS.secondary).text('Nenhum assistente cadastrado.', 55, y + 5);
+            y += 25;
+        }
 
-    // ===== SECTION 3: EXECUTION LOG WITH SIGNATURE VERIFICATION =====
-    y = drawSectionTitle(doc, '3. Log de Execuções com Verificação Criptográfica', y);
+        y += 15;
+        y = checkPageBreak(doc, y, 80);
 
-    doc.fontSize(7.5).font('Helvetica').fillColor(COLORS.secondary)
-        .text('Cada registro de auditoria contém uma assinatura HMAC-SHA256. O status "VÁLIDA" confirma que o registro não foi adulterado após sua criação.', 55, y, { width: 480 });
-    y += 22;
+        // ===== SECTION 2: OPA VIOLATIONS SUMMARY =====
+        y = drawSectionTitle(doc, '2. Violações Interceptadas pelo Motor de Governança (OPA)', y);
 
-    const logHeaders = ['Data/Hora', 'Ação', 'Assinatura (16 chars)', 'Verificação'];
-    const logWidths = [100, 140, 145, 110];
-    y = drawTableHeader(doc, logHeaders, logWidths, y);
+        if (data.violationsByType.length > 0) {
+            const vHeaders = ['Tipo de Violação', 'Ocorrências', '% do Total'];
+            const vWidths = [300, 100, 95];
+            y = drawTableHeader(doc, vHeaders, vWidths, y);
 
-    data.executions.forEach((log, i) => {
-        y = checkPageBreak(doc, y);
-        const sigStatus = log.signatureValid ? '✓ VÁLIDA' : '✗ INVÁLIDA';
-        y = drawTableRow(doc, [
-            new Date(log.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' }),
-            log.action.replace('_', ' '),
-            log.signature.substring(0, 16) + '...',
-            sigStatus,
-        ], logWidths, y, i % 2 === 0);
-    });
+            data.violationsByType.forEach((v, i) => {
+                y = checkPageBreak(doc, y);
+                const pct = data.summary.totalViolations > 0
+                    ? ((v.count / data.summary.totalViolations) * 100).toFixed(1) + '%'
+                    : '0%';
+                y = drawTableRow(doc, [v.reason, v.count.toString(), pct], vWidths, y, i % 2 === 0);
+            });
 
-    // ===== FOOTER (all pages) =====
-    const pages = doc.bufferedPageRange();
-    for (let i = 0; i < pages.count; i++) {
-        doc.switchToPage(i);
-        doc.fontSize(7).font('Helvetica').fillColor(COLORS.secondary);
-        doc.text(
-            `GovAI Platform — Relatório de Compliance BCB 4.557 / LGPD  |  Página ${i + 1} de ${pages.count}`,
-            50, 780, { width: 495, align: 'center' }
-        );
-    }
+            // Visual bar chart (text-based proportional bars)
+            y += 10;
+            y = checkPageBreak(doc, y, 40);
+            doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.secondary).text('Distribuição Visual:', 55, y);
+            y += 14;
+            const maxCount = Math.max(...data.violationsByType.map(v => v.count), 1);
+            data.violationsByType.forEach(v => {
+                y = checkPageBreak(doc, y);
+                const barWidth = Math.max((v.count / maxCount) * 300, 5);
+                doc.fontSize(7).font('Helvetica').fillColor(COLORS.primary).text(v.reason.substring(0, 40), 55, y + 2, { width: 150 });
+                doc.rect(210, y, barWidth, 12).fill(COLORS.danger);
+                doc.fontSize(7).font('Helvetica-Bold').fillColor(COLORS.white).text(v.count.toString(), 215, y + 2);
+                y += 16;
+            });
+        } else {
+            doc.fontSize(9).font('Helvetica').fillColor(COLORS.success).text('✓ Nenhuma violação registrada no período.', 55, y + 5);
+            y += 25;
+        }
 
-    doc.end();
-    return doc;
+        y += 15;
+        y = checkPageBreak(doc, y, 80);
+
+        // ===== SECTION 3: EXECUTION LOG WITH SIGNATURE VERIFICATION =====
+        y = drawSectionTitle(doc, '3. Log de Execuções com Verificação Criptográfica', y);
+
+        doc.fontSize(7.5).font('Helvetica').fillColor(COLORS.secondary)
+            .text('Cada registro de auditoria contém uma assinatura HMAC-SHA256. O status "VÁLIDA" confirma que o registro não foi adulterado após sua criação.', 55, y, { width: 480 });
+        y += 22;
+
+        const logHeaders = ['Data/Hora', 'Ação', 'Assinatura (16 chars)', 'Verificação'];
+        const logWidths = [100, 140, 145, 110];
+        y = drawTableHeader(doc, logHeaders, logWidths, y);
+
+        data.executions.forEach((log, i) => {
+            y = checkPageBreak(doc, y);
+            const sigStatus = log.signatureValid ? '✓ VÁLIDA' : '✗ INVÁLIDA';
+            y = drawTableRow(doc, [
+                new Date(log.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' }),
+                log.action.replace('_', ' '),
+                log.signature.substring(0, 16) + '...',
+                sigStatus,
+            ], logWidths, y, i % 2 === 0);
+        });
+
+        // ===== FOOTER (all pages) =====
+        const pages = doc.bufferedPageRange();
+        for (let i = 0; i < pages.count; i++) {
+            doc.switchToPage(i);
+            doc.fontSize(7).font('Helvetica').fillColor(COLORS.secondary);
+            doc.text(
+                `GovAI Platform — Relatório de Compliance BCB 4.557 / LGPD  |  Página ${i + 1} de ${pages.count}`,
+                50, 780, { width: 495, align: 'center' }
+            );
+        }
+
+        doc.end();
+    }); // end Promise
 }

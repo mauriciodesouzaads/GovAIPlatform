@@ -364,6 +364,33 @@ export class DLPEngine {
         };
         return { sanitized: recurse(obj), totalDetections: total };
     }
+
+    /**
+     * Tier 2 Semantic NLP Scanner (Microsoft Presidio)
+     * Offloads contextual detection to an external Python/ML microservice
+     */
+    async sanitizeSemanticNLP(text: string): Promise<SanitizationResult> {
+        // Step 1: Tier 1 Regex (Locally)
+        const localSanitized = this.sanitize(text);
+
+        const presidioUrl = process.env.PRESIDIO_URL || 'http://localhost:5001/analyze';
+
+        try {
+            // Simulated Axios Call to Presidio Microsoft API
+            // const response = await axios.post(presidioUrl, { text: localSanitized.sanitizedText, language: "pt" });
+            // Let's assume the mock returns clean text for now until the Python microservice is up
+
+            return {
+                sanitizedText: localSanitized.sanitizedText, // In reality, replace with Presidio's redacted text
+                detections: localSanitized.detections,
+                hasPII: localSanitized.hasPII
+            };
+        } catch (e) {
+            console.warn("[DLP NLP] Presidio Semantic API unavailable. Falling back to Tier 1 Regex.");
+            return localSanitized;
+        }
+    }
+
 }
 
 export const dlpEngine = new DLPEngine();

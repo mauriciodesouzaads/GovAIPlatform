@@ -47,7 +47,7 @@ CREATE TABLE documents (
     kb_id UUID NOT NULL REFERENCES knowledge_bases(id),
     content TEXT NOT NULL,
     metadata JSONB,
-    embedding vector(3072), -- Gemini gemini-embedding-001 outputs 3072 dimensions
+    embedding vector(768), -- Gemini embedding with output_dimensionality=768 (pgvector max for HNSW: 2000)
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

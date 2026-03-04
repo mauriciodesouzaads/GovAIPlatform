@@ -6,13 +6,18 @@ import { Users, Plus, Upload, Database, FileText, CheckCircle2 } from 'lucide-re
 import { API_BASE } from '@/lib/api';
 
 interface Assistant { id: string; name: string; status: string; created_at: string; }
-interface KnowledgeBase { id: string; name: string; created_at: string; }
-
-export default function AssistantsPage() {
+interface KnowledgeBase { id: string; name: string; created_at: string; }export default function AssistantsPage() {
     const [assistants, setAssistants] = useState<Assistant[]>([]);
     const [loading, setLoading] = useState(true);
     const [newName, setNewName] = useState('');
     const [creating, setCreating] = useState(false);
+
+    // MCP & Policies State
+    const [policyVersions, setPolicyVersions] = useState<any[]>([]);
+    const [mcpServers, setMcpServers] = useState<any[]>([]);
+    const [selectedPolicyId, setSelectedPolicyId] = useState('');
+    const [selectedMcpServerId, setSelectedMcpServerId] = useState('');
+    const [allowedToolsInput, setAllowedToolsInput] = useState('');
 
     // RAG Upload State
     const [selectedAssistant, setSelectedAssistant] = useState<string | null>(null);
@@ -32,14 +37,51 @@ export default function AssistantsPage() {
         finally { setLoading(false); }
     };
 
-    useEffect(() => { fetchAssistants(); }, []);
+    const fetchSelectables = async () => {
+        try {
+            const [polRes, mcpRes] = await Promise.all([
+                axios.get(`${API_BASE}/v1/admin/policy_versions`),
+                axios.get(`${API_BASE}/v1/admin/mcp_servers`)
+            ]);
+            setPolicyVersions(polRes.data);
+            setMcpServers(mcpRes.data);
+            if (polRes.data.length > 0) setSelectedPolicyId(polRes.data[0].id);
+        } catch (e) { console.error(e); }
+    };
+
+    useEffect(() => {
+        // Intercept SSO JWT Token from HttpOnly cookie bypass
+        const cookies = document.cookie.split(';');
+        const tokenCookie = cookies.find(c => c.trim().startsWith('token='));
+        if (tokenCookie) {
+            const token = tokenCookie.split('=')[1];
+            if (token) {
+                localStorage.setItem('govai_admin_token', token);
+                document.cookie = "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+            }
+        }
+
+        fetchAssistants();
+        fetchSelectables();
+    }, []);
 
     const createAssistant = async () => {
         if (!newName) return;
         setCreating(true);
         try {
-            await axios.post(`${API_BASE}/v1/admin/assistants`, { name: newName });
+            let tools: string[] = [];
+            if (allowedToolsInput) {
+                tools = allowedToolsInput.split(',').map(t => t.trim()).filter(t => t);
+            }
+            await axios.post(`${API_BASE}/v1/admin/assistants`, {
+                name: newName,
+                policy_version_id: selectedPolicyId,
+                mcp_server_id: selectedMcpServerId || undefined,
+                allowed_tools: tools.length > 0 ? tools : undefined
+            });
             setNewName('');
+            setAllowedToolsInput('');
+            setSelectedMcpServerId('');
             fetchAssistants();
         } catch (e) { console.error(e); }
         finally { setCreating(false); }
@@ -86,17 +128,40 @@ export default function AssistantsPage() {
 
                 {/* Create New Assistant */}
                 <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
-                    <h3 className="font-semibold mb-4 flex items-center gap-2"><Plus className="w-4 h-4" /> Novo Assistente</h3>
-                    <div className="flex gap-3">
-                        <input
-                            type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
-                            placeholder="Nome do assistente (ex: Análise Jurídica)"
-                            className="flex-1 bg-secondary border border-border rounded-md px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                        <button onClick={createAssistant} disabled={creating || !newName}
-                            className="bg-foreground text-background font-medium text-sm px-5 py-2.5 rounded-md hover:bg-foreground/90 transition-colors disabled:opacity-50 flex items-center gap-2">
-                            <Users className="w-4 h-4" /> Criar
-                        </button>
+                    <h3 className="font-semibold mb-4 flex items-center gap-2"><Plus className="w-4 h-4" /> Publicar Nova Versão de Assistente</h3>
+                    <div className="flex flex-col gap-4">
+                        <div className="flex gap-3">
+                            <input
+                                type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
+                                placeholder="Nome do assistente (ex: Análise Jurídica)"
+                                className="flex-1 bg-secondary border border-border rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                            />
+                            <select
+                                value={selectedPolicyId} onChange={(e) => setSelectedPolicyId(e.target.value)}
+                                className="bg-secondary border border-border rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                                <option value="" disabled>Selecione a Política OPA</option>
+                                {policyVersions.map((p: any) => <option key={p.id} value={p.id}>{p.name} (v{p.version})</option>)}
+                            </select>
+                        </div>
+                        <div className="flex gap-3">
+                            <select
+                                value={selectedMcpServerId} onChange={(e) => setSelectedMcpServerId(e.target.value)}
+                                className="flex-1 bg-secondary border border-border rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                                <option value="">Sem Integração Externa (MCP)</option>
+                                {mcpServers.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                            </select>
+                            {selectedMcpServerId && (
+                                <input
+                                    type="text" value={allowedToolsInput} onChange={(e) => setAllowedToolsInput(e.target.value)}
+                                    placeholder="Alvará de Tools (ex: create_ticket, search_docs)"
+                                    className="flex-1 bg-secondary border border-border rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                />
+                            )}
+                            <button onClick={createAssistant} disabled={creating || !newName}
+                                className="bg-foreground text-background font-medium text-sm px-6 py-2 rounded-md hover:bg-foreground/90 transition-colors disabled:opacity-50 flex items-center gap-2">
+                                <CheckCircle2 className="w-4 h-4" /> Publicar Versão
+                            </button>
+                        </div>
                     </div>
                 </div>
 

@@ -9,6 +9,7 @@
         "test": "vitest run"
     },
     "dependencies": {
+        "@fastify/cookie": "^11.0.2",
         "@fastify/cors": "^11.2.0",
         "@fastify/jwt": "^10.0.0",
         "@fastify/rate-limit": "^10.3.0",
@@ -22,6 +23,7 @@
         "gpt-tokenizer": "^3.4.0",
         "ioredis": "^5.10.0",
         "jsonwebtoken": "^9.0.3",
+        "openid-client": "^5.7.1",
         "pdfkit": "^0.17.2",
         "pg": "^8.11.0",
         "pino": "^10.3.1",

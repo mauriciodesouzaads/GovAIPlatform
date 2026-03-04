@@ -86,7 +86,10 @@ export function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_
         }
 
         chunks.push(text.substring(start, end).trim());
-        start = end - overlap;
+
+        // Ensure start always advances to avoid infinite loop
+        const nextStart = end - overlap;
+        start = nextStart > start ? nextStart : end;
 
         if (start >= text.length) break;
     }
@@ -108,6 +111,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`,
         {
             content: { parts: [{ text }] },
+            outputDimensionality: 768,
         },
         { timeout: 15000 }
     );

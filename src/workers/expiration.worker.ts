@@ -1,7 +1,7 @@
 import { Queue, Worker } from 'bullmq';
 import { Pool } from 'pg';
 import IORedis from 'ioredis';
-import { dispatchNotification } from '../lib/notification-service';
+import { notificationQueue } from './notification.worker';
 
 /**
  * Expiration Worker — Periodically expires stale pending approvals.
@@ -37,7 +37,7 @@ export const initExpirationWorker = () => {
                 // Notify for each expired approval
                 for (const row of result.rows) {
                     try {
-                        await dispatchNotification({
+                        await notificationQueue.add('send-notification', {
                             event: 'APPROVAL_EXPIRED',
                             orgId: row.org_id,
                             assistantId: row.assistant_id,
@@ -45,7 +45,7 @@ export const initExpirationWorker = () => {
                             reason: row.policy_reason,
                             traceId: row.trace_id,
                             timestamp: new Date().toISOString(),
-                        });
+                        }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
                     } catch (notifyErr) {
                         console.error(`[ExpirationWorker] Notification failed for ${row.id}:`, notifyErr);
                     }

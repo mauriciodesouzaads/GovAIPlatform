@@ -7,10 +7,13 @@ import { v4 as uuidv4 } from 'uuid';
 import { auditQueue, initAuditWorker } from './workers/audit.worker';
 import cors from '@fastify/cors';
 import fastifyJwt from '@fastify/jwt';
+import cookie from '@fastify/cookie';
 import crypto from 'crypto';
 import { dlpEngine } from './lib/dlp-engine';
-import { dispatchNotification } from './lib/notification-service';
+import { notificationQueue, initNotificationWorker } from './workers/notification.worker';
+import { telemetryQueue, initTelemetryWorker } from './workers/telemetry.worker';
 import { initExpirationWorker } from './workers/expiration.worker';
+import { registerOidcRoutes } from './lib/auth-oidc';
 
 // ---------------------------------------------------------------------------
 // C1 FIX: Hard-fail if SIGNING_SECRET is missing — prevents silent crypto failures
@@ -31,6 +34,7 @@ if (process.env.SIGNING_SECRET.length < 32) {
 // Start workers
 initAuditWorker();
 initExpirationWorker();
+initNotificationWorker();
 
 declare module 'fastify' {
     interface FastifyRequest {
@@ -80,6 +84,12 @@ export const requireAdminAuth = async (request: FastifyRequest, reply: FastifyRe
 };
 
 // Register CORS (restricted to admin UI origins)
+// Configure cookies for OIDC state tracking
+fastify.register(cookie, {
+    secret: process.env.SIGNING_SECRET || 'fallback-secret-for-dev',
+    parseOptions: {}
+});
+
 fastify.register(cors, {
     origin: [
         'http://localhost:3001',                   // Admin UI (dev/docker)
@@ -167,10 +177,24 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
         // 1. RLS: Define context for current org
         await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
 
-        // 2. Fetch Assistant (RLS ensures it belongs to the Org)
-        const assistantRes = await client.query('SELECT * FROM assistants WHERE id = \$1 AND status = \$2', [assistantId, 'published']);
-        if (assistantRes.rows.length === 0) {
-            return reply.status(404).send({ error: 'Assistente não encontrado, não autorizado, ou não está publicado.' });
+        // 2. Fetch Active Assistant Version & Policy (RLS ensures it belongs to the Org)
+        const versionRes = await client.query(`
+            SELECT av.id as version_id, pv.rules_jsonb as policy_rules
+            FROM assistant_versions av
+            JOIN policy_versions pv ON av.policy_version_id = pv.id
+            WHERE av.assistant_id = \$1 AND av.status = 'published'
+            ORDER BY av.version DESC LIMIT 1
+        `, [assistantId]);
+
+        let policyRules = { pii_filter: true, forbidden_topics: ['hack', 'bypass'] };
+
+        if (versionRes.rows.length > 0) {
+            policyRules = versionRes.rows[0].policy_rules;
+        } else {
+            const assistantRes = await client.query('SELECT id FROM assistants WHERE id = \$1 AND status = \$2', [assistantId, 'published']);
+            if (assistantRes.rows.length === 0) {
+                return reply.status(404).send({ error: 'Assistente não encontrado.' });
+            }
         }
 
         const traceId = request.auditContext?.traceId;
@@ -183,10 +207,7 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
 
         const policyContext = {
             orgId, // Passed to OPA for per-tenant keyword lookup from org_hitl_keywords
-            rules: {
-                pii_filter: true,
-                forbidden_topics: ['hack', 'bypass']
-            }
+            rules: policyRules
         };
 
         const policyCheck = await opaEngine.evaluate({ message, orgId }, policyContext);
@@ -216,15 +237,15 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
                 traceId
             }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
 
-            // Structured webhook notification via notification service
-            await dispatchNotification({
+            // Structured webhook notification via notification queue
+            await notificationQueue.add('send-notification', {
                 event: 'PENDING_APPROVAL',
                 orgId, assistantId, approvalId,
                 reason: policyCheck.reason || 'Ação de alto risco',
                 traceId,
                 expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
                 timestamp: new Date().toISOString(),
-            }, fastify.log);
+            }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
 
             return reply.status(202).send({
                 status: 'PENDING_APPROVAL',
@@ -339,6 +360,16 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
             traceId
         }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
 
+        // 7. Fire-and-forget Delegated Observability (Langfuse)
+        await telemetryQueue.add('export-metrics', {
+            org_id: orgId,
+            assistant_id: assistantId,
+            traceId: traceId,
+            tokens: aiResponse.data.usage,
+            cost: aiResponse.data.usage?.total_tokens ? aiResponse.data.usage.total_tokens * 0.000002 : 0, // Mock cost per token logic
+            latency_ms: 250 // Mock latency for the time being
+        }, { removeOnComplete: true });
+
         fastify.log.info({ orgId, assistantId, tokens: aiResponse.data.usage?.total_tokens }, "Execution Success");
 
         return reply.status(200).send({
@@ -354,653 +385,97 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
     }
 });
 
-// --- ADMIN ROUTES ---
+// --- SSO OIDC ROUTES ---
+registerOidcRoutes(fastify, pgPool);
 
-// 0. Login — with strict brute-force protection (R5 FIX)
-fastify.post('/v1/admin/login', {
-    config: {
-        rateLimit: {
-            max: 5,                    // Max 5 login attempts per minute per IP
-            timeWindow: '1 minute',
-            keyGenerator: (request: FastifyRequest) => request.ip,
-            errorResponseBuilder: (_request: FastifyRequest, context: any) => ({
-                error: 'Muitas tentativas de login. Tente novamente em 1 minuto.',
-                retryAfter: context.ttl,
-            }),
-        }
-    }
-}, async (request, reply) => {
-    const { email, password } = request.body as any;
+// --- ADMIN ROUTES (Plugin) ---
+import { adminRoutes } from './routes/admin.routes';
+fastify.register(adminRoutes, { pgPool, requireAdminAuth });
 
-    // Hardcoded for demo/MVP
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@govai.com';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
-
-    if (email === adminEmail && password === adminPassword) {
-        const token = fastify.jwt.sign({
-            email,
-            role: 'admin',
-            // Hardcode orgId for demo
-            orgId: '00000000-0000-0000-0000-000000000001'
-        }, { expiresIn: '8h' });
-
-        return reply.send({ token, message: 'Login successful' });
-    }
-
-    return reply.status(401).send({ error: 'Invalid credentials' });
+// --- SRE OBSERVABILITY: Prometheus Metrics (Pilar 3) ---
+import { renderPrometheusMetrics } from './lib/sre-metrics';
+fastify.get('/metrics', async (_request, reply) => {
+    reply.header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    return reply.send(renderPrometheusMetrics());
 });
 
-// 1. Dashboard Stats
-fastify.get('/v1/admin/stats', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-
-    if (!orgId) {
-        return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório para visualização administrativa." });
+// --- DEVELOPER PORTAL: Sandbox Endpoint (Pilar 2) ---
+fastify.post('/v1/sandbox/execute', async (request, reply) => {
+    const parseResult = GovernanceRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+        return reply.status(400).send({ error: 'Input inválido', details: parseResult.error.format() });
     }
-
-    const client = await pgPool.connect();
-    try {
-        await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
-
-        const [assistantsRes, totalExecsRes, violationsRes, tokensRes] = await Promise.all([
-            client.query('SELECT COUNT(*) FROM assistants'),
-            client.query("SELECT COUNT(*) FROM audit_logs_partitioned WHERE action = 'EXECUTION_SUCCESS'"),
-            client.query("SELECT COUNT(*) FROM audit_logs_partitioned WHERE action = 'POLICY_VIOLATION'"),
-            client.query("SELECT SUM((metadata->'usage'->>'total_tokens')::int) as total_tokens FROM audit_logs_partitioned WHERE action = 'EXECUTION_SUCCESS' AND metadata->'usage'->>'total_tokens' IS NOT NULL")
-        ]);
-
-        // Mock usage history for charts (Last 7 days)
-        const usage_history = Array.from({ length: 7 }).map((_, i) => {
-            const date = new Date();
-            date.setDate(date.getDate() - (6 - i));
-            return {
-                name: date.toLocaleDateString('pt-BR', { weekday: 'short' }),
-                requests: Math.floor(Math.random() * 500) + 100,
-                violations: Math.floor(Math.random() * 50)
-            };
-        });
-
-        const totalTokens = parseInt(tokensRes.rows[0].total_tokens || '0', 10);
-        // Estimate cost (assume averaged $0.15 per 1M tokens)
-        const estimatedCost = (totalTokens / 1000000) * 0.15;
-
-        return reply.send({
-            total_assistants: parseInt(assistantsRes.rows[0].count, 10),
-            total_executions: parseInt(totalExecsRes.rows[0].count, 10),
-            total_violations: parseInt(violationsRes.rows[0].count, 10),
-            total_tokens: totalTokens,
-            estimated_cost_usd: estimatedCost.toFixed(4),
-            usage_history
-        });
-    } catch (error) {
-        fastify.log.error(error, "Error fetching admin stats");
-        reply.status(500).send({ error: "Erro ao buscar métricas" });
-    } finally {
-        client.release();
-    }
+    // Dry-run: OPA + DLP validation WITHOUT calling LLM
+    const policyCheck = await opaEngine.evaluate(
+        { message: parseResult.data.message },
+        { rules: { pii_filter: true, forbidden_topics: ['hack', 'bypass'] } }
+    );
+    return reply.send({
+        _sandbox: true,
+        message: parseResult.data.message,
+        policy_result: policyCheck,
+        note: 'Sandbox mode — no LLM call was made. Use /v1/execute/:assistantId for production.'
+    });
 });
 
-// 2. Audit Logs (Paginated)
-fastify.get('/v1/admin/logs', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-    const { page = '1', limit = '10' } = request.query as { page?: string, limit?: string };
-
-    if (!orgId) {
-        return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-    }
-
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
-    const client = await pgPool.connect();
-
-    try {
-        await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
-
-        // Security: List only logs from my organization using RLS isolation
-        const res = await client.query(
-            `SELECT id, action, metadata, signature, created_at 
-             FROM audit_logs_partitioned 
-             ORDER BY created_at DESC 
-             LIMIT \$1 OFFSET \$2`,
-            [parseInt(limit, 10), offset]
-        );
-
-        const countRes = await client.query('SELECT COUNT(*) FROM audit_logs_partitioned');
-
-        return reply.send({
-            logs: res.rows,
-            pagination: {
-                total: parseInt(countRes.rows[0].count, 10),
-                page: parseInt(page, 10),
-                pages: Math.ceil(parseInt(countRes.rows[0].count, 10) / parseInt(limit, 10))
-            }
-        });
-    } catch (error) {
-        fastify.log.error(error, "Error fetching admin logs");
-        reply.status(500).send({ error: "Erro ao buscar logs" });
-    } finally {
-        client.release();
-    }
+// --- DEVELOPER PORTAL: OpenAPI Spec (Pilar 2) ---
+fastify.get('/v1/docs/openapi.json', async (_request, reply) => {
+    return reply.send({
+        openapi: '3.0.3',
+        info: {
+            title: 'GOVERN.AI Platform API',
+            version: '1.0.0',
+            description: 'Enterprise AI Governance Gateway — Compliance, Security & Observability'
+        },
+        servers: [{ url: process.env.APP_BASE_URL || 'http://localhost:3000' }],
+        paths: {
+            '/v1/execute/{assistantId}': {
+                post: {
+                    summary: 'Execute an AI assistant with full governance pipeline',
+                    security: [{ BearerAuth: [] }],
+                    parameters: [{ name: 'assistantId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+                    requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { message: { type: 'string', maxLength: 10000 } }, required: ['message'] } } } },
+                    responses: { '200': { description: 'Execution result with trace ID' }, '401': { description: 'Unauthorized' }, '429': { description: 'Quota exceeded' } }
+                }
+            },
+            '/v1/sandbox/execute': {
+                post: {
+                    summary: 'Sandbox: test OPA/DLP policies without calling LLM',
+                    requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] } } } },
+                    responses: { '200': { description: 'Policy evaluation result (dry-run)' } }
+                }
+            },
+            '/health': { get: { summary: 'Health check', responses: { '200': { description: 'Service status' } } } },
+            '/metrics': { get: { summary: 'Prometheus metrics', responses: { '200': { description: 'Text exposition format' } } } }
+        },
+        components: { securitySchemes: { BearerAuth: { type: 'http', scheme: 'bearer', description: 'API Key (sk-govai-...)' } } }
+    });
 });
 
-// 3. Assistants List
-fastify.get('/v1/admin/assistants', { preHandler: requireAdminAuth }, async (request, reply) => {
+// --- OFFBOARDING: Tenant Data Export (Pilar 4) ---
+import { exportTenantData, exportToCSV, generateDueDiligencePDF } from './lib/offboarding';
+
+fastify.get('/v1/admin/export/tenant', { preHandler: requireAdminAuth }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
+    if (!orgId) return reply.status(401).send({ error: 'x-org-id required' });
 
-    if (!orgId) {
-        return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-    }
+    const format = (request.query as any).format || 'json';
+    const exportData = await exportTenantData(pgPool, orgId);
 
-    const client = await pgPool.connect();
-    try {
-        await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
-
-        const res = await client.query('SELECT id, name, status, created_at FROM assistants ORDER BY created_at DESC');
-        return reply.send(res.rows);
-    } catch (error) {
-        fastify.log.error(error, "Error fetching assistants");
-        reply.status(500).send({ error: "Erro ao buscar assistentes" });
-    } finally {
-        client.release();
-    }
-});
-
-// --- API KEY MANAGEMENT CRUD ---
-
-// List API Keys
-fastify.get('/v1/admin/api-keys', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-
-    const client = await pgPool.connect();
-    try {
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
-        const res = await client.query('SELECT id, name, prefix, is_active, created_at, expires_at FROM api_keys ORDER BY created_at DESC');
-        return reply.send(res.rows);
-    } catch (error) {
-        fastify.log.error(error, "Error fetching API keys");
-        reply.status(500).send({ error: "Erro ao buscar chaves" });
-    } finally {
-        client.release();
-    }
-});
-
-// Create API Key
-fastify.post('/v1/admin/api-keys', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-
-    const { name } = request.body as { name: string };
-    if (!name) return reply.status(400).send({ error: "Campo 'name' obrigatório." });
-
-    const rawKey = `sk-govai-${uuidv4().replace(/-/g, '').substring(0, 24)}`;
-    const prefix = rawKey.substring(0, 12);
-    const keyHash = IntegrityService.signPayload({ key: rawKey }, process.env.SIGNING_SECRET!);
-
-    const client = await pgPool.connect();
-    try {
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
-        const res = await client.query(
-            'INSERT INTO api_keys (org_id, name, key_hash, prefix) VALUES ($1, $2, $3, $4) RETURNING id, prefix, created_at',
-            [orgId, name, keyHash, prefix]
-        );
-        // Return the full key ONLY at creation (it's never shown again)
-        return reply.status(201).send({ ...res.rows[0], key: rawKey, warning: 'Guarde esta chave! Ela não será exibida novamente.' });
-    } catch (error) {
-        fastify.log.error(error, "Error creating API key");
-        reply.status(500).send({ error: "Erro ao criar chave" });
-    } finally {
-        client.release();
-    }
-});
-
-// Revoke API Key
-fastify.delete('/v1/admin/api-keys/:keyId', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-
-    const { keyId } = request.params as { keyId: string };
-    const client = await pgPool.connect();
-    try {
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
-        await client.query('UPDATE api_keys SET is_active = FALSE WHERE id = $1', [keyId]);
-        return reply.send({ message: 'Chave revogada com sucesso.' });
-    } catch (error) {
-        fastify.log.error(error, "Error revoking API key");
-        reply.status(500).send({ error: "Erro ao revogar chave" });
-    } finally {
-        client.release();
-    }
-});
-
-// --- ASSISTANT CRUD ---
-
-// Create Assistant
-fastify.post('/v1/admin/assistants', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-
-    const { name } = request.body as { name: string };
-    if (!name) return reply.status(400).send({ error: "Campo 'name' obrigatório." });
-
-    const client = await pgPool.connect();
-    try {
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
-        const res = await client.query(
-            "INSERT INTO assistants (org_id, name, status) VALUES ($1, $2, 'draft') RETURNING id, name, status, created_at",
-            [orgId, name]
-        );
-        return reply.status(201).send(res.rows[0]);
-    } catch (error) {
-        fastify.log.error(error, "Error creating assistant");
-        reply.status(500).send({ error: "Erro ao criar assistente" });
-    } finally {
-        client.release();
-    }
-});
-
-// --- RAG KNOWLEDGE BASE ---
-
-// Create Knowledge Base for an assistant
-fastify.post('/v1/admin/assistants/:assistantId/knowledge', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-
-    const { assistantId } = request.params as { assistantId: string };
-    const { name } = request.body as { name: string };
-
-    const client = await pgPool.connect();
-    try {
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
-        const res = await client.query(
-            'INSERT INTO knowledge_bases (org_id, assistant_id, name) VALUES ($1, $2, $3) RETURNING id, name, created_at',
-            [orgId, assistantId, name || 'Base Padrão']
-        );
-        return reply.status(201).send(res.rows[0]);
-    } catch (error) {
-        fastify.log.error(error, "Error creating knowledge base");
-        reply.status(500).send({ error: "Erro ao criar base de conhecimento" });
-    } finally {
-        client.release();
-    }
-});
-
-// Upload document to Knowledge Base (RAG Ingestion)
-fastify.post('/v1/admin/knowledge/:kbId/documents', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-
-    const { kbId } = request.params as { kbId: string };
-    const { content, title } = request.body as { content: string; title?: string };
-
-    if (!content) return reply.status(400).send({ error: "Campo 'content' obrigatório." });
-
-    try {
-        const { ingestDocument } = await import('./lib/rag');
-        const result = await ingestDocument(pgPool, kbId, content, { title: title || 'Untitled', orgId });
-        return reply.status(201).send({
-            message: `Documento ingerido com sucesso. ${result.chunksStored} chunks vetorizados.`,
-            ...result
-        });
-    } catch (error: any) {
-        fastify.log.error(error, "Error ingesting document");
-        reply.status(500).send({ error: "Erro ao ingerir documento", details: error.message });
-    }
-});
-
-// --- HUMAN-IN-THE-LOOP: APPROVAL MANAGEMENT ---
-
-// List Pending Approvals
-fastify.get('/v1/admin/approvals', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-
-    const { status = 'pending' } = request.query as { status?: string };
-    const client = await pgPool.connect();
-    try {
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
-
-        const res = await client.query(
-            `SELECT pa.id, pa.assistant_id, a.name as assistant_name, pa.message, pa.policy_reason, 
-                    pa.trace_id, pa.status, pa.reviewer_email, pa.review_note, pa.reviewed_at, pa.created_at
-             FROM pending_approvals pa
-             LEFT JOIN assistants a ON a.id = pa.assistant_id
-             WHERE pa.status = $1
-             ORDER BY pa.created_at DESC`,
-            [status]
-        );
-        return reply.send(res.rows);
-    } catch (error) {
-        fastify.log.error(error, "Error fetching approvals");
-        reply.status(500).send({ error: "Erro ao buscar aprovações" });
-    } finally {
-        client.release();
-    }
-});
-
-// Approve a pending request (executes the AI call)
-fastify.post('/v1/admin/approvals/:approvalId/approve', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-
-    const { approvalId } = request.params as { approvalId: string };
-    const user = request.user as { email?: string };
-
-    const client = await pgPool.connect();
-    try {
-        // C2-residual FIX: Explicit transaction — if LiteLLM fails, we ROLLBACK the approval
-        await client.query('BEGIN');
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
-
-        // C2 FIX: Atomic UPDATE with TTL check (A2: expires_at > NOW())
-        const approvalRes = await client.query(
-            `UPDATE pending_approvals 
-             SET status = 'approved', reviewer_email = $1, reviewed_at = NOW() 
-             WHERE id = $2 AND status = 'pending' AND expires_at > NOW()
-             RETURNING *`,
-            [user?.email || 'admin', approvalId]
-        );
-        if (approvalRes.rows.length === 0) {
-            await client.query('ROLLBACK');
-            return reply.status(409).send({
-                error: 'Conflito: esta aprovação já foi processada por outro administrador ou expirou.',
-                approvalId
-            });
-        }
-
-        const approval = approvalRes.rows[0];
-
-        // 3. Audit log for approval
-        const approvalPayload = { approvalId, action: 'approved', reviewer: user?.email, originalMessage: approval.message, traceId: approval.trace_id };
-        const approvalSig = IntegrityService.signPayload(approvalPayload, process.env.SIGNING_SECRET!);
-        await auditQueue.add('persist-log', {
-            org_id: orgId,
-            assistant_id: approval.assistant_id,
-            action: 'APPROVAL_GRANTED' satisfies ActionType,
-            metadata: approvalPayload,
-            signature: approvalSig,
-            traceId: approval.trace_id
-        }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
-
-        // 4. Execute the original AI call (now approved)
-        let ragContext = '';
-        try {
-            const kbRes = await client.query('SELECT id FROM knowledge_bases WHERE assistant_id = $1 LIMIT 1', [approval.assistant_id]);
-            if (kbRes.rows.length > 0) {
-                const { searchWithTokenLimit } = await import('./lib/rag');
-                const aiModel = process.env.AI_MODEL || 'gemini/gemini-1.5-flash';
-                const ragResult = await searchWithTokenLimit(pgPool, kbRes.rows[0].id, approval.message, aiModel, 10);
-                if (ragResult.chunksUsed > 0) ragContext = ragResult.context;
-            }
-        } catch { /* RAG optional */ }
-
-        const messages: { role: string; content: string }[] = [];
-        if (ragContext) {
-            messages.push({ role: 'system', content: `Use the following proprietary knowledge base context to answer the user's question.\n\n---\n${ragContext}\n---` });
-        }
-        messages.push({ role: 'user', content: approval.message });
-
-        let aiResponse;
-        try {
-            aiResponse = await axios.post(`${process.env.LITELLM_URL}/chat/completions`, {
-                model: process.env.AI_MODEL || 'gemini/gemini-1.5-flash',
-                messages
-            }, {
-                headers: { 'Authorization': `Bearer ${process.env.LITELLM_KEY}` },
-                timeout: 30000
-            });
-        } catch (error: any) {
-            // C2-residual FIX: Rollback approval if AI execution fails
-            await client.query('ROLLBACK');
-            fastify.log.error({ approvalId, error: error.message }, 'HITL: AI execution failed, rolling back approval');
-            return reply.status(502).send({ error: 'Falha ao executar IA após aprovação — aprovação revertida', details: error.message });
-        }
-
-        // 5. Audit log for execution (after approval)
-        const { sanitized: logContent } = dlpEngine.sanitizeObject({
-            input: approval.message,
-            output: aiResponse.data.choices[0],
-            usage: aiResponse.data.usage,
-            traceId: approval.trace_id,
-            approvedBy: user?.email,
-            approvalId,
-        });
-        const execSig = IntegrityService.signPayload(logContent, process.env.SIGNING_SECRET!);
-        await auditQueue.add('persist-log', {
-            org_id: orgId,
-            assistant_id: approval.assistant_id,
-            action: 'EXECUTION_SUCCESS' satisfies ActionType,
-            metadata: logContent,
-            signature: execSig,
-            traceId: approval.trace_id
-        }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
-
-        // COMMIT transaction only after AI execution succeeds
-        await client.query('COMMIT');
-        fastify.log.info({ orgId, approvalId, reviewer: user?.email }, 'HITL: Execution approved and completed');
-
-        return reply.send({
-            status: 'APPROVED_AND_EXECUTED',
-            approvalId,
-            response: aiResponse.data,
-            _govai: { traceId: approval.trace_id, signature: execSig }
-        });
-    } catch (error) {
-        await client.query('ROLLBACK').catch(() => { });
-        fastify.log.error(error, "Error processing approval");
-        reply.status(500).send({ error: "Erro ao processar aprovação" });
-    } finally {
-        client.release();
-    }
-});
-
-// Reject a pending request
-fastify.post('/v1/admin/approvals/:approvalId/reject', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-
-    const { approvalId } = request.params as { approvalId: string };
-    const { note } = request.body as { note?: string };
-    const user = request.user as { email?: string };
-
-    const client = await pgPool.connect();
-    try {
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
-
-        // C2 FIX: Atomic UPDATE RETURNING with TTL check
-        const approvalRes = await client.query(
-            `UPDATE pending_approvals 
-             SET status = 'rejected', reviewer_email = $1, review_note = $2, reviewed_at = NOW() 
-             WHERE id = $3 AND status = 'pending' AND expires_at > NOW()
-             RETURNING *`,
-            [user?.email || 'admin', note || 'Rejeitado pelo administrador', approvalId]
-        );
-        if (approvalRes.rows.length === 0) {
-            return reply.status(409).send({
-                error: 'Conflito: esta aprovação já foi processada por outro administrador ou expirou.',
-                approvalId
-            });
-        }
-
-        const approval = approvalRes.rows[0];
-
-        const rejectPayload = { approvalId, action: 'rejected', reviewer: user?.email, note, originalMessage: approval.message, traceId: approval.trace_id };
-        const rejectSig = IntegrityService.signPayload(rejectPayload, process.env.SIGNING_SECRET!);
-        await auditQueue.add('persist-log', {
-            org_id: orgId,
-            assistant_id: approval.assistant_id,
-            action: 'APPROVAL_REJECTED' satisfies ActionType,
-            metadata: rejectPayload,
-            signature: rejectSig,
-            traceId: approval.trace_id
-        }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
-
-        fastify.log.info({ orgId, approvalId, reviewer: user?.email }, 'HITL: Execution rejected');
-
-        return reply.send({ status: 'REJECTED', approvalId, message: 'Solicitação rejeitada pelo administrador.' });
-    } catch (error) {
-        fastify.log.error(error, "Error rejecting approval");
-        reply.status(500).send({ error: "Erro ao rejeitar aprovação" });
-    } finally {
-        client.release();
-    }
-});
-
-// --- COMPLIANCE REPORTING ---
-
-// Compliance Report (JSON preview or PDF download)
-fastify.get('/v1/admin/reports/compliance', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-
-    const { startDate, endDate, format } = request.query as { startDate?: string; endDate?: string; format?: string };
-
-    // Default period: last 30 days
-    const end = endDate ? new Date(endDate) : new Date();
-    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-    const client = await pgPool.connect();
-    try {
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
-
-        // 1. Assistants inventory
-        const assistantsRes = await client.query(
-            'SELECT id, name, status, created_at FROM assistants ORDER BY created_at DESC'
-        );
-
-        // 2. API Keys
-        const apiKeysRes = await client.query(
-            'SELECT id, name, is_active, created_at FROM api_keys ORDER BY created_at DESC'
-        );
-
-        // 3. Audit logs for the period
-        const logsRes = await client.query(
-            `SELECT id, action, metadata, signature, created_at 
-             FROM audit_logs_partitioned 
-             WHERE created_at >= $1 AND created_at <= $2 
-             ORDER BY created_at DESC`,
-            [start.toISOString(), end.toISOString()]
-        );
-
-        // 4. Aggregate counts
-        const totalExecutions = logsRes.rows.filter(r => r.action === 'EXECUTION_SUCCESS').length;
-        const totalViolations = logsRes.rows.filter(r => r.action === 'POLICY_VIOLATION').length;
-        const totalErrors = logsRes.rows.filter(r => r.action === 'EXECUTION_ERROR').length;
-        const total = totalExecutions + totalViolations + totalErrors || 1;
-        const complianceRate = (((total - totalViolations) / total) * 100).toFixed(1);
-
-        // 5. Violations grouped by reason
-        const violationMap: Record<string, number> = {};
-        logsRes.rows
-            .filter(r => r.action === 'POLICY_VIOLATION')
-            .forEach(r => {
-                const reason = r.metadata?.reason || 'Desconhecido';
-                violationMap[reason] = (violationMap[reason] || 0) + 1;
-            });
-        const violationsByType = Object.entries(violationMap)
-            .map(([reason, count]) => ({ reason, count }))
-            .sort((a, b) => b.count - a.count);
-
-        // 6. Verify signatures on each log
-        const signingSecret = process.env.SIGNING_SECRET!;
-        const executions = logsRes.rows.map(row => {
-            let signatureValid = false;
-            try {
-                const recomputedSig = IntegrityService.signPayload(row.metadata, signingSecret);
-                signatureValid = row.signature === recomputedSig;
-            } catch { /* sig verification failed */ }
-
-            return {
-                id: row.id,
-                action: row.action,
-                created_at: row.created_at,
-                signature: row.signature || '',
-                signatureValid,
-                metadata: row.metadata,
-            };
-        });
-
-        // Organization info
-        const orgRes = await client.query('SELECT name FROM organizations WHERE id = $1', [orgId]);
-        const orgName = orgRes.rows[0]?.name || 'Organização';
-
-        const reportData = {
-            organization: { id: orgId, name: orgName },
-            period: { start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] },
-            generatedAt: new Date().toLocaleString('pt-BR'),
-            assistants: assistantsRes.rows,
-            apiKeys: apiKeysRes.rows,
-            summary: { totalExecutions, totalViolations, totalErrors, complianceRate },
-            violationsByType,
-            executions,
-        };
-
-        // Return PDF or JSON
-        if (format === 'pdf') {
-            const { generateComplianceReport } = await import('./lib/compliance-report');
-            const pdfDoc = generateComplianceReport(reportData);
-
-            reply.header('Content-Type', 'application/pdf');
-            reply.header('Content-Disposition', `attachment; filename="compliance-report-${reportData.period.start}-${reportData.period.end}.pdf"`);
-            return reply.send(pdfDoc);
-        }
-
-        return reply.send(reportData);
-    } catch (error) {
-        fastify.log.error(error, "Error generating compliance report");
-        reply.status(500).send({ error: "Erro ao gerar relatório de compliance" });
-    } finally {
-        client.release();
-    }
-});
-
-// CSV Export — Full audit log without record limits
-fastify.get('/v1/admin/reports/compliance/csv', { preHandler: requireAdminAuth }, async (request, reply) => {
-    const orgId = request.headers['x-org-id'] as string;
-    if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-
-    const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
-    const end = endDate ? new Date(endDate) : new Date();
-    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-    const client = await pgPool.connect();
-    try {
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
-
-        const logsRes = await client.query(
-            `SELECT id, action, metadata, signature, created_at 
-             FROM audit_logs_partitioned 
-             WHERE created_at >= $1 AND created_at <= $2 
-             ORDER BY created_at DESC`,
-            [start.toISOString(), end.toISOString()]
-        );
-
-        const signingSecret = process.env.SIGNING_SECRET!;
-
-        // CSV header
-        const csvLines = ['"ID","Ação","Data/Hora","Assinatura","Verificação","Metadados"'];
-
-        for (const row of logsRes.rows) {
-            let sigValid = 'INVÁLIDA';
-            try {
-                const recomputed = IntegrityService.signPayload(row.metadata, signingSecret);
-                if (row.signature === recomputed) sigValid = 'VÁLIDA';
-            } catch { /* sig check failed */ }
-
-            const metaStr = JSON.stringify(row.metadata || {}).replace(/"/g, '""');
-            csvLines.push(
-                `"${row.id}","${row.action}","${new Date(row.created_at).toISOString()}","${row.signature}","${sigValid}","${metaStr}"`
-            );
-        }
-
+    if (format === 'csv') {
         reply.header('Content-Type', 'text/csv; charset=utf-8');
-        reply.header('Content-Disposition', `attachment; filename="audit-log-${start.toISOString().split('T')[0]}-${end.toISOString().split('T')[0]}.csv"`);
-        return reply.send(csvLines.join('\n'));
-    } catch (error) {
-        fastify.log.error(error, "Error generating CSV export");
-        reply.status(500).send({ error: "Erro ao exportar CSV" });
-    } finally {
-        client.release();
+        reply.header('Content-Disposition', `attachment; filename="govai-tenant-export-${orgId}.csv"`);
+        return reply.send(exportToCSV(exportData));
     }
+
+    return reply.send({ org_id: orgId, exported_at: new Date().toISOString(), tables: exportData });
+});
+
+fastify.get('/v1/admin/export/due-diligence', { preHandler: requireAdminAuth }, async (_request, reply) => {
+    const pdfBuffer = await generateDueDiligencePDF();
+    reply.header('Content-Type', 'application/pdf');
+    reply.header('Content-Disposition', 'attachment; filename="govai-security-due-diligence.pdf"');
+    return reply.send(pdfBuffer);
 });
 
 // Health check endpoint

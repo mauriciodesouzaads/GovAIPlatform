@@ -56,42 +56,25 @@ export default function LoginPage() {
                         </div>
                     )}
 
-                    <form onSubmit={handleLogin} className="space-y-5">
-                        <div>
-                            <label className="text-xs uppercase font-medium text-muted-foreground tracking-wide block mb-2">E-mail Corporativo</label>
-                            <input
-                                type="email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                placeholder="admin@govai.com"
-                                required
-                                className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all placeholder:text-muted-foreground/50"
-                            />
-                        </div>
-
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <label className="text-xs uppercase font-medium text-muted-foreground tracking-wide">Senha</label>
-                            </div>
-                            <input
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="••••••••"
-                                required
-                                className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all placeholder:text-muted-foreground/50"
-                            />
-                        </div>
+                    <div className="space-y-4">
+                        <button
+                            onClick={() => window.location.href = `${API_BASE}/v1/auth/sso/login?provider=entra_id`}
+                            type="button"
+                            className="w-full bg-[#2F2F2F] border border-border/80 text-white font-medium text-sm px-4 py-3.5 rounded-xl hover:bg-[#3f3f3f] hover:border-border transition-all flex items-center justify-center gap-3 group"
+                        >
+                            <svg className="w-5 h-5 group-hover:scale-110 transition-transform" viewBox="0 0 21 21"><path fill="#f25022" d="M1 1h9v9H1z" /><path fill="#7fba00" d="M11 1h9v9h-9z" /><path fill="#00a4ef" d="M1 11h9v9H1z" /><path fill="#ffb900" d="M11 11h9v9h-9z" /></svg>
+                            Entrar com Microsoft Entra
+                        </button>
 
                         <button
-                            type="submit"
-                            disabled={loading}
-                            className="w-full bg-white text-black font-semibold text-sm px-4 py-3 rounded-lg hover:bg-neutral-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-4"
+                            onClick={() => window.location.href = `${API_BASE}/v1/auth/sso/login?provider=okta`}
+                            type="button"
+                            className="w-full bg-[#2F2F2F] border border-border/80 text-white font-medium text-sm px-4 py-3.5 rounded-xl hover:bg-[#3f3f3f] hover:border-border transition-all flex items-center justify-center gap-3 group"
                         >
-                            {loading ? <Loader2 className="w-4 h-4 text-black animate-spin" /> : null}
-                            {loading ? 'Autenticando...' : 'Acessar Painel'}
+                            <svg className="w-5 h-5 group-hover:scale-110 transition-transform" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z" /></svg>
+                            Entrar com Okta
                         </button>
-                    </form>
+                    </div>
                 </div>
 
                 <p className="text-center text-xs text-muted-foreground mt-8">
