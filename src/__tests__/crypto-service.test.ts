@@ -43,7 +43,7 @@ describe('CryptoService (Caixa Negra - AES-256-GCM)', () => {
         const { content_encrypted_bytes, iv_bytes, auth_tag_bytes } = cryptoService.encryptPayload(payload);
 
         // Tamper auth tag by changing a character
-        const tamperedAuthTag = Buffer.from(auth_tag_bytes, 'base64').map(b => b ^ 1).toString('base64');
+        const tamperedAuthTag = Buffer.from(Uint8Array.from(Buffer.from(auth_tag_bytes, 'base64'), b => b ^ 1)).toString('base64');
 
         expect(() => {
             cryptoService.decryptPayload(content_encrypted_bytes, iv_bytes, tamperedAuthTag);
