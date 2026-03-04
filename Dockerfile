@@ -12,6 +12,18 @@ COPY src ./src
 
 RUN npm run build
 
+# Test stage — retains devDependencies for running Vitest inside Docker
+FROM node:20-alpine AS test
+
+WORKDIR /app
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/tsconfig.json ./
+COPY --from=builder /app/src ./src
+
+CMD ["npm", "run", "test", "--", "--reporter=verbose"]
+
 # Production stage — minimal image, no devDependencies or source code
 FROM node:20-alpine AS production
 
@@ -23,6 +35,8 @@ RUN addgroup -g 1001 -S govai && adduser -S govai -u 1001 -G govai
 COPY --from=builder /prod_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
+# Copy scripts for migration
+COPY scripts ./scripts
 
 USER govai
 
@@ -32,3 +46,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
 
 CMD ["npm", "start"]
+
