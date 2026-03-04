@@ -1,0 +1,5 @@
+<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+  <path d="M0 0h40v40H0V0zm20 20h20v20H20V20zM0 20h20v20H0V20zM20 0h20v20H20V0z" fill="none"/>
+  <path d="M40 40H0V0h40v40z" fill="none"/>
+  <path d="M39.5 40h-39v-39h39v39z" fill="rgba(255,255,255,0.015)" stroke="rgba(255,255,255,0.02)"/>
+</svg>

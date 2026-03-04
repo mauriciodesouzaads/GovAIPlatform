@@ -1,37 +1,39 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #09090b; /* Zinc 950 */
+  --color-background: #09090b;
+  /* Zinc 950 */
   --color-foreground: #fafafa;
-  
+
   --color-card: #09090b;
   --color-card-foreground: #fafafa;
-  
+
   --color-popover: #09090b;
   --color-popover-foreground: #fafafa;
-  
-  --color-primary: #fafafa;
-  --color-primary-foreground: #18181b;
-  
+
+  --color-primary: #10b981;
+  /* Emerald 500 */
+  --color-primary-foreground: #022c22;
+
   --color-secondary: #27272a;
   --color-secondary-foreground: #fafafa;
-  
-  --color-muted: #27272a;
+
+  --color-muted: #18181b;
   --color-muted-foreground: #a1a1aa;
-  
+
   --color-accent: #27272a;
   --color-accent-foreground: #fafafa;
-  
-  --color-destructive: #7f1d1d;
-  --color-destructive-foreground: #fafafa;
-  
+
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #fef2f2;
+
   --color-border: #27272a;
   --color-input: #27272a;
-  --color-ring: #d4d4d8;
-  
-  --radius-lg: 0.5rem;
-  --radius-md: calc(0.5rem - 2px);
-  --radius-sm: calc(0.5rem - 4px);
+  --color-ring: #10b981;
+
+  --radius-lg: 0.75rem;
+  --radius-md: 0.5rem;
+  --radius-sm: 0.25rem;
 }
 
 :root {
@@ -41,22 +43,43 @@
 body {
   background-color: var(--color-background);
   color: var(--color-foreground);
-  font-family: Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Glassmorphism utilities */
+.glass {
+  background: rgba(24, 24, 27, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 /* Custom scrollbar for dark UI */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: #3f3f46;
   border-radius: 10px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: #52525b;
+}
+
+/* Table overrides */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--color-border);
 }

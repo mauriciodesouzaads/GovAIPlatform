@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Key, Copy, Trash2, Plus, ShieldCheck } from 'lucide-react';
+import { Key, Copy, Trash2, Plus, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 
 interface ApiKey {
@@ -19,9 +19,7 @@ export default function ApiKeysPage() {
     const [newKeyName, setNewKeyName] = useState('');
     const [createdKey, setCreatedKey] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
-
-
-
+    const [copied, setCopied] = useState(false);
 
     const fetchKeys = async () => {
         try {
@@ -36,6 +34,7 @@ export default function ApiKeysPage() {
     const createKey = async () => {
         if (!newKeyName) return;
         setCreating(true);
+        setCopied(false);
         try {
             const res = await axios.post(`${API_BASE}/v1/admin/api-keys`, { name: newKeyName });
             setCreatedKey(res.data.key);
@@ -52,87 +51,127 @@ export default function ApiKeysPage() {
         } catch (e) { console.error(e); }
     };
 
+    const handleCopy = () => {
+        if (createdKey) {
+            navigator.clipboard.writeText(createdKey);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
+    };
+
     return (
-        <div className="flex-1 overflow-auto p-8 bg-background">
-            <div className="max-w-4xl mx-auto space-y-8">
+        <div className="flex-1 overflow-auto p-8 bg-[url('/grid.svg')] bg-cover bg-center bg-no-repeat relative">
+            <div className="absolute inset-0 bg-background/90 backdrop-blur-3xl z-0" />
+            <div className="max-w-5xl mx-auto space-y-8 relative z-10">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-                        <Key className="w-7 h-7" /> API Keys
+                    <h2 className="text-3xl font-black tracking-tight flex items-center gap-3 bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-emerald-600">
+                        <Key className="w-8 h-8 text-emerald-500" />
+                        API Keys
                     </h2>
-                    <p className="text-muted-foreground mt-2">Gere e gerencie chaves de acesso para consumo seguro da API GovAI.</p>
+                    <p className="text-muted-foreground mt-2 font-medium">Gere e gerencie chaves de acesso para consumo seguro da API GovAI. <br />As chaves assinadas garantem o rastreamento em auditorias.</p>
                 </div>
 
                 {/* Create New Key */}
-                <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
-                    <h3 className="font-semibold">Gerar Nova Chave</h3>
-                    <div className="flex gap-3">
-                        <input
-                            type="text"
-                            value={newKeyName}
-                            onChange={(e) => setNewKeyName(e.target.value)}
-                            placeholder="Nome da chave (ex: Produção Mobile)"
-                            className="flex-1 bg-secondary border border-border rounded-md px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                        <button
-                            onClick={createKey}
-                            disabled={creating || !newKeyName}
-                            className="bg-foreground text-background font-medium text-sm px-5 py-2.5 rounded-md hover:bg-foreground/90 transition-colors disabled:opacity-50 flex items-center gap-2"
-                        >
-                            <Plus className="w-4 h-4" /> Gerar
-                        </button>
+                <div className="glass rounded-xl p-8 shadow-sm space-y-6 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-bl-[100px] pointer-events-none group-hover:bg-emerald-500/10 transition-colors duration-500" />
+
+                    <div className="relative z-10">
+                        <h3 className="font-bold text-lg flex items-center gap-2 mb-4">
+                            <Plus className="w-5 h-5 text-emerald-500" />
+                            Gerar Nova Chave
+                        </h3>
+                        <div className="flex gap-4 items-center">
+                            <input
+                                type="text"
+                                value={newKeyName}
+                                onChange={(e) => setNewKeyName(e.target.value)}
+                                placeholder="Nome para identificação (ex: Produção Gateway AWS)"
+                                className="flex-1 bg-secondary/50 border border-border/50 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all placeholder:text-muted-foreground shadow-inner"
+                            />
+                            <button
+                                onClick={createKey}
+                                disabled={creating || !newKeyName}
+                                className="bg-emerald-500 text-black font-bold text-sm px-6 py-3 rounded-lg hover:bg-emerald-400 transition-all disabled:opacity-50 disabled:hover:bg-emerald-500 flex items-center gap-2 shadow-lg shadow-emerald-500/20"
+                            >
+                                {creating ? <span className="animate-spin text-lg leading-none mb-1">⟳</span> : <Plus className="w-4 h-4" />}
+                                Gerar Key
+                            </button>
+                        </div>
                     </div>
 
                     {createdKey && (
-                        <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mt-4">
-                            <div className="flex items-center gap-2 text-green-500 text-sm font-semibold mb-2">
-                                <ShieldCheck className="w-4 h-4" /> Chave Criada com Sucesso!
+                        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-5 mt-6 relative z-10 animate-in fade-in slide-in-from-top-4 duration-300">
+                            <div className="flex items-center gap-2 text-emerald-500 text-sm font-bold mb-3 uppercase tracking-wider">
+                                <ShieldCheck className="w-5 h-5" /> Chave Mestra Criada com Sucesso
                             </div>
-                            <div className="flex items-center gap-2">
-                                <code className="bg-secondary px-3 py-2 rounded font-mono text-xs flex-1 select-all">{createdKey}</code>
+                            <div className="flex items-center gap-3">
+                                <code className="bg-background border border-border px-4 py-3 rounded-lg font-mono text-sm flex-1 select-all text-emerald-400 shadow-inner">
+                                    {createdKey}
+                                </code>
                                 <button
-                                    onClick={() => { navigator.clipboard.writeText(createdKey); }}
-                                    className="text-muted-foreground hover:text-foreground p-2"
+                                    onClick={handleCopy}
+                                    className={`p-3 rounded-lg transition-all duration-300 flex items-center justify-center min-w-[48px] ${copied ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' : 'bg-secondary border border-border hover:bg-secondary/80 text-foreground'}`}
                                     title="Copiar"
                                 >
-                                    <Copy className="w-4 h-4" />
+                                    {copied ? <CheckCircle2 className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
                                 </button>
                             </div>
-                            <p className="text-xs text-green-500/70 mt-2">⚠️ Guarde esta chave agora. Ela não será exibida novamente.</p>
+                            <p className="text-xs text-emerald-500/80 mt-3 font-medium bg-emerald-500/5 inline-block px-3 py-1.5 rounded-md">
+                                ⚠️ Guarde esta chave em segurança (ex: AWS Secrets Manager). Por motivos de segurança, ela não será exibida novamente.
+                            </p>
                         </div>
                     )}
                 </div>
 
                 {/* Keys List */}
-                <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+                <div className="glass rounded-xl shadow-sm overflow-hidden">
+                    <div className="px-6 py-4 border-b border-border/50 bg-secondary/20">
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                            <ShieldCheck className="w-5 h-5 text-indigo-400" />
+                            Chaves de Acesso Ativas
+                        </h3>
+                    </div>
                     <table className="w-full text-sm text-left">
-                        <thead className="text-xs text-muted-foreground bg-secondary/50 uppercase border-b border-border">
+                        <thead className="text-xs text-muted-foreground bg-secondary/30 uppercase tracking-wider">
                             <tr>
-                                <th className="px-6 py-4 font-medium">Nome</th>
-                                <th className="px-6 py-4 font-medium">Prefixo</th>
-                                <th className="px-6 py-4 font-medium">Status</th>
-                                <th className="px-6 py-4 font-medium text-right">Ações</th>
+                                <th className="px-6 py-4 font-semibold">Nome da Chave</th>
+                                <th className="px-6 py-4 font-semibold">Prefixo / Identificador</th>
+                                <th className="px-6 py-4 font-semibold text-center">Status</th>
+                                <th className="px-6 py-4 font-semibold text-right">Ações</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody className="divide-y divide-border/50">
                             {loading ? (
-                                <tr><td colSpan={4} className="px-6 py-8 text-center text-muted-foreground">Carregando...</td></tr>
+                                <tr><td colSpan={4} className="px-6 py-12 text-center text-muted-foreground animate-pulse font-medium">Loading security keys...</td></tr>
                             ) : keys.length === 0 ? (
-                                <tr><td colSpan={4} className="px-6 py-8 text-center text-muted-foreground">Nenhuma chave criada.</td></tr>
+                                <tr><td colSpan={4} className="px-6 py-12 text-center text-muted-foreground font-medium">Nenhuma chave gerada na organização.</td></tr>
                             ) : (
                                 keys.map(k => (
-                                    <tr key={k.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
-                                        <td className="px-6 py-4 font-medium">{k.name}</td>
-                                        <td className="px-6 py-4 font-mono text-xs text-muted-foreground">{k.prefix}...****</td>
-                                        <td className="px-6 py-4">
-                                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${k.is_active ? 'bg-green-500/10 text-green-500' : 'bg-destructive/10 text-destructive'}`}>
+                                    <tr key={k.id} className="hover:bg-secondary/20 transition-colors group">
+                                        <td className="px-6 py-4 font-semibold text-foreground flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full bg-indigo-500" />
+                                            {k.name}
+                                        </td>
+                                        <td className="px-6 py-4 font-mono text-xs text-muted-foreground bg-background/50 my-2 mx-6 rounded-md px-3 py-1.5 inline-block border border-border/50">
+                                            {k.prefix}...<span className="opacity-50">****</span>
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${k.is_active ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-destructive/10 text-destructive border border-destructive/20'}`}>
+                                                {k.is_active && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                                                {!k.is_active && <span className="w-1.5 h-1.5 rounded-full bg-destructive" />}
                                                 {k.is_active ? 'Ativa' : 'Revogada'}
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-right">
-                                            {k.is_active && (
-                                                <button onClick={() => revokeKey(k.id)} className="text-destructive hover:text-destructive/80 text-xs flex items-center gap-1 ml-auto">
-                                                    <Trash2 className="w-3.5 h-3.5" /> Revogar
+                                            {k.is_active ? (
+                                                <button
+                                                    onClick={() => revokeKey(k.id)}
+                                                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-destructive/80 hover:text-destructive hover:bg-destructive/10 transition-colors text-xs font-semibold"
+                                                >
+                                                    <Trash2 className="w-4 h-4" /> Revogar
                                                 </button>
+                                            ) : (
+                                                <span className="text-xs text-muted-foreground/50 font-medium">Inativa</span>
                                             )}
                                         </td>
                                     </tr>
