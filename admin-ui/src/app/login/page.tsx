@@ -56,6 +56,47 @@ export default function LoginPage() {
                         </div>
                     )}
 
+                    <form onSubmit={handleLogin} className="space-y-4 mb-8">
+                        <div>
+                            <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">E-mail Corporativo</label>
+                            <input
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                className="w-full bg-black/50 border border-border/80 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 transition-all"
+                                placeholder="E-mail admin@govai.com"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Senha</label>
+                            <input
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="w-full bg-black/50 border border-border/80 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 transition-all"
+                                placeholder="••••••••"
+                                required
+                            />
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full bg-amber-500 hover:bg-amber-400 text-black font-bold py-3.5 px-4 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 mt-4 shadow-lg shadow-amber-500/20"
+                        >
+                            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Entrar (Demo Local)'}
+                        </button>
+                    </form>
+
+                    <div className="relative mb-8">
+                        <div className="absolute inset-0 flex items-center">
+                            <div className="w-full border-t border-border/80"></div>
+                        </div>
+                        <div className="relative flex justify-center text-xs uppercase">
+                            <span className="bg-card px-2 text-muted-foreground font-semibold">Login Enterprise Integrado</span>
+                        </div>
+                    </div>
+
                     <div className="space-y-4">
                         <button
                             onClick={() => window.location.href = `${API_BASE}/v1/auth/sso/login?provider=entra_id`}
