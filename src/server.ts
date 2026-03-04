@@ -14,6 +14,7 @@ import { notificationQueue, initNotificationWorker } from './workers/notificatio
 import { telemetryQueue, initTelemetryWorker } from './workers/telemetry.worker';
 import { initExpirationWorker } from './workers/expiration.worker';
 import { registerOidcRoutes } from './lib/auth-oidc';
+import { recordRequest, recordDlpDetection } from './lib/sre-metrics';
 
 // ---------------------------------------------------------------------------
 // C1 FIX: Hard-fail if SIGNING_SECRET is missing — prevents silent crypto failures
@@ -92,7 +93,9 @@ fastify.register(cookie, {
 
 fastify.register(cors, {
     origin: [
+        'http://localhost:3000',                   // Admin UI (free port)
         'http://localhost:3001',                   // Admin UI (dev/docker)
+        'http://localhost:3002',                   // Admin UI (alternative local dev)
         process.env.ADMIN_UI_ORIGIN || ''          // Production override via env
     ].filter(Boolean),
     credentials: true,
@@ -172,6 +175,7 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
 
     const { message } = parseResult.data;
     const client = await pgPool.connect();
+    const execStart = Date.now();
 
     try {
         // 1. RLS: Define context for current org
@@ -257,6 +261,7 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
         }
 
         if (!policyCheck.allowed) {
+            recordRequest('blocked', Date.now() - execStart);
             // DLP-sanitize even the violation payload before signing
             const sanitizedMessage = policyCheck.sanitizedInput || dlpEngine.sanitize(message).sanitizedText;
             const violationPayload = { reason: policyCheck.reason, input: sanitizedMessage, traceId };
@@ -283,6 +288,9 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
                 dlpDetections: policyCheck.dlpReport?.totalDetections,
                 dlpTypes: policyCheck.dlpReport?.types
             }, 'DLP: PII detected and masked before pipeline');
+            if (policyCheck.dlpReport) {
+                recordDlpDetection(policyCheck.dlpReport.totalDetections);
+            }
         }
 
         // 4. RAG Context Retrieval (token-aware)
@@ -371,6 +379,8 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
         }, { removeOnComplete: true });
 
         fastify.log.info({ orgId, assistantId, tokens: aiResponse.data.usage?.total_tokens }, "Execution Success");
+
+        recordRequest('success', Date.now() - execStart);
 
         return reply.status(200).send({
             ...aiResponse.data,

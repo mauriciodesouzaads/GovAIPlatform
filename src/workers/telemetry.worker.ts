@@ -2,9 +2,10 @@ import { Worker, Queue } from 'bullmq';
 import { Pool } from 'pg';
 import axios from 'axios';
 
+const redisConfigUrl = new URL(process.env.REDIS_URL || 'redis://localhost:6379');
 const connection = {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379'),
+    host: redisConfigUrl.hostname,
+    port: parseInt(redisConfigUrl.port || '6379'),
 };
 
 export const telemetryQueue = new Queue('telemetry', { connection });

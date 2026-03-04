@@ -64,7 +64,7 @@ export default function ReportsPage() {
                 params: { startDate, endDate, format: 'pdf' },
                 responseType: 'blob',
             });
-            const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+            const url = window.URL.createObjectURL(res.data);
             const link = document.createElement('a');
             link.href = url;
             link.download = `compliance-report-${startDate}-${endDate}.pdf`;
@@ -174,8 +174,8 @@ export default function ReportsPage() {
                                             <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{a.id.substring(0, 18)}...</td>
                                             <td className="px-4 py-3">
                                                 <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${a.status === 'published' ? 'bg-emerald-500/10 text-emerald-400' :
-                                                        a.status === 'draft' ? 'bg-amber-500/10 text-amber-400' :
-                                                            'bg-secondary text-muted-foreground'
+                                                    a.status === 'draft' ? 'bg-amber-500/10 text-amber-400' :
+                                                        'bg-secondary text-muted-foreground'
                                                     }`}>
                                                     {a.status.toUpperCase()}
                                                 </span>
@@ -256,8 +256,8 @@ export default function ReportsPage() {
                                             </td>
                                             <td className="px-4 py-2.5">
                                                 <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${log.action === 'EXECUTION_SUCCESS' ? 'bg-emerald-500/10 text-emerald-400' :
-                                                        log.action === 'POLICY_VIOLATION' ? 'bg-red-500/10 text-red-400' :
-                                                            'bg-amber-500/10 text-amber-400'
+                                                    log.action === 'POLICY_VIOLATION' ? 'bg-red-500/10 text-red-400' :
+                                                        'bg-amber-500/10 text-amber-400'
                                                     }`}>
                                                     {log.action.replace('_', ' ')}
                                                 </span>

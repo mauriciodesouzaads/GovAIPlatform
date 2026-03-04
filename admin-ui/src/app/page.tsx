@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Activity, ShieldCheck, Zap, Coins } from 'lucide-react';
+import Link from 'next/link';
+import { Activity, ShieldCheck, Coins, ArrowUpRight, ShieldAlert, CreditCard, Bot } from 'lucide-react';
 import axios from 'axios';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 
 import { API_BASE } from '@/lib/api';
 
@@ -40,166 +41,214 @@ export default function DashboardPage() {
     : 0;
 
   return (
-    <div className="flex-1 overflow-auto p-8 bg-[url('/grid.svg')] bg-cover bg-center bg-no-repeat relative">
-      <div className="absolute inset-0 bg-background/90 backdrop-blur-3xl z-0" />
+    <div className="flex-1 overflow-auto p-4 md:p-8 bg-black relative">
+      <div className="absolute inset-0 bg-[url('/grid.svg')] bg-cover bg-center bg-no-repeat opacity-20 pointer-events-none" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-emerald-500/10 blur-[120px] rounded-full pointer-events-none" />
 
-      <div className="max-w-7xl mx-auto space-y-8 relative z-10">
-        <div>
-          <h2 className="text-3xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-emerald-600">
-            System Dashboard
-          </h2>
-          <p className="text-muted-foreground mt-2 font-medium">
-            Risk mitigation and telemetry overview in real-time.
-          </p>
+      <div className="max-w-7xl mx-auto space-y-6 relative z-10 transition-all duration-500 ease-out">
+        {/* Header Section */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-black tracking-tight text-white flex items-center gap-3">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-emerald-600">
+                GovAI
+              </span>
+              Security Command Center
+            </h2>
+            <p className="text-muted-foreground mt-1.5 font-medium text-sm">
+              Real-time telemetry, risk mitigation, and OPA governance overview.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            <span className="text-xs font-bold text-emerald-500 tracking-wider uppercase">System Operational</span>
+            <Link href="/reports" className="ml-4 bg-white/5 hover:bg-white/10 text-white border border-white/10 text-xs font-semibold px-4 py-2 rounded-full transition-all">
+              Gerar PDF de Auditoria
+            </Link>
+          </div>
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-pulse">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-pulse">
             {[1, 2, 3, 4].map(i => (
-              <div key={i} className="h-32 bg-secondary/30 border border-border/50 rounded-xl" />
+              <div key={i} className="h-32 bg-white/5 border border-white/10 rounded-2xl" />
             ))}
+            <div className="col-span-1 md:col-span-3 h-[400px] bg-white/5 border border-white/10 rounded-2xl" />
+            <div className="col-span-1 h-[400px] bg-white/5 border border-white/10 rounded-2xl" />
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Cards */}
-            <div className="glass rounded-xl p-6 shadow-sm hover:shadow-lg hover:shadow-emerald-500/5 transition-all duration-300 relative overflow-hidden group">
-              <div className="flex flex-row items-center justify-between pb-2">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Execuções de IA</h3>
-                <Activity className="h-5 w-5 text-emerald-500" />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+
+            {/* 1. Bento Box: Executions (Standard) */}
+            <div className="bg-[#111] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all group flex flex-col justify-between">
+              <div className="flex justify-between items-start">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
+                  <Activity className="h-5 w-5 text-emerald-400" />
+                </div>
+                <Link href="/logs" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-white flex items-center gap-1">
+                  Ver Logs <ArrowUpRight className="w-3 h-3" />
+                </Link>
               </div>
-              <div className="text-4xl font-black mt-2 text-foreground group-hover:text-emerald-400 transition-colors">
-                {stats?.total_executions.toLocaleString() || 0}
+              <div className="mt-4">
+                <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1">Processamento de IA</p>
+                <div className="text-3xl font-black text-white">{stats?.total_executions.toLocaleString() || 0}</div>
+                <p className="text-xs text-emerald-400/80 mt-1 font-medium bg-emerald-500/10 inline-block px-2 py-0.5 rounded">Calls processadas</p>
               </div>
-              <p className="text-xs text-muted-foreground mt-2 font-medium">Prompt calls processadas</p>
             </div>
 
-            <div className="glass rounded-xl p-6 shadow-sm hover:shadow-lg hover:shadow-violet-500/5 transition-all duration-300 relative overflow-hidden group">
-              <div className="absolute -right-10 -top-10 w-32 h-32 bg-violet-500/5 rounded-full blur-2xl group-hover:bg-violet-500/10 transition-colors pointer-events-none" />
-              <div className="flex flex-row items-center justify-between pb-2 relative z-10">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Tokens Utilizados</h3>
-                <Coins className="h-5 w-5 text-violet-500" />
+            {/* 2. Bento Box: Policy Violations (Highlighted/Danger) */}
+            <div className="bg-gradient-to-br from-red-950/40 to-[#111] border border-red-500/20 rounded-2xl p-5 hover:border-red-500/40 transition-all group flex flex-col justify-between relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 blur-3xl pointer-events-none" />
+              <div className="flex justify-between items-start relative z-10">
+                <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center border border-red-500/20">
+                  <ShieldAlert className="h-5 w-5 text-red-500" />
+                </div>
+                <Link href="/approvals" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-red-500/20 hover:bg-red-500/40 px-2 py-1 rounded text-red-200 border border-red-500/20 flex items-center gap-1">
+                  Quarentena <ArrowUpRight className="w-3 h-3" />
+                </Link>
               </div>
-              <div className="text-4xl font-black mt-2 text-foreground group-hover:text-violet-400 transition-colors relative z-10">
-                {stats?.total_tokens?.toLocaleString() || 0}
+              <div className="mt-4 relative z-10">
+                <p className="text-xs text-red-400/80 font-semibold uppercase tracking-wider mb-1">Violações OPA Barradas</p>
+                <div className="text-3xl font-black text-white flex items-baseline gap-2">
+                  {stats?.total_violations.toLocaleString() || 0}
+                  <span className="text-sm font-medium text-red-400/60 bg-red-500/10 px-1.5 py-0.5 rounded">Bloqueios P0</span>
+                </div>
               </div>
-              <p className="text-xs text-violet-400/80 mt-2 font-bold relative z-10 bg-violet-500/10 inline-block px-2 py-0.5 rounded-full">
-                ≈ ${stats?.estimated_cost_usd || '0.00'}
-              </p>
             </div>
 
-            <div className="glass rounded-xl p-6 shadow-sm hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300">
-              <div className="flex flex-row items-center justify-between pb-2">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Agents / RAG</h3>
-                <Zap className="h-5 w-5 text-amber-500" />
+            {/* 3. Bento Box: Tokens / Cost */}
+            <div className="bg-[#111] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all group flex flex-col justify-between">
+              <div className="flex justify-between items-start">
+                <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center border border-violet-500/20">
+                  <Coins className="h-5 w-5 text-violet-400" />
+                </div>
               </div>
-              <div className="text-4xl font-black mt-2 text-foreground group-hover:text-amber-400 transition-colors">
-                {stats?.total_assistants.toLocaleString() || 0}
+              <div className="mt-4">
+                <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1">Consumo LLM</p>
+                <div className="text-3xl font-black text-white">{stats?.total_tokens?.toLocaleString() || 0}</div>
+                <p className="text-xs text-violet-400/80 mt-1 font-bold bg-violet-500/10 inline-flex items-center gap-1 px-2 py-0.5 rounded">
+                  <CreditCard className="w-3 h-3" /> ≈ ${stats?.estimated_cost_usd || '0.00'}
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground mt-2 font-medium">Modelos em Produção</p>
             </div>
 
-            <div className="glass !border-destructive/30 rounded-xl p-6 shadow-[0_0_15px_-3px_rgba(239,68,68,0.1)] hover:shadow-[0_0_20px_-3px_rgba(239,68,68,0.2)] transition-all duration-300 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-bl from-destructive/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-              <div className="flex flex-row items-center justify-between pb-2 relative z-10">
-                <h3 className="text-sm font-semibold text-destructive uppercase tracking-wider">Violações OPA</h3>
-                <ShieldCheck className="h-5 w-5 text-destructive" />
+            {/* 4. Bento Box: Agents */}
+            <div className="bg-[#111] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all group flex flex-col justify-between">
+              <div className="flex justify-between items-start">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
+                  <Bot className="h-5 w-5 text-blue-400" />
+                </div>
+                <Link href="/assistants" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-white flex items-center gap-1">
+                  Gerenciar <ArrowUpRight className="w-3 h-3" />
+                </Link>
               </div>
-              <div className="text-4xl font-black mt-2 text-destructive relative z-10">
-                {stats?.total_violations.toLocaleString() || 0}
+              <div className="mt-4">
+                <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1">Agentes de IA Ativos</p>
+                <div className="text-3xl font-black text-white">{stats?.total_assistants.toLocaleString() || 0}</div>
+                <p className="text-xs text-blue-400/80 mt-1 font-medium bg-blue-500/10 inline-block px-2 py-0.5 rounded">Modelos em Prod</p>
               </div>
-              <p className="text-xs text-destructive/80 mt-2 font-bold relative z-10 inline-flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse" />
-                Segurança Ativada
-              </p>
             </div>
+
+            {/* 5. Bento Box: Gateway Traffic Chart (Large) */}
+            <div className="md:col-span-3 bg-[#111] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all flex flex-col min-h-[400px]">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="font-bold text-white flex items-center gap-2 text-lg">
+                    Gateway Telemetry
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-1">Tráfego limpo vs Requisições interceptadas no Edge.</p>
+                </div>
+                <div className="flex gap-4">
+                  <div className="flex items-center gap-2 text-xs font-medium text-emerald-400"><span className="w-2 h-2 rounded bg-emerald-500"></span> Clean</div>
+                  <div className="flex items-center gap-2 text-xs font-medium text-red-500"><span className="w-2 h-2 rounded bg-red-500"></span> OPA Block</div>
+                </div>
+              </div>
+
+              <div className="flex-1 w-full relative">
+                {stats?.usage_history ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={stats.usage_history} margin={{ top: 5, right: 0, bottom: 0, left: -25 }}>
+                      <defs>
+                        <linearGradient id="colorRequests" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="colorViolations" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} opacity={0.5} />
+                      <XAxis dataKey="name" stroke="#666" fontSize={11} tickLine={false} axisLine={false} dy={10} />
+                      <YAxis stroke="#666" fontSize={11} tickLine={false} axisLine={false} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#111', borderColor: '#333', borderRadius: '12px', color: '#fff', padding: '12px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)' }}
+                        itemStyle={{ fontWeight: 600 }}
+                        cursor={{ stroke: '#555', strokeWidth: 1, strokeDasharray: '4 4' }}
+                      />
+                      <Area type="monotone" name="Clean Executions" dataKey="requests" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorRequests)" activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }} />
+                      <Area type="monotone" name="Policy Blocks" dataKey="violations" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorViolations)" activeDot={{ r: 6, strokeWidth: 0, fill: '#ef4444' }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="absolute inset-0 bg-[#161616] animate-pulse rounded-lg border border-white/5" />
+                )}
+              </div>
+            </div>
+
+            {/* 6. Bento Box: Protection Gauge (Vertical layout) */}
+            <div className="bg-[#111] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all flex flex-col min-h-[400px] relative overflow-hidden group">
+              <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-emerald-950/40 to-transparent pointer-events-none" />
+
+              <div className="mb-4">
+                <h3 className="font-bold text-white text-lg flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                  Protection Rate
+                </h3>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">Impacto do motor OPA + DLP em tempo real.</p>
+              </div>
+
+              <div className="flex-1 w-full flex flex-col items-center justify-center relative z-10 pt-4">
+                {stats ? (
+                  <div className="relative w-48 h-48 flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadialBarChart
+                        cx="50%" cy="50%"
+                        innerRadius="70%" outerRadius="100%"
+                        barSize={12}
+                        data={[{ name: 'Rate', value: interceptionRate, fill: interceptionRate > 5 ? '#ef4444' : '#10b981' }]}
+                        startAngle={90} endAngle={-270}
+                      >
+                        <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+                        <RadialBar background={{ fill: '#222' }} dataKey="value" cornerRadius={10} />
+                      </RadialBarChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className={`text-4xl font-black ${interceptionRate > 5 ? 'text-red-500' : 'text-emerald-400'}`}>
+                        {interceptionRate}%
+                      </span>
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest mt-1">Interceptado</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-40 h-40 rounded-full border-[8px] border-[#222] animate-pulse" />
+                )}
+
+                {stats && (
+                  <div className="mt-8 text-center bg-[#161616] border border-white/5 rounded-xl p-4 w-full">
+                    <p className="text-sm text-gray-300 font-medium leading-tight">
+                      <span className="text-red-400 font-bold">{stats.total_violations}</span> incidentes isolados de um total de <span className="text-white font-bold">{stats.total_executions}</span> transações.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
           </div>
         )}
-
-        {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-7 gap-6 mt-8">
-          <div className="col-span-4 glass rounded-xl p-6 shadow-sm h-[400px] flex flex-col">
-            <h3 className="font-bold mb-6 flex items-center gap-2 tracking-tight text-lg">
-              <Activity className="w-5 h-5 text-emerald-500" />
-              Gateway API Traffic Overview
-            </h3>
-            <div className="flex-1 w-full h-full min-h-0">
-              {stats?.usage_history ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={stats.usage_history} margin={{ top: 5, right: 10, bottom: 5, left: -20 }}>
-                    <defs>
-                      <linearGradient id="colorRequests" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="colorViolations" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                    <XAxis dataKey="name" stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} dy={10} />
-                    <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: 'rgba(24, 24, 27, 0.9)', borderColor: '#27272a', borderRadius: '8px', color: '#fff', backdropFilter: 'blur(8px)' }}
-                      itemStyle={{ color: '#fff', fontWeight: 600 }}
-                      cursor={{ stroke: '#52525b', strokeWidth: 1, strokeDasharray: '5 5' }}
-                    />
-                    <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '20px', fontWeight: 600 }} />
-                    <Area type="monotone" name="Clean Executions" dataKey="requests" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorRequests)" activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }} />
-                    <Area type="monotone" name="Policy Blocks (OPA)" dataKey="violations" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorViolations)" activeDot={{ r: 6, strokeWidth: 0, fill: '#ef4444' }} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex bg-secondary/30 h-full rounded-lg animate-pulse" />
-              )}
-            </div>
-          </div>
-
-          <div className="col-span-3 glass rounded-xl p-6 shadow-sm h-[400px] flex flex-col items-center relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-emerald-500/5 pointer-events-none" />
-            <h3 className="font-bold w-full mb-2 flex items-center gap-2 tracking-tight text-lg relative z-10">
-              <ShieldCheck className="w-5 h-5 text-emerald-500" />
-              Interception Rate (OPA)
-            </h3>
-            <p className="text-xs text-muted-foreground w-full mb-4 relative z-10">Percentagem de tráfego bloqueado pelo gateway de segurança antes de atingir as APIs externas.</p>
-
-            <div className="flex-1 w-full flex flex-col items-center justify-center relative z-10">
-              {stats ? (
-                <ResponsiveContainer width={250} height={250}>
-                  <RadialBarChart
-                    cx="50%" cy="50%"
-                    innerRadius="70%" outerRadius="100%"
-                    barSize={16}
-                    data={[{ name: 'Rate', value: interceptionRate, fill: '#10b981' }]}
-                    startAngle={90} endAngle={-270}
-                  >
-                    <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-                    <RadialBar
-                      background={{ fill: '#27272a' }}
-                      dataKey="value"
-                      cornerRadius={10}
-                    />
-                    <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="fill-foreground font-black text-4xl">
-                      {interceptionRate}%
-                    </text>
-                    <text x="50%" y="65%" textAnchor="middle" className="fill-muted-foreground font-bold text-[10px] tracking-widest uppercase">
-                      Bloqueios
-                    </text>
-                  </RadialBarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="w-48 h-48 rounded-full border-[10px] border-secondary/50 animate-pulse" />
-              )}
-
-              {stats && (
-                <p className="mt-4 text-sm text-center font-medium bg-secondary/40 px-4 py-2 rounded-lg border border-border/50 text-muted-foreground">
-                  <strong className="text-destructive font-bold">{stats.total_violations}</strong> violações contidas de <strong className="text-emerald-500 font-bold">{stats.total_executions}</strong> requisições totais.
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-
       </div>
     </div>
   );

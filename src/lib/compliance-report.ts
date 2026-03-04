@@ -132,6 +132,12 @@ export function generateComplianceReport(data: ComplianceReportData): Promise<Bu
 
         y += 70;
 
+        // ===== LEGAL CONTEXT (STORYTELLING) =====
+        y = drawSectionTitle(doc, 'Contextualização Fática e Base Legal', y);
+        doc.fontSize(8.5).font('Helvetica').fillColor(COLORS.secondary).lineGap(2)
+            .text('O presente documento consubstancia o Relatório Técnico de Conformidade (Audit Trail) da arquitetura de Inteligência Artificial da organização. Em estrito atendimento à Resolução BCB nº 4.557/17 (Gestão de Riscos) e à Lei Geral de Proteção de Dados (Lei nº 13.709/2018), este relatório garante a rastreabilidade, integridade e governança proativa sobre todos os fluxos de dados processados pelos agentes virtuais autônomos listados na seção subsequente.', 55, y, { width: 495, align: 'justify' });
+        y += 50;
+
         // ===== SECTION 1: AGENT INVENTORY =====
         y = drawSectionTitle(doc, '1. Inventário de Agentes de IA Ativos', y);
         const agentHeaders = ['Nome', 'ID', 'Status', 'Criado em'];
@@ -157,7 +163,11 @@ export function generateComplianceReport(data: ComplianceReportData): Promise<Bu
         y = checkPageBreak(doc, y, 80);
 
         // ===== SECTION 2: OPA VIOLATIONS SUMMARY =====
-        y = drawSectionTitle(doc, '2. Violações Interceptadas pelo Motor de Governança (OPA)', y);
+        y = drawSectionTitle(doc, '2. Análise Narrativa da Governança de Risco (Motor OPA)', y);
+
+        doc.fontSize(8.5).font('Helvetica').fillColor(COLORS.secondary).lineGap(2)
+            .text(`A plataforma operou sob o escrutínio contínuo do motor de políticas OPA (Open Policy Agent). Durante o período analisado, de um total de ${data.summary.totalExecutions} tentativas de execução, o sistema logrou êxito em interceptar e bloquear categoricamente ${data.summary.totalViolations} violações às diretrizes de segurança, privacidade ou compliance corporativo estatutário. A tabela infra sumariza a tipologia das ameaças mitigadas em tempo real pelas camadas de defesa.`, 55, y, { width: 495, align: 'justify' });
+        y += 45;
 
         if (data.violationsByType.length > 0) {
             const vHeaders = ['Tipo de Violação', 'Ocorrências', '% do Total'];
@@ -215,6 +225,24 @@ export function generateComplianceReport(data: ComplianceReportData): Promise<Bu
                 sigStatus,
             ], logWidths, y, i % 2 === 0);
         });
+
+        // ===== SECTION 4: PARECER CONCLUSIVO =====
+        y += 15;
+        y = checkPageBreak(doc, y, 120);
+        y = drawSectionTitle(doc, 'Parecer Conclusivo e Certificado de Conformidade', y);
+
+        const isCompliant = rate >= 90;
+        const conclusaoText = isCompliant
+            ? `PARECER FAVORÁVEL: Atestamos para os devidos fins que a referida organização apresentou um Índice de Compliance de ${data.summary.complianceRate}% no período supracitado. Os mecanismos de defesa em profundidade operaram com eficácia comprovada, mitigando riscos de exposição de dados PII/PHI e garantindo a resiliência arquitetural exigida pelo arcabouço regulatório vigente.`
+            : `PARECER COM RESSALVAS: Atestamos que a organização apresentou um Índice de Compliance de ${data.summary.complianceRate}% no período. A quantidade expressiva de anomalias/violações bloqueadas indica um elevado risco sistêmico na entrada de dados. Recomenda-se a revisão imediata do treinamento dos usuários ou o refinamento das heurísticas de DLP aplicadas aos agentes.`;
+
+        doc.fontSize(9).font('Helvetica-Bold').fillColor(isCompliant ? COLORS.success : COLORS.warning)
+            .text(isCompliant ? 'CERTIFICADO: CONFORME' : 'CERTIFICADO: ATENÇÃO REQUERIDA', 55, y);
+        y += 15;
+
+        doc.fontSize(8.5).font('Helvetica').fillColor(COLORS.secondary).lineGap(2)
+            .text(conclusaoText, 55, y, { width: 495, align: 'justify' });
+        y += 35;
 
         // ===== FOOTER (all pages) =====
         const pages = doc.bufferedPageRange();
