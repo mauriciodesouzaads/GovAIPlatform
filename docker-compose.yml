@@ -69,7 +69,7 @@ services:
   api:
     build: .
     environment:
-      DATABASE_URL: postgresql://govai_app:govai_secure_password_2026@database:5432/govai?schema=public
+      DATABASE_URL: postgresql://govai_app:${DB_APP_PASSWORD}@database:5432/govai?schema=public
       LITELLM_URL: http://litellm:4000
       SIGNING_SECRET: ${SIGNING_SECRET}
       JWT_SECRET: ${JWT_SECRET}

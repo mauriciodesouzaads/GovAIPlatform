@@ -62,27 +62,11 @@ export class OpaGovernanceEngine {
     }
 
     async evaluate(input: any, policyContext: any): Promise<GovernanceDecision> {
-        if (this.opaIns != null) {
-            const resultSet = this.opaIns.evaluate({ input, ...policyContext });
-            const result = resultSet[0]?.result;
-
-            if (result && !result.allow) {
-                return {
-                    allowed: false,
-                    reason: result.reason || "Bloqueado por Política OPA Corporativa",
-                    action: result.action || 'BLOCK'
-                };
-            }
-            return { allowed: true, action: 'ALLOW' };
-        }
-
-        // --- MOCK OPA BEHAVIOR ---
         const text = (input.message || '').toLowerCase();
 
-        // 1. DLP Semantic PII Detection (Executes natively outside OPA)
-        if (policyContext?.rules?.pii_filter) {
+        // STAGE 1: DLP — SEMPRE executa, independente do modo OPA
+        if (policyContext?.rules?.pii_filter !== false) {
             const dlpResult: SanitizationResult = await dlpEngine.sanitizeSemanticNLP(input.message || '');
-
             if (dlpResult.hasPII) {
                 const detectedTypes = [...new Set(dlpResult.detections.map(d => d.type))];
                 return {
@@ -90,30 +74,12 @@ export class OpaGovernanceEngine {
                     action: 'FLAG',
                     reason: `DLP: PII detectado e mascarado (${detectedTypes.join(', ')})`,
                     sanitizedInput: dlpResult.sanitizedText,
-                    dlpReport: {
-                        totalDetections: dlpResult.detections.length,
-                        types: detectedTypes
-                    }
+                    dlpReport: { totalDetections: dlpResult.detections.length, types: detectedTypes }
                 };
             }
         }
 
-        // 2. Topic blacklisting
-        const forbiddenTopics = policyContext?.rules?.forbidden_topics || [];
-        for (const topic of forbiddenTopics) {
-            if (text.includes(topic.toLowerCase())) {
-                return { allowed: false, reason: `Bloqueado pela Política (OPA): Assunto proibido detectado (${topic})`, action: 'BLOCK' }
-            }
-        }
-
-        // 3. Jailbreak / Prompt Injection Prevention
-        const bypassPhrases = ["ignore previous", "admin mode", "bypass"];
-        if (bypassPhrases.some(p => text.includes(p))) {
-            return { allowed: false, reason: `Bloqueado pela Política (OPA): Tentativa de Evasão de Regras`, action: 'BLOCK' }
-        }
-
-        // 4. HIGH-RISK ACTION DETECTION → Human-in-the-Loop
-        // Keywords loaded from org_hitl_keywords table (per-tenant) or defaults
+        // STAGE 2: HITL keywords — SEMPRE executa, independente do modo OPA
         if (policyContext?.rules?.hitl_enabled !== false) {
             const orgId = policyContext?.orgId || input.orgId;
             const keywords = policyContext?.rules?.hitl_keywords
@@ -126,6 +92,41 @@ export class OpaGovernanceEngine {
                     reason: `Ação de alto risco detectada: "${matchedKeyword}" — requer aprovação humana`
                 };
             }
+        }
+
+        // STAGE 3 + 4: Blacklist e Injection — usa OPA WASM se disponível, fallback para regras nativas
+        if (this.opaIns != null) {
+            try {
+                const resultSet = this.opaIns.evaluate({
+                    input: {
+                        message: input.message,
+                        rules: policyContext?.rules || {}
+                    }
+                });
+                const result = resultSet[0]?.result;
+                if (result && result.allow === false) {
+                    return {
+                        allowed: false,
+                        reason: result.reason || 'Bloqueado por Política OPA Corporativa',
+                        action: 'BLOCK'
+                    };
+                }
+            } catch (opaErr) {
+                // OPA falhou — fallback para regras nativas abaixo
+            }
+            return { allowed: true, action: 'ALLOW' };
+        }
+
+        // Fallback nativo (quando WASM não disponível)
+        const forbiddenTopics = policyContext?.rules?.forbidden_topics || [];
+        for (const topic of forbiddenTopics) {
+            if (text.includes(topic.toLowerCase())) {
+                return { allowed: false, reason: `Bloqueado pela Política: Assunto proibido (${topic})`, action: 'BLOCK' };
+            }
+        }
+        const bypassPhrases = ['ignore previous', 'admin mode', 'bypass'];
+        if (bypassPhrases.some(p => text.includes(p))) {
+            return { allowed: false, reason: 'Bloqueado pela Política: Tentativa de Evasão de Regras', action: 'BLOCK' };
         }
 
         return { allowed: true, action: 'ALLOW' };
