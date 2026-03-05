@@ -18,7 +18,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
         const { status = 'pending' } = request.query as { status?: string };
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
             const res = await client.query(
                 `SELECT pa.id, pa.assistant_id, a.name as assistant_name, pa.message, pa.policy_reason, 
@@ -69,7 +69,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
         try {
             // C2-residual FIX: Explicit transaction — if LiteLLM fails, we ROLLBACK the approval
             await client.query('BEGIN');
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
             // C2 FIX: Atomic UPDATE with TTL check (A2: expires_at > NOW())
             const approvalRes = await client.query(
@@ -211,7 +211,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
 
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
             // C2 FIX: Atomic UPDATE RETURNING with TTL check
             const approvalRes = await client.query(

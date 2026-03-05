@@ -115,6 +115,7 @@ docker compose up --build -d
 
 ### 3. Executar migrations
 ```bash
+# Executa as migrations sequencialmente até a 020
 docker exec govai-platform-api-1 bash scripts/migrate.sh
 ```
 
@@ -179,7 +180,7 @@ Prompt → DLP (PII) → Blacklist → Injection Prevention → HITL → LLM
 |---|---|---|
 | 1. **DLP/PII** | CPF, CNPJ, Email, PIX, CEP, RG, Luhn (cartão), Presidio NLP | `FLAG` |
 | 2. **Blacklist** | Tópicos proibidos configuráveis | `BLOCK` |
-| 3. **Injection** | "ignore previous", "admin mode", "bypass" | `BLOCK` |
+| 3. **Injection** | "ignore previous", "bypass" (Motor OPA WASM Nativo) | `BLOCK` |
 | 4. **HITL** | Palavras de alto risco (financeiros, transferência) | `PENDING_APPROVAL` |
 
 ### Caixa Negra (BYOK)
@@ -286,7 +287,7 @@ govai-platform/
 │   └── app.py                       # FastAPI /analyze + /anonymize
 ├── scripts/
 │   └── migrate.sh                   # Sequential migration runner
-├── *.sql                            # 6 migrations (init + 011-015)
+├── *.sql                            # 10 migrations (init + 011-020)
 ├── docker-compose.yml               # 6 services orchestrated
 ├── Dockerfile                       # Multi-stage API build
 ├── .env.example                     # 20+ environment variables

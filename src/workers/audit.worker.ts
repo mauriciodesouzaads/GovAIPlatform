@@ -20,6 +20,8 @@ export const initAuditWorker = () => {
         const client = await pgPool.connect();
         try {
             await client.query('BEGIN');
+            // FIX: Impersonate the tenant so RLS allows inserts into audit_logs_partitioned
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [org_id]);
 
             // Verify the signature before inserting to prevent tampering in the queue
             const expectedSignature = crypto.createHmac('sha256', process.env.SIGNING_SECRET!).update(JSON.stringify(metadata)).digest('hex');

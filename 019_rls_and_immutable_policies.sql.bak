@@ -9,7 +9,7 @@ BEGIN
 -- ATENÇÃO: Execute este script substituindo GOVAI_APP_PASSWORD pela senha real
 -- Exemplo: psql -v APP_PASS='senha_forte' -f 019_rls_and_immutable_policies.sql
 -- e usar: WITH PASSWORD :'APP_PASS'
-    CREATE USER govai_app WITH PASSWORD '0aeba1c07f037e6f3bb436f8dc76091a';
+    CREATE USER govai_app WITH PASSWORD 'GOVAI_APP_PASSWORD_PLACEHOLDER';
 -- Em produção, altere a senha imediatamente após a migration:
 -- ALTER USER govai_app WITH PASSWORD 'sua_senha_forte_aqui';
   END IF;

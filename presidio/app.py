@@ -19,8 +19,17 @@ from presidio_anonymizer import AnonymizerEngine
 
 app = FastAPI(title="GovAI Presidio NLP", version="1.0.0")
 
+from presidio_analyzer.nlp_engine import NlpEngineProvider
+
+# Explicitly configure PT engine to avoid dynamic download of en_core_web_lg at runtime
+provider = NlpEngineProvider(nlp_configuration={
+    "nlp_engine_name": "spacy",
+    "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]
+})
+nlp_engine = provider.create_engine()
+
 # Initialize engines once at startup
-analyzer = AnalyzerEngine()
+analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["pt"])
 anonymizer = AnonymizerEngine()
 
 

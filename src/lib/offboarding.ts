@@ -22,7 +22,7 @@ export async function exportTenantData(pgPool: Pool, orgId: string): Promise<Ten
     const result: TenantExportRow[] = [];
 
     try {
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+        await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
         // Export all tenant-scoped tables
         const tables = [

@@ -26,7 +26,7 @@ export async function checkQuota(
 ): Promise<QuotaStatus> {
     const client = await pgPool.connect();
     try {
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+        await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
         // Fetch the most specific quota (assistant > org)
         const quotaRes = await client.query(`
@@ -72,7 +72,7 @@ export async function recordTokenUsage(
     const client = await pgPool.connect();
     try {
         await client.query('BEGIN');
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+        await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
         // 1. Insert into ledger
         await client.query(

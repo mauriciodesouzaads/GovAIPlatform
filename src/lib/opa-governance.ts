@@ -97,12 +97,16 @@ export class OpaGovernanceEngine {
         // STAGE 3 + 4: Blacklist e Injection — usa OPA WASM se disponível, fallback para regras nativas
         if (this.opaIns != null) {
             try {
-                const resultSet = this.opaIns.evaluate({
+                const payload = {
                     input: {
                         message: input.message,
                         rules: policyContext?.rules || {}
                     }
-                });
+                };
+                console.log("[OPA WASM DEBUG] Payload sent to evaluate:", JSON.stringify(payload));
+                const resultSet = this.opaIns.evaluate(payload);
+                console.log("[OPA WASM DEBUG] ResultSet from WASM:", JSON.stringify(resultSet));
+
                 const result = resultSet[0]?.result;
                 if (result && result.allow === false) {
                     return {

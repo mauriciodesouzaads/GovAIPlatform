@@ -130,7 +130,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
 
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
             const [assistantsRes, totalExecsRes, violationsRes, tokensRes] = await Promise.all([
                 client.query('SELECT COUNT(*) FROM assistants'),
@@ -183,7 +183,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         const client = await pgPool.connect();
 
         try {
-            await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
             // Security: List only logs from my organization using RLS isolation
             const res = await client.query(

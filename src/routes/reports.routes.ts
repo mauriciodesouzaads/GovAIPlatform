@@ -20,7 +20,7 @@ export async function reportsRoutes(app: FastifyInstance, opts: { pgPool: Pool; 
 
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
             // 1. Assistants inventory
             const assistantsRes = await client.query(
@@ -123,7 +123,7 @@ export async function reportsRoutes(app: FastifyInstance, opts: { pgPool: Pool; 
 
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
             const logsRes = await client.query(
                 `SELECT id, action, metadata, signature, created_at 

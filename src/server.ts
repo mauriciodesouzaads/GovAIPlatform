@@ -218,7 +218,7 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
 
     try {
         // 1. RLS: Define context for current org
-        await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
+        await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
         // 1.a FinOps Quota Enforcement
         const quota = await checkQuota(pgPool, orgId, assistantId);
@@ -264,7 +264,9 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
         if (!opaEngine['pool']) {
             const fs = require('fs');
             const path = require('path');
-            const wasmPath = path.join(process.cwd(), 'src/lib/opa/policy.wasm');
+            const wasmPathProd = path.join(__dirname, 'lib/opa/policy.wasm');
+            const wasmPathDev = path.join(process.cwd(), 'src/lib/opa/policy.wasm');
+            const wasmPath = fs.existsSync(wasmPathProd) ? wasmPathProd : wasmPathDev;
             const wasmBuffer = fs.existsSync(wasmPath) ? fs.readFileSync(wasmPath) : undefined;
             if (!wasmBuffer) fastify.log.warn("OPA WASM policy not found at " + wasmPath);
             await opaEngine.initialize(wasmBuffer, pgPool);
@@ -550,6 +552,7 @@ fastify.get('/v1/docs/openapi.json', async (_request, reply) => {
         components: { securitySchemes: { BearerAuth: { type: 'http', scheme: 'bearer', description: 'API Key (sk-govai-...)' } } }
     });
 });
+*/
 
 // --- OFFBOARDING: Tenant Data Export (Pilar 4) ---
 import { exportTenantData, exportToCSV, generateDueDiligencePDF } from './lib/offboarding';
@@ -598,6 +601,4 @@ const start = async () => {
         process.exit(1);
     }
 };
-
 start();
-*/

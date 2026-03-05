@@ -145,7 +145,7 @@ describe('[E2E-PG] Full Execution Pipeline with Realistic Transactions', () => {
         const client = await mockPool.connect();
 
         // 1. RLS context
-        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, ['org-banco-central']);
+        await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, ['org-banco-central']);
         expect(executedQueries[0]).toContain('set_config');
 
         // 2. Fetch assistant version
@@ -194,14 +194,14 @@ describe('[E2E-PG] Full Execution Pipeline with Realistic Transactions', () => {
 
         // Org A queries their own data
         const clientA = await mockPool.connect();
-        await clientA.query(`SELECT set_config('app.current_org_id', $1, true)`, ['org-A']);
+        await clientA.query(`SELECT set_config('app.current_org_id', \$1, false)`, ['org-A']);
         const resA = await clientA.query('SELECT * FROM assistants WHERE org_id = $1', ['org-A']);
         expect(resA.rows).toHaveLength(1);
         clientA.release();
 
         // Org B queries — should get nothing (RLS blocks)
         const clientB = await mockPool.connect();
-        await clientB.query(`SELECT set_config('app.current_org_id', $1, true)`, ['org-B']);
+        await clientB.query(`SELECT set_config('app.current_org_id', \$1, false)`, ['org-B']);
         const resB = await clientB.query('SELECT * FROM assistants WHERE org_id = $1', ['org-B']);
         expect(resB.rows).toHaveLength(0);
         clientB.release();

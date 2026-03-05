@@ -19,7 +19,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
             const res = await client.query(`
                 SELECT a.id, a.name, a.status, a.created_at, 
@@ -45,7 +45,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
             const res = await client.query('SELECT id, name, prefix, is_active, created_at, expires_at FROM api_keys ORDER BY created_at DESC');
             return reply.send(res.rows);
         } catch (error) {
@@ -70,7 +70,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
             const res = await client.query(
                 'INSERT INTO api_keys (org_id, name, key_hash, prefix) VALUES ($1, $2, $3, $4) RETURNING id, prefix, created_at',
                 [orgId, name, keyHash, prefix]
@@ -93,7 +93,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         const { keyId } = request.params as { keyId: string };
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
             await client.query('UPDATE api_keys SET is_active = FALSE WHERE id = $1', [keyId]);
             return reply.send({ message: 'Chave revogada com sucesso.' });
         } catch (error) {
@@ -109,7 +109,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         const orgId = request.headers['x-org-id'] as string;
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
             const res = await client.query("SELECT id, name, version FROM policy_versions ORDER BY created_at DESC");
             return reply.send(res.rows);
         } finally { client.release(); }
@@ -119,7 +119,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         const orgId = request.headers['x-org-id'] as string;
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
             const res = await client.query("SELECT id, name, base_url, status FROM mcp_servers WHERE status = 'active' ORDER BY name ASC");
             return reply.send(res.rows);
         } finally { client.release(); }
@@ -137,7 +137,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
             // Iniciar Transação SQL (Atômica)
             await client.query('BEGIN');
@@ -210,7 +210,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
             await client.query('BEGIN');
 
@@ -273,7 +273,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
             const res = await client.query(
                 'INSERT INTO knowledge_bases (org_id, assistant_id, name) VALUES ($1, $2, $3) RETURNING id, name, created_at',
                 [orgId, assistantId, name || 'Base Padrão']

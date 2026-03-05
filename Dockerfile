@@ -11,7 +11,7 @@ COPY tsconfig.json ./
 COPY src ./src
 
 RUN npm run build
-
+RUN mkdir -p /app/dist/lib/opa && cp /app/src/lib/opa/policy.wasm /app/dist/lib/opa/ || echo "No WASM module present, continuing"
 # Test stage — retains devDependencies for running Vitest inside Docker
 FROM node:20-alpine AS test
 
@@ -32,11 +32,11 @@ WORKDIR /app
 # Non-root user for security
 RUN addgroup -g 1001 -S govai && adduser -S govai -u 1001 -G govai
 
-COPY --from=builder /prod_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package.json ./
+COPY --chown=govai:govai --from=builder /prod_modules ./node_modules
+COPY --chown=govai:govai --from=builder /app/dist ./dist
+COPY --chown=govai:govai --from=builder /app/package.json ./
 # Copy scripts for migration
-COPY scripts ./scripts
+COPY --chown=govai:govai scripts ./scripts
 
 USER govai
 
