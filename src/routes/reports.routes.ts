@@ -5,10 +5,10 @@ import { dlpEngine } from '../lib/dlp-engine';
 import crypto from 'crypto';
 import { generateComplianceReport } from '../lib/compliance-report';
 
-export async function reportsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any }) {
-    const { pgPool, requireAdminAuth } = opts;
+export async function reportsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any }) {
+    const { pgPool, requireAdminAuth, requireRole } = opts;
 
-    app.get('/v1/admin/reports/compliance', { preHandler: requireAdminAuth }, async (request, reply) => {
+    app.get('/v1/admin/reports/compliance', { preHandler: requireRole(['admin', 'dpo', 'auditor', 'sre']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -113,7 +113,7 @@ export async function reportsRoutes(app: FastifyInstance, opts: { pgPool: Pool; 
     });
 
     // CSV Export — Full audit log without record limits
-    app.get('/v1/admin/reports/compliance/csv', { preHandler: requireAdminAuth }, async (request, reply) => {
+    app.get('/v1/admin/reports/compliance/csv', { preHandler: requireRole(['admin', 'dpo', 'auditor']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 

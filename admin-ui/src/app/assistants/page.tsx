@@ -5,8 +5,9 @@ import axios from 'axios';
 import { Users, Plus, Upload, Database, FileText, CheckCircle2 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 
-interface Assistant { id: string; name: string; status: string; created_at: string; }
-interface KnowledgeBase { id: string; name: string; created_at: string; }export default function AssistantsPage() {
+interface Assistant { id: string; name: string; status: string; created_at: string; draft_version_id?: string; }
+interface KnowledgeBase { id: string; name: string; created_at: string; }
+export default function AssistantsPage() {
     const [assistants, setAssistants] = useState<Assistant[]>([]);
     const [loading, setLoading] = useState(true);
     const [newName, setNewName] = useState('');
@@ -27,9 +28,10 @@ interface KnowledgeBase { id: string; name: string; created_at: string; }export 
     const [uploading, setUploading] = useState(false);
     const [uploadResult, setUploadResult] = useState<string | null>(null);
 
-
-
-    const fetchAssistants = async () => {
+    // Homologation State
+    const [publishModalAst, setPublishModalAst] = useState<Assistant | null>(null);
+    const [publishing, setPublishing] = useState(false);
+    const [checklist, setChecklist] = useState({ data_privacy: false, injection_mitigation: false, legal_review: false }); const fetchAssistants = async () => {
         try {
             const res = await axios.get(`${API_BASE}/v1/admin/assistants`);
             setAssistants(res.data);
@@ -116,6 +118,23 @@ interface KnowledgeBase { id: string; name: string; created_at: string; }export 
         finally { setUploading(false); }
     };
 
+    const handlePublish = async () => {
+        if (!publishModalAst || !publishModalAst.draft_version_id) return;
+        setPublishing(true);
+        try {
+            await axios.post(`${API_BASE}/v1/admin/assistants/${publishModalAst.id}/versions/${publishModalAst.draft_version_id}/approve`, {
+                checklist
+            });
+            setPublishModalAst(null);
+            setChecklist({ data_privacy: false, injection_mitigation: false, legal_review: false });
+            fetchAssistants();
+        } catch (e: any) {
+            alert(e.response?.data?.error || "Erro ao publicar");
+        } finally {
+            setPublishing(false);
+        }
+    };
+
     return (
         <div className="flex-1 overflow-auto p-8 bg-background">
             <div className="max-w-6xl mx-auto space-y-8">
@@ -186,11 +205,17 @@ interface KnowledgeBase { id: string; name: string; created_at: string; }export 
                                 </div>
                                 <h3 className="font-semibold text-lg">{ast.name}</h3>
                                 <p className="text-xs text-muted-foreground font-mono mt-1 truncate">{ast.id}</p>
-                                <div className="mt-4 pt-4 border-t border-border">
+                                <div className="mt-4 pt-4 border-t border-border flex flex-col gap-2">
                                     <button onClick={() => startRAG(ast.id)}
                                         className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 transition-colors">
                                         <Database className="w-4 h-4" /> Alimentar com Conhecimento (RAG)
                                     </button>
+                                    {ast.status === 'draft' && ast.draft_version_id && (
+                                        <button onClick={() => setPublishModalAst(ast)}
+                                            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-green-500/10 text-green-500 hover:bg-green-500/20 transition-colors">
+                                            <CheckCircle2 className="w-4 h-4" /> Homologar Versão
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         ))
@@ -229,6 +254,44 @@ interface KnowledgeBase { id: string; name: string; created_at: string; }export 
                                 <CheckCircle2 className="w-4 h-4 shrink-0" /> {uploadResult}
                             </div>
                         )}
+                    </div>
+                )}
+
+                {/* Homologation Modal */}
+                {publishModalAst && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                        <div className="bg-card w-full max-w-lg rounded-2xl p-6 shadow-2xl border border-border">
+                            <h3 className="text-xl font-bold mb-2">Homologação de Agente</h3>
+                            <p className="text-sm text-muted-foreground mb-6">
+                                Você está publicando o agente <strong className="text-foreground">{publishModalAst.name}</strong>. Assine o Termo de Ajustamento de Conduta confirmando as validações abaixo.
+                            </p>
+
+                            <div className="space-y-4 mb-8">
+                                <label className="flex items-start gap-3 cursor-pointer">
+                                    <input type="checkbox" checked={checklist.data_privacy} onChange={(e) => setChecklist(c => ({ ...c, data_privacy: e.target.checked }))} className="mt-1" />
+                                    <span className="text-sm">Confirmo que as configurações de DLP e PII (LGPD Art. 46) estão ativadas e configuradas adequadamente para o grau de sigilo das informações que o assistente terá acesso.</span>
+                                </label>
+                                <label className="flex items-start gap-3 cursor-pointer">
+                                    <input type="checkbox" checked={checklist.injection_mitigation} onChange={(e) => setChecklist(c => ({ ...c, injection_mitigation: e.target.checked }))} className="mt-1" />
+                                    <span className="text-sm">Validei as mitigações contra Prompt Injection e entendo que nenhum dado restrito pode ser forçado para extração por técnicas de jailbreak.</span>
+                                </label>
+                                <label className="flex items-start gap-3 cursor-pointer">
+                                    <input type="checkbox" checked={checklist.legal_review} onChange={(e) => setChecklist(c => ({ ...c, legal_review: e.target.checked }))} className="mt-1" />
+                                    <span className="text-sm">Esta versão foi submetida a revisão do DPO/DSO jurídico, liberando para operação corporativa em conformidade com as diretrizes e responsabilidades da Lei n° 13.709/2018.</span>
+                                </label>
+                            </div>
+
+                            <div className="flex justify-end gap-3">
+                                <button onClick={() => setPublishModalAst(null)} disabled={publishing}
+                                    className="px-4 py-2 text-sm font-medium hover:bg-secondary rounded-lg transition-colors">
+                                    Cancelar
+                                </button>
+                                <button onClick={handlePublish} disabled={publishing || !Object.values(checklist).every(Boolean)}
+                                    className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+                                    <CheckCircle2 className="w-4 h-4" /> {publishing ? 'Assinando...' : 'Assinar e Publicar'}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>

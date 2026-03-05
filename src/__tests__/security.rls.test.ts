@@ -10,6 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { McpServerSchema, ConnectorVersionGrantSchema } from '../lib/mcp';
 import { CryptoService } from '../lib/crypto-service';
 import { IntegrityService } from '../lib/governance';
+import { LocalKmsAdapter } from '../lib/kms';
 
 // Simulated UUIDs representing two distinct tenants
 const ORG_A = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -130,25 +131,26 @@ describe('[RLS] MCP Grant — Cross-Tenant Privilege Escalation', () => {
 // ─────────────────────────────────────────
 describe('[RLS] Caixa Negra — Org-Scoped Encryption Key Isolation', () => {
 
-    it('🔥 Org B cannot decrypt Org A encrypted payload (different master keys)', () => {
+    it('🔥 Org B cannot decrypt Org A encrypted payload (different master keys)', async () => {
         // Each org has a unique 32-char key derived from their ID
         const keyA = 'ORG_A_master_key_for_BYOK_32chr!';
         const keyB = 'ORG_B_master_key_for_BYOK_32chr!';
 
-        const svcA = new CryptoService(keyA);
-        const svcB = new CryptoService(keyB);
+        const svcA = new CryptoService(new LocalKmsAdapter(keyA));
+        const svcB = new CryptoService(new LocalKmsAdapter(keyB));
 
         const orgAPrompt = 'Transferência de R$ 500.000 para conta-fantasma';
-        const encrypted = svcA.encryptPayload(orgAPrompt);
+        const encrypted = await svcA.encryptPayload(orgAPrompt);
 
         // Org B attempts to decrypt Org A's blob — MUST fail
-        expect(() => {
+        await expect(
             svcB.decryptPayload(
                 encrypted.content_encrypted_bytes,
                 encrypted.iv_bytes,
-                encrypted.auth_tag_bytes
-            );
-        }).toThrow();
+                encrypted.auth_tag_bytes,
+                encrypted.encrypted_dek
+            )
+        ).rejects.toThrow();
     });
 
     it('HMAC signature is tenant-scoped: Org A signature does not validate for Org B payload', () => {

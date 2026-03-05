@@ -242,7 +242,56 @@ export function generateComplianceReport(data: ComplianceReportData): Promise<Bu
 
         doc.fontSize(8.5).font('Helvetica').fillColor(COLORS.secondary).lineGap(2)
             .text(conclusaoText, 55, y, { width: 495, align: 'justify' });
-        y += 35;
+        y += 45;
+
+        // ===== SECTION 5: MAPEAMENTO ARQUITETURAL LEGAL =====
+        y = checkPageBreak(doc, y, 150);
+        y = drawSectionTitle(doc, '5. Mapeamento Arquitetural e Regulatório', y);
+
+        const mapHeaders = ['Controle Técnico', 'Mitigação', 'Amparo Legal'];
+        const mapWidths = [120, 260, 115];
+        y = drawTableHeader(doc, mapHeaders, mapWidths, y);
+
+        const mappings = [
+            ['Criptografia AES-256-GCM', 'Protege dados em repouso (Data at Rest) contra vazamentos.', 'LGPD Art. 46 (Segurança)'],
+            ['Hashing HMAC-SHA256', 'Garante a imutabilidade e integridade dos logs de auditoria.', 'BCB 4.557 Art. 21 (Integridade)'],
+            ['Motor OPA (4 Estágios)', 'Bloqueia PII/PHI e tentativas de injeção em tempo real.', 'LGPD Art. 50 (Boas Práticas)'],
+            ['HITL (Quarentena)', 'Revisão humana de transações bloqueadas na fronteira.', 'BCB 4.658 (Controle de Risco)'],
+            ['RBAC & OIDC/SSO', 'Garante o princípio do Menor Privilégio no acesso ao Control Plane.', 'LGPD Art. 37 (Registro de Op)'],
+        ];
+
+        mappings.forEach((row, i) => {
+            y = checkPageBreak(doc, y);
+            y = drawTableRow(doc, row, mapWidths, y, i % 2 === 0);
+        });
+
+        // ===== SECTION 6: ASSINATURA E VALIDAÇÃO =====
+        y += 40;
+        y = checkPageBreak(doc, y, 120);
+
+        doc.fontSize(8.5).font('Helvetica-Bold').fillColor(COLORS.primary)
+            .text('TERMO DE RESPONSABILIDADE', 55, y, { align: 'center', width: 495 });
+        y += 15;
+        doc.fontSize(8).font('Helvetica').fillColor(COLORS.secondary)
+            .text('Declaro que os logs gerados por esta plataforma (trace_id e assinatura digital) foram analisados sob a ótica dos frameworks de conformidade corporativos, sendo as mitigações (DLP, OPA, RLS) suficientes para garantir o tráfego seguro de dados através da API LLM.', 55, y, { width: 495, align: 'justify' });
+
+        y += 50;
+
+        // Signature Lines
+        doc.moveTo(100, y).lineTo(250, y).strokeColor(COLORS.border).lineWidth(1).stroke();
+        doc.moveTo(345, y).lineTo(495, y).strokeColor(COLORS.border).lineWidth(1).stroke();
+
+        y += 5;
+        doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.primary);
+        doc.text('Analista SecOps / SRE', 100, y, { width: 150, align: 'center' });
+        doc.text('Encarregado de Dados (DPO)', 345, y, { width: 150, align: 'center' });
+
+        y += 10;
+        doc.fontSize(7).font('Helvetica').fillColor(COLORS.secondary);
+        doc.text('Assinatura Digital / Data', 100, y, { width: 150, align: 'center' });
+        doc.text('Assinatura Digital / Data', 345, y, { width: 150, align: 'center' });
+
+        y += 20;
 
         // ===== FOOTER (all pages) =====
         const pages = doc.bufferedPageRange();

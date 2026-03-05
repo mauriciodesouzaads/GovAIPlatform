@@ -124,20 +124,20 @@ ALTER TABLE knowledge_bases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs_partitioned ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY org_isolation_api_keys ON api_keys 
-    FOR ALL USING (org_id = current_setting('app.current_org_id')::UUID);
+    FOR ALL USING (org_id = current_setting('app.current_org_id', true)::UUID);
 
 CREATE POLICY org_isolation ON assistants 
-    FOR ALL USING (org_id = current_setting('app.current_org_id')::UUID);
+    FOR ALL USING (org_id = current_setting('app.current_org_id', true)::UUID);
 
 CREATE POLICY org_isolation_knowledge ON knowledge_bases 
-    FOR ALL USING (org_id = current_setting('app.current_org_id')::UUID);
+    FOR ALL USING (org_id = current_setting('app.current_org_id', true)::UUID);
 
 CREATE POLICY org_audit_isolation ON audit_logs_partitioned 
-    FOR SELECT USING (org_id = current_setting('app.current_org_id')::UUID);
+    FOR SELECT USING (org_id = current_setting('app.current_org_id', true)::UUID);
 
 ALTER TABLE pending_approvals ENABLE ROW LEVEL SECURITY;
 CREATE POLICY org_isolation_approvals ON pending_approvals 
-    FOR ALL USING (org_id = current_setting('app.current_org_id')::UUID);
+    FOR ALL USING (org_id = current_setting('app.current_org_id', true)::UUID);
 
 -- 5. Trigger de Imutabilidade Estrita
 CREATE OR REPLACE FUNCTION protect_audit_logs() RETURNS TRIGGER AS $$
@@ -162,7 +162,21 @@ CREATE TRIGGER trg_assistants_updated_at BEFORE UPDATE ON assistants
 FOR EACH ROW EXECUTE FUNCTION update_modified_column();
 
 -- 8. Setup Inicial de Teste (Mock Data)
-INSERT INTO organizations (id, name) VALUES ('00000000-0000-0000-0000-000000000001', 'Banco Fictício SA') ON CONFLICT DO NOTHING;
--- Injetar chave de teste 'sk-govai-test-key' (que passaria pelo SHA256 na vida real, mas simularemos para não quebrar testes)
-INSERT INTO api_keys (id, org_id, name, key_hash, prefix) VALUES ('22222222-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000001', 'Test Key', 'hashed_value_here', 'sk-go') ON CONFLICT DO NOTHING;
-INSERT INTO assistants (id, org_id, name, status) VALUES ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000001', 'Análise de Risco V1', 'published') ON CONFLICT DO NOTHING;
+-- Movido para scripts/demo-seed.sh exclusivamente (MEL-02: Isolamento de Produção)
+
+-- MEL-05: Criar política RLS específica para o expiration worker
+CREATE POLICY expiration_worker_policy ON pending_approvals
+    FOR UPDATE
+    USING (status = 'pending' AND expires_at <= NOW())
+    WITH CHECK (status = 'expired');
+
+-- [BUG-03] Policy Immutability
+CREATE OR REPLACE FUNCTION prevent_version_mutation_func() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.status != 'draft' THEN
+        RAISE EXCEPTION 'Cannot mutate published or archived versions: %', OLD.id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER prevent_version_mutation BEFORE UPDATE ON policy_versions FOR EACH ROW EXECUTE FUNCTION prevent_version_mutation_func();

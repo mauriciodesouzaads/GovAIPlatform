@@ -6,6 +6,7 @@ const redisConfigUrl = new URL(process.env.REDIS_URL || 'redis://localhost:6379'
 const connection = {
     host: redisConfigUrl.hostname,
     port: parseInt(redisConfigUrl.port || '6379'),
+    maxRetriesPerRequest: null
 };
 
 export const telemetryQueue = new Queue('telemetry', { connection });
@@ -32,7 +33,7 @@ export function initTelemetryWorker(pgPool: Pool) {
                     type: 'generation',
                     id: traceId,
                     timestamp: new Date().toISOString(),
-                    model: 'gemini-1.5-flash',
+                    model: job.data.model || 'gemini-1.5-flash',
                     usage: {
                         promptTokens: tokens?.prompt || 0,
                         completionTokens: tokens?.completion || 0,

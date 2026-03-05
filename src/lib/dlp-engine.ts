@@ -376,14 +376,16 @@ export class DLPEngine {
         const presidioUrl = process.env.PRESIDIO_URL || 'http://localhost:5001/analyze';
 
         try {
-            // Simulated Axios Call to Presidio Microsoft API
-            // const response = await axios.post(presidioUrl, { text: localSanitized.sanitizedText, language: "pt" });
-            // Let's assume the mock returns clean text for now until the Python microservice is up
+            const axios = require('axios');
+            const response = await axios.post(presidioUrl, { text: localSanitized.sanitizedText, language: "pt" });
+
+            const presidioDetections = response.data.detections || [];
+            const mergedDetections = [...localSanitized.detections, ...presidioDetections];
 
             return {
-                sanitizedText: localSanitized.sanitizedText, // In reality, replace with Presidio's redacted text
-                detections: localSanitized.detections,
-                hasPII: localSanitized.hasPII
+                sanitizedText: response.data.sanitized_text || localSanitized.sanitizedText,
+                detections: mergedDetections,
+                hasPII: localSanitized.hasPII || response.data.has_pii || presidioDetections.length > 0
             };
         } catch (e) {
             console.warn("[DLP NLP] Presidio Semantic API unavailable. Falling back to Tier 1 Regex.");

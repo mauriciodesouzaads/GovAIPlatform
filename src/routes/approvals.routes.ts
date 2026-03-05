@@ -5,12 +5,13 @@ import { dlpEngine } from '../lib/dlp-engine';
 import { auditQueue } from '../workers/audit.worker';
 import axios from 'axios';
 import crypto from 'crypto';
+import { checkQuota, recordTokenUsage, getCostPerToken } from '../lib/finops';
+import { telemetryQueue } from '../server';
 
+export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any }) {
+    const { pgPool, requireAdminAuth, requireRole } = opts;
 
-export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any }) {
-    const { pgPool, requireAdminAuth } = opts;
-
-    app.get('/v1/admin/approvals', { preHandler: requireAdminAuth }, async (request, reply) => {
+    app.get('/v1/admin/approvals', { preHandler: requireRole(['sre', 'admin', 'dpo', 'operator']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -28,7 +29,26 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
              ORDER BY pa.created_at DESC`,
                 [status]
             );
-            return reply.send(res.rows);
+            const rows = res.rows.map(row => {
+                let risk_level = 'low';
+                let justification = row.policy_reason || 'Interceptação Manual';
+
+                if (justification.toLowerCase().includes('pix') || justification.toLowerCase().includes('cpf') || justification.toLowerCase().includes('senha')) {
+                    risk_level = 'high';
+                } else if (justification.toLowerCase().includes('financeiro') || justification.toLowerCase().includes('confidencial') || justification.toLowerCase().includes('injection')) {
+                    risk_level = 'high';
+                } else if (justification.toLowerCase().includes('email') || justification.toLowerCase().includes('telefone')) {
+                    risk_level = 'medium';
+                }
+
+                return {
+                    ...row,
+                    risk_level,
+                    justification
+                };
+            });
+
+            return reply.send(rows);
         } catch (error) {
             app.log.error(error, "Error fetching approvals");
             reply.status(500).send({ error: "Erro ao buscar aprovações" });
@@ -38,7 +58,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
     });
 
     // Approve a pending request (executes the AI call)
-    app.post('/v1/admin/approvals/:approvalId/approve', { preHandler: requireAdminAuth }, async (request, reply) => {
+    app.post('/v1/admin/approvals/:approvalId/approve', { preHandler: requireRole(['sre', 'admin']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -93,6 +113,12 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
                 }
             } catch { /* RAG optional */ }
 
+            const quota = await checkQuota(pgPool, orgId, approval.assistant_id);
+            if (quota.exceeded) {
+                await client.query('ROLLBACK');
+                return reply.status(429).send({ error: "Limite da cota de uso mensal (Hard Cap) excedido." });
+            }
+
             const messages: { role: string; content: string }[] = [];
             if (ragContext) {
                 messages.push({ role: 'system', content: `Use the following proprietary knowledge base context to answer the user's question.\n\n---\n${ragContext}\n---` });
@@ -100,6 +126,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
             messages.push({ role: 'user', content: approval.message });
 
             let aiResponse;
+            const execStart = Date.now();
             try {
                 aiResponse = await axios.post(`${process.env.LITELLM_URL}/chat/completions`, {
                     model: process.env.AI_MODEL || 'gemini/gemini-1.5-flash',
@@ -134,6 +161,26 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
                 traceId: approval.trace_id
             }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
 
+            // 6. FinOps and Telemetry
+            const tokensPrompt = aiResponse.data.usage?.prompt_tokens || 0;
+            const tokensCompletion = aiResponse.data.usage?.completion_tokens || 0;
+            const aiModel = process.env.AI_MODEL || "gemini-1.5-flash";
+            const costUsd = (aiResponse.data.usage?.total_tokens || 0) * getCostPerToken(aiModel);
+            const latencyMs = Date.now() - execStart;
+
+            await recordTokenUsage(pgPool, orgId, approval.assistant_id, tokensPrompt, tokensCompletion, costUsd, approval.trace_id)
+                .catch((e: Error) => app.log.error(e, 'Failed to update FinOps ledger'));
+
+            await telemetryQueue.add('export-metrics', {
+                org_id: orgId,
+                assistant_id: approval.assistant_id,
+                traceId: approval.trace_id,
+                tokens: aiResponse.data.usage,
+                cost: costUsd,
+                latency_ms: latencyMs,
+                model: aiModel
+            }, { removeOnComplete: true });
+
             // COMMIT transaction only after AI execution succeeds
             await client.query('COMMIT');
             app.log.info({ orgId, approvalId, reviewer: user?.email }, 'HITL: Execution approved and completed');
@@ -154,7 +201,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
     });
 
     // Reject a pending request
-    app.post('/v1/admin/approvals/:approvalId/reject', { preHandler: requireAdminAuth }, async (request, reply) => {
+    app.post('/v1/admin/approvals/:approvalId/reject', { preHandler: requireRole(['sre', 'admin']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 

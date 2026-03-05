@@ -3,22 +3,23 @@ import { Pool } from 'pg';
 import { IntegrityService, ActionType } from '../lib/governance';
 import { dlpEngine } from '../lib/dlp-engine';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 
 
 /**
  * Admin Routes Plugin — extracted from server.ts (DT-3 Refactoring)
- * Encapsulates all /v1/admin/* endpoints behind requireAdminAuth.
+ * Encapsulates all /v1/admin/* endpoints behind requireAdminAuth or requireRole.
  */
-export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any }) {
-    const { pgPool, requireAdminAuth } = opts;
+export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any }) {
+    const { pgPool, requireAdminAuth, requireRole } = opts;
 
     // --- ADMIN ROUTES ---
 
-    // 0. Login — with strict brute-force protection (R5 FIX)
+    // 0. Login — with robust DB check & Force Password Reset (Sprint 8)
     app.post('/v1/admin/login', {
         config: {
             rateLimit: {
-                max: 5,                    // Max 5 login attempts per minute per IP
+                max: 5,
                 timeWindow: '1 minute',
                 keyGenerator: (request: FastifyRequest) => request.ip,
                 errorResponseBuilder: (_request: FastifyRequest, context: any) => ({
@@ -29,23 +30,94 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         }
     }, async (request, reply) => {
         const { email, password } = request.body as any;
+        const client = await pgPool.connect();
 
-        // Hardcoded for demo/MVP
-        const adminEmail = process.env.ADMIN_EMAIL || 'admin@govai.com';
-        const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
+        try {
+            const res = await client.query(
+                `SELECT id, org_id, password_hash, role, requires_password_change 
+                 FROM users WHERE email = $1 AND sso_provider = 'local'`,
+                [email]
+            );
 
-        if (email === adminEmail && password === adminPassword) {
+            if (res.rows.length === 0) {
+                return reply.status(401).send({ error: 'Credenciais inválidas.' });
+            }
+
+            const user = res.rows[0];
+
+            if (!user.password_hash) {
+                return reply.status(401).send({ error: 'Conta não configurada para login local.' });
+            }
+
+            const isValid = await bcrypt.compare(password, user.password_hash);
+            if (!isValid) {
+                return reply.status(401).send({ error: 'Credenciais inválidas.' });
+            }
+
+            // Force password reset logic
+            if (user.requires_password_change) {
+                // Return a temporary token specifically for password reset
+                const resetToken = app.jwt.sign({ email, userId: user.id, orgId: user.org_id, resetOnly: true }, { expiresIn: '15m' });
+                return reply.status(403).send({
+                    error: 'Troca de senha obrigatória no primeiro login.',
+                    requires_password_change: true,
+                    resetToken
+                });
+            }
+
             const token = app.jwt.sign({
                 email,
-                role: 'admin',
-                // Hardcode orgId for demo
-                orgId: '00000000-0000-0000-0000-000000000001'
+                role: user.role,
+                orgId: user.org_id,
+                userId: user.id
             }, { expiresIn: '8h' });
 
-            return reply.send({ token, message: 'Login successful' });
+            return reply.send({ token, message: 'Login successful', role: user.role });
+        } catch (error) {
+            app.log.error(error, "Login error");
+            return reply.status(500).send({ error: 'Erro interno ao processar login.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // 0.1 Change Password endpoint for Force Reset
+    app.post('/v1/admin/change-password', async (request, reply) => {
+        // We use manual inspection instead of requireAdminAuth because the token is resetOnly: true
+        const authHeader = request.headers.authorization;
+        if (!authHeader) return reply.status(401).send({ error: "Token não fornecido" });
+
+        const token = authHeader.split(' ')[1];
+        let decoded: any;
+        try {
+            decoded = app.jwt.verify(token);
+        } catch (e) {
+            return reply.status(401).send({ error: "Token de redefinição inválido ou expirado." });
         }
 
-        return reply.status(401).send({ error: 'Invalid credentials' });
+        if (!decoded.resetOnly) {
+            return reply.status(400).send({ error: "Este token não é válido para troca de senha obrigatória." });
+        }
+
+        const { newPassword } = request.body as any;
+        if (!newPassword || newPassword.length < 12) {
+            return reply.status(400).send({ error: "A nova senha corporativa deve ter no mínimo 12 caracteres." });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            const hash = await bcrypt.hash(newPassword, 12);
+            await client.query(
+                `UPDATE users SET password_hash = $1, requires_password_change = false WHERE id = $2`,
+                [hash, decoded.userId]
+            );
+            return reply.send({ success: true, message: "Senha alterada com sucesso. Faça login novamente." });
+        } catch (error) {
+            app.log.error(error, "Password reset error");
+            return reply.status(500).send({ error: 'Erro interno ao atualizar a senha.' });
+        } finally {
+            client.release();
+        }
     });
 
     // 1. Dashboard Stats
@@ -99,7 +171,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
     });
 
     // 2. Audit Logs (Paginated)
-    app.get('/v1/admin/logs', { preHandler: requireAdminAuth }, async (request, reply) => {
+    app.get('/v1/admin/logs', { preHandler: requireRole(['admin', 'dpo', 'auditor', 'sre', 'operator']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         const { page = '1', limit = '10' } = request.query as { page?: string, limit?: string };
 
@@ -143,7 +215,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
     // 3. Assistants List
 
     // --- Sub-Plugins ---
-    const subOpts = { pgPool, requireAdminAuth };
+    const subOpts = { pgPool, requireAdminAuth, requireRole };
     // Assistants, Policies, MCP, Knowledge routes
     const { assistantsRoutes } = await import('./assistants.routes');
     app.register(assistantsRoutes, subOpts);

@@ -8,6 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { CryptoService } from '../lib/crypto-service';
+import { LocalKmsAdapter } from '../lib/kms';
 import { IntegrityService } from '../lib/governance';
 
 // ─────────────────────────────────────────
@@ -17,62 +18,67 @@ describe('[BYOK] Crypto-Shredding — Key Revocation', () => {
     const ORIGINAL_KEY = '12345678901234567890123456789012'; // 32 chars — Org A master key
     const REVOKED_KEY = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'; // 32 chars — rotated/destroyed key
 
-    it('should encrypt sensitive payload successfully with the original key', () => {
-        const svc = new CryptoService(ORIGINAL_KEY);
+    it('should encrypt sensitive payload successfully with the original key', async () => {
+        const svc = new CryptoService(new LocalKmsAdapter(ORIGINAL_KEY));
         const plaintext = JSON.stringify({
             original_prompt: 'Qual o saldo da conta 12345-6?',
             llm_response: 'O saldo da conta corrente é R$ 85.420,00.'
         });
 
-        const { content_encrypted_bytes, iv_bytes, auth_tag_bytes } = svc.encryptPayload(plaintext);
+        const { content_encrypted_bytes, iv_bytes, auth_tag_bytes, encrypted_dek } = await svc.encryptPayload(plaintext);
 
         expect(content_encrypted_bytes).toBeTruthy();
         expect(content_encrypted_bytes).not.toContain('saldo');       // plaintext MUST NOT appear
         expect(content_encrypted_bytes).not.toContain('85.420');
         expect(iv_bytes).toBeTruthy();
         expect(auth_tag_bytes).toBeTruthy();
+        expect(encrypted_dek).toBeTruthy();
     });
 
-    it('🔥 CRYPTO-SHREDDING: after key revocation, decryption MUST fail — plaintext is unrecoverable', () => {
-        // Step 1: Encrypt with the original (valid) key
-        const svc = new CryptoService(ORIGINAL_KEY);
-        const sensitivePlaintext = 'CPF: 123.456.789-09 — Valor transferido: R$ 1.000.000,00';
-        const { content_encrypted_bytes, iv_bytes, auth_tag_bytes } = svc.encryptPayload(sensitivePlaintext);
+    it('🔥 CRYPTO-SHREDDING: after key revocation, decryption MUST fail — plaintext is unrecoverable', async () => {
+        const orgMasterKey = 'd43a6bc1c6f4a8e2b9d0e1f3g4h5i6j7'; // 32 bytes
+        const cryptoSvc = new CryptoService(new LocalKmsAdapter(orgMasterKey));
 
-        // Step 2: Simulate key revocation → instantiate with WRONG (destroyed) key
-        const revokedSvc = new CryptoService(REVOKED_KEY);
+        const payload = "Cidadão Joao da Silva CPF 123.456.789-00 processa o Estado por...";
+        const { content_encrypted_bytes, iv_bytes, auth_tag_bytes, encrypted_dek } = await cryptoSvc.encryptPayload(payload);
 
-        // Step 3: Attempt decryption using the revoked key — MUST throw
-        expect(() => {
-            revokedSvc.decryptPayload(content_encrypted_bytes, iv_bytes, auth_tag_bytes);
-        }).toThrow();
+        // Simulando a revogação da chave (Crypto-Shredding)
+        // Se a chave for perdida ou alterada intencionalmente, a descriptografia deve falhar 100%
+        const revokedKey = 'd43a6bc1c6f4a8e2b9d0e1f3g4h5i6j8'; // Changed last char
+        const revokedSvc = new CryptoService(new LocalKmsAdapter(revokedKey));
+
+        await expect(
+            revokedSvc.decryptPayload(content_encrypted_bytes, iv_bytes, auth_tag_bytes, encrypted_dek)
+        ).rejects.toThrow();
 
         // Step 4: Verify the encrypted blob itself contains zero trace of the plaintext
         expect(content_encrypted_bytes).not.toContain('CPF');
-        expect(content_encrypted_bytes).not.toContain('1.000.000');
+        const svc = new CryptoService(new LocalKmsAdapter('d43a6bc1c6f4a8e2b9d0e1f3g4h5i6j7'));
+        const { content_encrypted_bytes: content_encrypted_bytes_2, iv_bytes: iv_bytes_2, auth_tag_bytes: auth_tag_bytes_2, encrypted_dek: encrypted_dek_2 } = await svc.encryptPayload("Secret");
 
-        // Step 5: Even with the correct key but a tampered IV, decryption must fail
-        const tamperedIV = Buffer.alloc(12, 0).toString('base64'); // zeroed IV
-        expect(() => {
-            svc.decryptPayload(content_encrypted_bytes, tamperedIV, auth_tag_bytes);
-        }).toThrow();
+        // Flip one bit in IV
+        const tamperedIV = Buffer.from(iv_bytes_2, 'base64');
+        tamperedIV[0] = tamperedIV[0] ^ 1;
+
+        await expect(
+            svc.decryptPayload(content_encrypted_bytes_2, tamperedIV.toString('base64'), auth_tag_bytes_2, encrypted_dek_2)
+        ).rejects.toThrow();
     });
 
-    it('should produce different ciphertexts every call (IV entropy prevents Rainbow Tables)', () => {
-        const svc = new CryptoService(ORIGINAL_KEY);
-        const payload = 'token secreto do cofre';
+    it('should produce different ciphertexts every call (IV entropy prevents Rainbow Tables)', async () => {
+        const svc = new CryptoService(new LocalKmsAdapter('d43a6bc1c6f4a8e2b9d0e1f3g4h5i6j7'));
+        const payload = "Secret Payload";
 
-        const enc1 = svc.encryptPayload(payload);
-        const enc2 = svc.encryptPayload(payload);
-        const enc3 = svc.encryptPayload(payload);
+        const enc1 = await svc.encryptPayload(payload);
+        const enc2 = await svc.encryptPayload(payload);
 
-        // Ciphertexts must differ (IV is random each call)
-        expect(enc1.content_encrypted_bytes).not.toBe(enc2.content_encrypted_bytes);
-        expect(enc2.content_encrypted_bytes).not.toBe(enc3.content_encrypted_bytes);
+        // Avaliando as saídas GCM
+        expect(enc1.iv_bytes).not.toEqual(enc2.iv_bytes); // IVs devem ser diferentes
+        expect(enc1.content_encrypted_bytes).not.toEqual(enc2.content_encrypted_bytes); // Ciphertexts devem ser completamente diferentes
 
-        // All must decrypt back to the same plaintext with the correct key
-        expect(svc.decryptPayload(enc1.content_encrypted_bytes, enc1.iv_bytes, enc1.auth_tag_bytes)).toBe(payload);
-        expect(svc.decryptPayload(enc2.content_encrypted_bytes, enc2.iv_bytes, enc2.auth_tag_bytes)).toBe(payload);
+        // Validar que ambos ainda podem ser abertos corretamente com os metadados certos
+        expect(await svc.decryptPayload(enc1.content_encrypted_bytes, enc1.iv_bytes, enc1.auth_tag_bytes, enc1.encrypted_dek)).toBe(payload);
+        expect(await svc.decryptPayload(enc2.content_encrypted_bytes, enc2.iv_bytes, enc2.auth_tag_bytes, enc2.encrypted_dek)).toBe(payload);
     });
 });
 

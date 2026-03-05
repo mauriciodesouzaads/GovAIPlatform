@@ -19,7 +19,10 @@ interface Approval {
     review_note: string | null;
     reviewed_at: string | null;
     created_at: string;
+    risk_level?: 'low' | 'medium' | 'high';
+    justification?: string;
 }
+
 
 export default function ApprovalsPage() {
     const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -184,6 +187,17 @@ export default function ApprovalsPage() {
                                                 {a.status === 'rejected' && <XCircle className="w-3.5 h-3.5" />}
                                                 {a.status.toUpperCase()}
                                             </span>
+                                            {a.risk_level && (
+                                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border shadow-sm ${a.risk_level === 'high'
+                                                    ? 'bg-red-600/10 text-red-500 border-red-500/30'
+                                                    : a.risk_level === 'medium'
+                                                        ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30'
+                                                        : 'bg-blue-500/10 text-blue-500 border-blue-500/30'
+                                                    }`}>
+                                                    <ShieldAlert className="w-3.5 h-3.5" />
+                                                    {a.risk_level} RISK
+                                                </span>
+                                            )}
                                             <span className="text-sm font-bold flex items-center gap-2">
                                                 <Database className="w-4 h-4 text-indigo-400" />
                                                 {a.assistant_name || 'Agente Genérico'}
@@ -206,7 +220,7 @@ export default function ApprovalsPage() {
                                         <div className="flex items-center gap-2 text-amber-500 text-xs font-bold uppercase tracking-widest mb-3">
                                             <AlertTriangle className="w-4 h-4" /> Motivo da Interceptação (OPA)
                                         </div>
-                                        <p className="text-sm font-medium leading-relaxed">{a.policy_reason}</p>
+                                        <p className="text-sm font-medium leading-relaxed">{a.justification || a.policy_reason}</p>
                                     </div>
 
                                     {/* Message */}

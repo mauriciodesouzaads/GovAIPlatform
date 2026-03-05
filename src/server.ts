@@ -11,10 +11,19 @@ import cookie from '@fastify/cookie';
 import crypto from 'crypto';
 import { dlpEngine } from './lib/dlp-engine';
 import { notificationQueue, initNotificationWorker } from './workers/notification.worker';
-import { telemetryQueue, initTelemetryWorker } from './workers/telemetry.worker';
+import { initTelemetryWorker } from './workers/telemetry.worker'; // Keep initTelemetryWorker import
 import { initExpirationWorker } from './workers/expiration.worker';
 import { registerOidcRoutes } from './lib/auth-oidc';
 import { recordRequest, recordDlpDetection } from './lib/sre-metrics';
+import { checkQuota, recordTokenUsage, getCostPerToken } from './lib/finops';
+import { Queue } from 'bullmq'; // Assuming Queue is from bullmq
+import { URL } from 'url'; // Assuming URL is needed for redisConfigUrl
+import Redis from 'ioredis';
+
+// Define telemetryQueue and export it
+const redisConfigUrl = new URL(process.env.REDIS_URL || 'redis://localhost:6379');
+export const telemetryQueue = new Queue('telemetry-export', { connection: { host: redisConfigUrl.hostname, port: parseInt(redisConfigUrl.port || '6379') } as any });
+export const redisCache = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
 // ---------------------------------------------------------------------------
 // C1 FIX: Hard-fail if SIGNING_SECRET is missing — prevents silent crypto failures
@@ -32,10 +41,12 @@ if (process.env.SIGNING_SECRET.length < 32) {
     process.exit(1);
 }
 
-// Start workers
+const pgPool = new Pool({ connectionString: process.env.DATABASE_URL }); // Define pgPool before initTelemetryWorker
+
 initAuditWorker();
 initExpirationWorker();
 initNotificationWorker();
+initTelemetryWorker(pgPool);
 
 declare module 'fastify' {
     interface FastifyRequest {
@@ -70,6 +81,14 @@ fastify.register(fastifyJwt, {
     secret: process.env.JWT_SECRET
 });
 
+// Register Swagger
+fastify.register(require('@fastify/swagger'), {
+    swagger: {
+        info: { title: 'Gov.AI Platform API', description: 'Governança Corporativa de Modelos', version: '1.0.0' }
+    }
+});
+fastify.register(require('@fastify/swagger-ui'), { routePrefix: '/v1/docs' });
+
 // Admin Auth Hook — enforces JWT and injects orgId from token claims
 export const requireAdminAuth = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -82,6 +101,28 @@ export const requireAdminAuth = async (request: FastifyRequest, reply: FastifyRe
     } catch (err) {
         return reply.status(401).send({ error: 'Unauthorized: Invalid or expired JWT token.' });
     }
+};
+
+// RBAC Middleware Factory
+export const requireRole = (allowedRoles: string[]) => {
+    return async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            await request.jwtVerify();
+            const user = request.user as { orgId?: string; email?: string; role?: string };
+
+            if (user?.orgId) {
+                request.headers['x-org-id'] = user.orgId;
+            }
+
+            const userRole = user?.role || 'operator';
+
+            if (!allowedRoles.includes(userRole)) {
+                return reply.status(403).send({ error: `Acesso negado. Requer um dos seguintes perfis: ${allowedRoles.join(', ')}` });
+            }
+        } catch (err) {
+            return reply.status(401).send({ error: 'Unauthorized: Invalid or expired JWT token.' });
+        }
+    };
 };
 
 // Register CORS (restricted to admin UI origins)
@@ -103,7 +144,7 @@ fastify.register(cors, {
 
 // Register Rate Limiting (Redis-backed)
 import rateLimit from '@fastify/rate-limit';
-import Redis from 'ioredis';
+// import Redis from 'ioredis'; // Already imported at the top
 
 fastify.register(rateLimit, {
     max: 100,           // Max 100 requests per window
@@ -114,8 +155,6 @@ fastify.register(rateLimit, {
         return request.headers.authorization || request.ip;
     },
 });
-
-const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // Tracing Middleware
 fastify.addHook('onRequest', async (request, reply) => {
@@ -181,23 +220,40 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
         // 1. RLS: Define context for current org
         await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
 
+        // 1.a FinOps Quota Enforcement
+        const quota = await checkQuota(pgPool, orgId, assistantId);
+        if (quota.exceeded) {
+            return reply.status(429).send({ error: "Limite da cota de uso mensal (Hard Cap) excedido." });
+        }
+        if (quota.warning) {
+            reply.header('X-GovAI-Quota-Warning', 'Soft Cap exceeded');
+        }
+
         // 2. Fetch Active Assistant Version & Policy (RLS ensures it belongs to the Org)
-        const versionRes = await client.query(`
-            SELECT av.id as version_id, pv.rules_jsonb as policy_rules
-            FROM assistant_versions av
-            JOIN policy_versions pv ON av.policy_version_id = pv.id
-            WHERE av.assistant_id = \$1 AND av.status = 'published'
-            ORDER BY av.version DESC LIMIT 1
-        `, [assistantId]);
+        const cacheKey = `assistant:${assistantId}:rules`;
+        let policyRulesStr = await redisCache.get(cacheKey);
+        let policyRules;
 
-        let policyRules = { pii_filter: true, forbidden_topics: ['hack', 'bypass'] };
-
-        if (versionRes.rows.length > 0) {
-            policyRules = versionRes.rows[0].policy_rules;
+        if (policyRulesStr) {
+            policyRules = JSON.parse(policyRulesStr);
         } else {
-            const assistantRes = await client.query('SELECT id FROM assistants WHERE id = \$1 AND status = \$2', [assistantId, 'published']);
-            if (assistantRes.rows.length === 0) {
-                return reply.status(404).send({ error: 'Assistente não encontrado.' });
+            const versionRes = await client.query(`
+                SELECT av.id as version_id, pv.rules_jsonb as policy_rules
+                FROM assistant_versions av
+                JOIN policy_versions pv ON av.policy_version_id = pv.id
+                WHERE av.assistant_id = $1 AND av.status = 'published'
+                ORDER BY av.version DESC LIMIT 1
+            `, [assistantId]);
+
+            if (versionRes.rows.length > 0) {
+                policyRules = versionRes.rows[0].policy_rules;
+                await redisCache.setex(cacheKey, 60, JSON.stringify(policyRules));
+            } else {
+                policyRules = { pii_filter: true, forbidden_topics: ['hack', 'bypass'] };
+                const assistantRes = await client.query('SELECT id FROM assistants WHERE id = $1 AND status = $2', [assistantId, 'published']);
+                if (assistantRes.rows.length === 0) {
+                    return reply.status(404).send({ error: 'Assistente não encontrado.' });
+                }
             }
         }
 
@@ -206,7 +262,12 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
         // 3. Active Governance Validation (OPA + Native Rules)
         // Initialize OPA with pgPool for DB-driven keyword lookup
         if (!opaEngine['pool']) {
-            await opaEngine.initialize(undefined, pgPool);
+            const fs = require('fs');
+            const path = require('path');
+            const wasmPath = path.join(process.cwd(), 'src/lib/opa/policy.wasm');
+            const wasmBuffer = fs.existsSync(wasmPath) ? fs.readFileSync(wasmPath) : undefined;
+            if (!wasmBuffer) fastify.log.warn("OPA WASM policy not found at " + wasmPath);
+            await opaEngine.initialize(wasmBuffer, pgPool);
         }
 
         const policyContext = {
@@ -369,13 +430,24 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
         }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
 
         // 7. Fire-and-forget Delegated Observability (Langfuse)
+        const tokensPrompt = aiResponse.data.usage?.prompt_tokens || 0;
+        const tokensCompletion = aiResponse.data.usage?.completion_tokens || 0;
+        const aiModel = process.env.AI_MODEL || "gemini-1.5-flash";
+        const costUsd = (aiResponse.data.usage?.total_tokens || 0) * getCostPerToken(aiModel);
+        const latencyMs = Date.now() - execStart;
+
+
+        // Incrementar métricas exatas no ledger financeiro (Assíncrono tolerante a falhas)
+        await recordTokenUsage(pgPool, orgId, assistantId, tokensPrompt, tokensCompletion, costUsd, traceId as string).catch((e: Error) => fastify.log.error(e, 'Failed to update FinOps ledger'));
+
         await telemetryQueue.add('export-metrics', {
             org_id: orgId,
             assistant_id: assistantId,
-            traceId: traceId,
+            traceId: traceId as string,
             tokens: aiResponse.data.usage,
-            cost: aiResponse.data.usage?.total_tokens ? aiResponse.data.usage.total_tokens * 0.000002 : 0, // Mock cost per token logic
-            latency_ms: 250 // Mock latency for the time being
+            cost: costUsd,
+            latency_ms: latencyMs,
+            model: aiModel
         }, { removeOnComplete: true });
 
         fastify.log.info({ orgId, assistantId, tokens: aiResponse.data.usage?.total_tokens }, "Execution Success");
@@ -400,7 +472,7 @@ registerOidcRoutes(fastify, pgPool);
 
 // --- ADMIN ROUTES (Plugin) ---
 import { adminRoutes } from './routes/admin.routes';
-fastify.register(adminRoutes, { pgPool, requireAdminAuth });
+fastify.register(adminRoutes, { pgPool, requireAdminAuth, requireRole });
 
 // --- SRE OBSERVABILITY: Prometheus Metrics (Pilar 3) ---
 import { renderPrometheusMetrics } from './lib/sre-metrics';
@@ -429,6 +501,8 @@ fastify.post('/v1/sandbox/execute', async (request, reply) => {
 });
 
 // --- DEVELOPER PORTAL: OpenAPI Spec (Pilar 2) ---
+// Note: Explicit OpenAPI JSON output deactivated in favor of @fastify/swagger auto-generation.
+/*
 fastify.get('/v1/docs/openapi.json', async (_request, reply) => {
     return reply.send({
         openapi: '3.0.3',
@@ -455,6 +529,21 @@ fastify.get('/v1/docs/openapi.json', async (_request, reply) => {
                     responses: { '200': { description: 'Policy evaluation result (dry-run)' } }
                 }
             },
+            '/v1/assistants': {
+                get: { summary: 'List all assistants for the authorized tenant', security: [{ BearerAuth: [] }], responses: { '200': { description: 'Array of assistants' } } }
+            },
+            '/v1/approvals': {
+                get: { summary: 'List pending Human-in-the-Loop approvals', security: [{ BearerAuth: [] }], responses: { '200': { description: 'Array of approvals' } } }
+            },
+            '/v1/admin/login': {
+                post: { summary: 'Admin login (returns JWT)', requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { username: { type: 'string' }, password: { type: 'string' } } } } } }, responses: { '200': { description: 'JWT Token' } } }
+            },
+            '/v1/admin/export/tenant': {
+                get: { summary: 'Export Tenant Data (JSON/CSV)', security: [{ BearerAuth: [] }], parameters: [{ name: 'format', in: 'query', schema: { type: 'string', enum: ['json', 'csv'] } }], responses: { '200': { description: 'Tenant Data Export' } } }
+            },
+            '/v1/admin/export/due-diligence': {
+                get: { summary: 'Generate Due Diligence & Compliance PDF Report', security: [{ BearerAuth: [] }], responses: { '200': { description: 'PDF Buffer' } } }
+            },
             '/health': { get: { summary: 'Health check', responses: { '200': { description: 'Service status' } } } },
             '/metrics': { get: { summary: 'Prometheus metrics', responses: { '200': { description: 'Text exposition format' } } } }
         },
@@ -465,7 +554,7 @@ fastify.get('/v1/docs/openapi.json', async (_request, reply) => {
 // --- OFFBOARDING: Tenant Data Export (Pilar 4) ---
 import { exportTenantData, exportToCSV, generateDueDiligencePDF } from './lib/offboarding';
 
-fastify.get('/v1/admin/export/tenant', { preHandler: requireAdminAuth }, async (request, reply) => {
+fastify.get('/v1/admin/export/tenant', { preHandler: requireRole(['admin', 'dpo']) }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
     if (!orgId) return reply.status(401).send({ error: 'x-org-id required' });
 
@@ -481,7 +570,7 @@ fastify.get('/v1/admin/export/tenant', { preHandler: requireAdminAuth }, async (
     return reply.send({ org_id: orgId, exported_at: new Date().toISOString(), tables: exportData });
 });
 
-fastify.get('/v1/admin/export/due-diligence', { preHandler: requireAdminAuth }, async (_request, reply) => {
+fastify.get('/v1/admin/export/due-diligence', { preHandler: requireRole(['admin', 'dpo', 'auditor']) }, async (_request, reply) => {
     const pdfBuffer = await generateDueDiligencePDF();
     reply.header('Content-Type', 'application/pdf');
     reply.header('Content-Disposition', 'attachment; filename="govai-security-due-diligence.pdf"');
@@ -511,3 +600,4 @@ const start = async () => {
 };
 
 start();
+*/

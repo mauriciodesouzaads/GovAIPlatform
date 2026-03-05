@@ -4,12 +4,13 @@ import { IntegrityService, ActionType } from '../lib/governance';
 import { dlpEngine } from '../lib/dlp-engine';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
+import { redisCache } from '../server';
 
 
-export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any }) {
-    const { pgPool, requireAdminAuth } = opts;
+export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any }) {
+    const { pgPool, requireAdminAuth, requireRole } = opts;
 
-    app.get('/v1/admin/assistants', { preHandler: requireAdminAuth }, async (request, reply) => {
+    app.get('/v1/admin/assistants', { preHandler: requireRole(['admin', 'sre', 'operator']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
 
         if (!orgId) {
@@ -20,7 +21,12 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         try {
             await client.query(`SELECT set_config('app.current_org_id', \$1, true)`, [orgId]);
 
-            const res = await client.query('SELECT id, name, status, created_at FROM assistants ORDER BY created_at DESC');
+            const res = await client.query(`
+                SELECT a.id, a.name, a.status, a.created_at, 
+                       (SELECT v.id FROM assistant_versions v WHERE v.assistant_id = a.id AND v.status = 'draft' ORDER BY v.created_at DESC LIMIT 1) as draft_version_id
+                FROM assistants a 
+                ORDER BY a.created_at DESC
+            `);
             return reply.send(res.rows);
         } catch (error) {
             app.log.error(error, "Error fetching assistants");
@@ -80,7 +86,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
     });
 
     // Revoke API Key
-    app.delete('/v1/admin/api-keys/:keyId', { preHandler: requireAdminAuth }, async (request, reply) => {
+    app.delete('/v1/admin/api-keys/:keyId', { preHandler: requireRole(['admin']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -122,7 +128,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
     // --- ASSISTANT CRUD ---
 
     // Create Assistant
-    app.post('/v1/admin/assistants', { preHandler: requireAdminAuth }, async (request, reply) => {
+    app.post('/v1/admin/assistants', { preHandler: requireRole(['admin', 'sre']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -138,7 +144,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
             // 1. Criar o Assistente
             const res = await client.query(
-                "INSERT INTO assistants (org_id, name, status) VALUES ($1, $2, 'published') RETURNING id, name, status, created_at",
+                "INSERT INTO assistants (org_id, name, status) VALUES ($1, $2, 'draft') RETURNING id, name, status, created_at",
                 [orgId, name]
             );
             const assistantId = res.rows[0].id;
@@ -149,7 +155,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             if (policy_version_id) {
                 const versionRes = await client.query(
                     `INSERT INTO assistant_versions (org_id, assistant_id, policy_version_id, prompt, version, status) 
-                 VALUES ($1, $2, $3, 'Você é um assistente da GovAI.', 1, 'published') RETURNING id`,
+                 VALUES ($1, $2, $3, 'Você é um assistente da GovAI.', 1, 'draft') RETURNING id`,
                     [orgId, assistantId, policy_version_id]
                 );
                 const versionId = versionRes.rows[0].id;
@@ -171,6 +177,85 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             await client.query('ROLLBACK');
             app.log.error(error, "Error creating assistant (transaction rolled back)");
             reply.status(500).send({ error: "Erro ao publicar assistente. Rollback executado." });
+        } finally {
+            client.release();
+        }
+    });
+
+    // --- ASSISTANT HOMOLOGATION ---
+
+    app.post('/v1/admin/assistants/:assistantId/versions/:versionId/approve', { preHandler: requireRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        // The token payload is attached to the request by the Auth Middleware if configured correctly.
+        // Assuming `request.user.email` exists or fallback to dummy email. Let's extract the JWT payload to get the publisher identity.
+        let email = 'system@govai.com';
+        try {
+            const authHeader = request.headers.authorization;
+            if (authHeader && authHeader.startsWith('Bearer ')) {
+                const token = authHeader.split(' ')[1];
+                const decoded = app.jwt.decode(token) as any;
+                if (decoded && decoded.email) email = decoded.email;
+            }
+        } catch { } // fallback to system
+
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { assistantId, versionId } = request.params as { assistantId: string, versionId: string };
+        const { checklist } = request.body as { checklist: Record<string, boolean> };
+
+        // INT-03: Validate that all checklist items are true
+        if (!checklist || Object.keys(checklist).length === 0 || Object.values(checklist).some(val => val !== true)) {
+            return reply.status(400).send({ error: "O checklist regulatório deve estar integralmente aprovado." });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+
+            await client.query('BEGIN');
+
+            // 1. Mark version as published
+            const res = await client.query(
+                `UPDATE assistant_versions 
+                 SET status = 'published', 
+                     published_by = $1, 
+                     published_at = NOW(), 
+                     checklist_jsonb = $2 
+                 WHERE id = $3 AND assistant_id = $4 AND org_id = $5 
+                 RETURNING id`,
+                [email, JSON.stringify(checklist || {}), versionId, assistantId, orgId]
+            );
+
+            if (res.rowCount === 0) {
+                await client.query('ROLLBACK');
+                return reply.status(404).send({ error: "Versão não encontrada ou não pertence a esta organização." });
+            }
+
+            // 2. Archive older versions
+            await client.query(
+                `UPDATE assistant_versions 
+                 SET status = 'archived' 
+                 WHERE assistant_id = $1 AND id != $2 AND org_id = $3`,
+                [assistantId, versionId, orgId]
+            );
+
+            // 3. Update main assistant pointer
+            await client.query(
+                `UPDATE assistants 
+                 SET current_version_id = $1, status = 'published' 
+                 WHERE id = $2 AND org_id = $3`,
+                [versionId, assistantId, orgId]
+            );
+
+            await client.query('COMMIT');
+            // Invalidar cache do assistente publicado
+            await redisCache.del(`assistant:${assistantId}:rules`);
+
+            return reply.send({ success: true, message: `Versão ${versionId} do assistente ${assistantId} aprovada e publicada.`, approved_by: email });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            app.log.error(error, "Error homologating assistant version");
+            reply.status(500).send({ error: "Erro ao aprovar versão do assistente." });
         } finally {
             client.release();
         }

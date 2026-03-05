@@ -9,8 +9,8 @@ RUN pip install --no-cache-dir \
     presidio-anonymizer==2.2.355 \
     spacy==3.7.5
 
-# Download Portuguese NLP model for Presidio
-RUN python -m spacy download pt_core_news_sm
+# Download Portuguese NLP High-Accuracy model for Presidio (Bake offline into image)
+RUN python -m spacy download pt_core_news_lg
 
 COPY app.py .
 

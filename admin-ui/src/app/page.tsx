@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Activity, ShieldCheck, Coins, ArrowUpRight, ShieldAlert, CreditCard, Bot } from 'lucide-react';
+import { Activity, ShieldCheck, Coins, ArrowUpRight, ShieldAlert, CreditCard, Bot, Info } from 'lucide-react';
 import axios from 'axios';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 
@@ -93,7 +93,10 @@ export default function DashboardPage() {
                 </Link>
               </div>
               <div className="mt-4">
-                <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1">Processamento de IA</p>
+                <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1 flex items-center justify-between">
+                  Processamento de IA
+                  <span title="Volume total de prompts processados. Metrificação exigida para rastreabilidade de acessos (LGPD Art. 37)."><Info className="w-3.5 h-3.5 opacity-50 hover:opacity-100 cursor-help transition-opacity" /></span>
+                </p>
                 <div className="text-3xl font-black text-white">{stats?.total_executions.toLocaleString() || 0}</div>
                 <p className="text-xs text-emerald-400/80 mt-1 font-medium bg-emerald-500/10 inline-block px-2 py-0.5 rounded">Calls processadas</p>
               </div>
@@ -111,7 +114,10 @@ export default function DashboardPage() {
                 </Link>
               </div>
               <div className="mt-4 relative z-10">
-                <p className="text-xs text-red-400/80 font-semibold uppercase tracking-wider mb-1">Violações OPA Barradas</p>
+                <p className="text-xs text-red-400/80 font-semibold uppercase tracking-wider mb-1 flex items-center justify-between">
+                  Violações OPA Barradas
+                  <span title="Incidentes de segurança mitigados automaticamente. Previne vazamento de PII (LGPD Art. 46) e ataques (BCB 4.557 Art. 21)."><Info className="w-3.5 h-3.5 opacity-60 hover:opacity-100 cursor-help text-red-300 transition-opacity" /></span>
+                </p>
                 <div className="text-3xl font-black text-white flex items-baseline gap-2">
                   {stats?.total_violations.toLocaleString() || 0}
                   <span className="text-sm font-medium text-red-400/60 bg-red-500/10 px-1.5 py-0.5 rounded">Bloqueios P0</span>
@@ -204,9 +210,12 @@ export default function DashboardPage() {
               <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-emerald-950/40 to-transparent pointer-events-none" />
 
               <div className="mb-4">
-                <h3 className="font-bold text-white text-lg flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                  Protection Rate
+                <h3 className="font-bold text-white text-lg flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                    Protection Rate
+                  </div>
+                  <span title="Índice de Eficácia de Controles (IEC). Demonstração matemática de prevenção exigida pela Resolução BCB 4.557 de Gerenciamento de Risco Cibernético."><Info className="w-4 h-4 opacity-50 hover:opacity-100 cursor-help transition-opacity" /></span>
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">Impacto do motor OPA + DLP em tempo real.</p>
               </div>

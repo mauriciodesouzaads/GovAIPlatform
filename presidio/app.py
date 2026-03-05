@@ -46,7 +46,7 @@ class AnonymizeResponse(BaseModel):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "engine": "presidio", "model": "pt_core_news_sm"}
+    return {"status": "ok", "engine": "presidio", "model": "pt_core_news_lg"}
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)

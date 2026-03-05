@@ -8,16 +8,18 @@ import { useAuth } from '@/components/AuthProvider';
 
 export function Sidebar() {
     const pathname = usePathname();
-    const { logout } = useAuth();
+    const { logout, role, email } = useAuth();
 
     const navItems = [
-        { label: 'Dashboard', href: '/', icon: LayoutDashboard },
-        { label: 'Audit Logs', href: '/logs', icon: ShieldAlert },
-        { label: 'Assistants & RAG', href: '/assistants', icon: MessageSquareText },
-        { label: 'API Keys', href: '/api-keys', icon: Key },
-        { label: 'Approvals', href: '/approvals', icon: ShieldCheck },
-        { label: 'Reports', href: '/reports', icon: FileText },
+        { label: 'Dashboard', href: '/', icon: LayoutDashboard, allowed: ['admin', 'sre', 'dpo', 'auditor', 'operator'] },
+        { label: 'Audit Logs', href: '/logs', icon: ShieldAlert, allowed: ['admin', 'sre', 'dpo', 'auditor', 'operator'] },
+        { label: 'Assistants & RAG', href: '/assistants', icon: MessageSquareText, allowed: ['admin', 'sre', 'operator'] },
+        { label: 'API Keys', href: '/api-keys', icon: Key, allowed: ['admin'] },
+        { label: 'Approvals', href: '/approvals', icon: ShieldCheck, allowed: ['admin', 'sre', 'dpo'] },
+        { label: 'Reports', href: '/reports', icon: FileText, allowed: ['admin', 'dpo', 'auditor'] },
     ];
+
+    const visibleItems = navItems.filter(item => item.allowed.includes(role));
 
     return (
         <aside className="w-64 border-r border-border bg-card/60 backdrop-blur-md flex flex-col h-full shrink-0 shadow-[4px_0_24px_-10px_rgba(0,0,0,0.5)] z-20">
@@ -37,7 +39,7 @@ export function Sidebar() {
                 <div className="text-xs font-semibold text-muted-foreground/60 tracking-wider uppercase mb-2 px-2">
                     Core Modules
                 </div>
-                {navItems.map((item) => {
+                {visibleItems.map((item) => {
                     const isActive = pathname === item.href;
                     return (
                         <Link
@@ -63,12 +65,12 @@ export function Sidebar() {
             <div className="p-4 border-t border-border/50 bg-background/30">
                 {/* Admin user preview */}
                 <div className="flex items-center gap-3 px-3 py-3 mb-2 rounded-lg bg-secondary/30 border border-border/30">
-                    <div className="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-xs ring-1 ring-indigo-500/30">
-                        AD
+                    <div className="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-xs ring-1 ring-indigo-500/30 uppercase">
+                        {email ? email.substring(0, 2) : 'AD'}
                     </div>
                     <div className="flex flex-col">
-                        <span className="text-xs font-medium text-foreground">Admin User</span>
-                        <span className="text-[10px] text-muted-foreground">admin@govai.com</span>
+                        <span className="text-xs font-medium text-foreground capitalize">{role}</span>
+                        <span className="text-[10px] text-muted-foreground max-w-[150px] truncate" title={email}>{email}</span>
                     </div>
                 </div>
 

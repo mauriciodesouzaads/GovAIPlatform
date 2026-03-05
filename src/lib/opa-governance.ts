@@ -79,9 +79,9 @@ export class OpaGovernanceEngine {
         // --- MOCK OPA BEHAVIOR ---
         const text = (input.message || '').toLowerCase();
 
-        // 1. DLP Semantic PII Detection
+        // 1. DLP Semantic PII Detection (Executes natively outside OPA)
         if (policyContext?.rules?.pii_filter) {
-            const dlpResult: SanitizationResult = dlpEngine.sanitize(input.message || '');
+            const dlpResult: SanitizationResult = await dlpEngine.sanitizeSemanticNLP(input.message || '');
 
             if (dlpResult.hasPII) {
                 const detectedTypes = [...new Set(dlpResult.detections.map(d => d.type))];

@@ -12,6 +12,7 @@ export const EncryptedRunSchema = z.object({
     iv_bytes: z.string(),
     auth_tag_bytes: z.string(),
     content_encrypted_bytes: z.string(),
+    encrypted_dek: z.string(),
     key_version: z.string(),
     created_at: z.date().optional()
 });
@@ -27,30 +28,33 @@ export const RunPayloadSchema = z.object({
 
 export type RunPayload = z.infer<typeof RunPayloadSchema>;
 
+import { KmsAdapter } from './kms';
+
 // ==========================================
-// CRYPTO SERVICE (PASSO 2 - Stub)
+// CRYPTO SERVICE (PASSO 2 - Envelope Encryption)
 // ==========================================
 
 export class CryptoService {
     private readonly ALGORITHM = 'aes-256-gcm';
 
     /**
-     * @param orgMasterKey A chave KMS ou BYOK da organização (deve ter 32 bytes para AES-256)
+     * @param kmsAdapter The standard or AWS KMS adapter to encrypt/decrypt DEKs
      */
-    constructor(private defaultMasterKey: string) {
-        if (defaultMasterKey.length !== 32) {
-            throw new Error("Master Key deve conter exatos 32 caracteres (256 bits).");
-        }
-    }
+    constructor(private kmsAdapter: KmsAdapter) { }
 
     /**
-     * Cifra um payload textual usando AES-256-GCM com IV randômico.
+     * Cifra um payload usando Envelope Encryption (DEK gerada localmente + Master Key no KMS)
      */
-    encryptPayload(payloadStr: string): { content_encrypted_bytes: string, iv_bytes: string, auth_tag_bytes: string } {
-        const iv = crypto.randomBytes(12); // Padrão recomendado pela NIST para GCM
-        const key = Buffer.from(this.defaultMasterKey, 'utf8');
+    async encryptPayload(payloadStr: string): Promise<{ content_encrypted_bytes: string, iv_bytes: string, auth_tag_bytes: string, encrypted_dek: string }> {
+        // 1. Generate a massive 32-byte Data Encryption Key (DEK)
+        const dek = crypto.randomBytes(32);
 
-        const cipher = crypto.createCipheriv(this.ALGORITHM, key, iv);
+        // 2. Encrypt the DEK using the secure KMS (External OR Local Fallback)
+        const encrypted_dek = await this.kmsAdapter.encrypt(dek.toString('base64'));
+
+        // 3. Encrypt the massive payload locally using AES-256-GCM and the DEK
+        const iv = crypto.randomBytes(12);
+        const cipher = crypto.createCipheriv(this.ALGORITHM, dek, iv);
 
         let encrypted = cipher.update(payloadStr, 'utf8', 'base64');
         encrypted += cipher.final('base64');
@@ -60,19 +64,24 @@ export class CryptoService {
         return {
             content_encrypted_bytes: encrypted,
             iv_bytes: iv.toString('base64'),
-            auth_tag_bytes: authTag.toString('base64')
+            auth_tag_bytes: authTag.toString('base64'),
+            encrypted_dek
         };
     }
 
     /**
-     * Decifra um payload em Base64 usando AES-256-GCM validando a tag de autenticação.
+     * Decifra um payload em Base64 resolvendo a Envelope Encryption.
      */
-    decryptPayload(ciphertextBase64: string, ivBase64: string, authTagBase64: string): string {
+    async decryptPayload(ciphertextBase64: string, ivBase64: string, authTagBase64: string, encryptedDekBase64: string): Promise<string> {
+        // 1. Decrypt the DEK from the KMS Provider
+        const dekBase64 = await this.kmsAdapter.decrypt(encryptedDekBase64);
+        const dek = Buffer.from(dekBase64, 'base64');
+
+        // 2. Decrypt the payload
         const iv = Buffer.from(ivBase64, 'base64');
         const authTag = Buffer.from(authTagBase64, 'base64');
-        const key = Buffer.from(this.defaultMasterKey, 'utf8');
 
-        const decipher = crypto.createDecipheriv(this.ALGORITHM, key, iv);
+        const decipher = crypto.createDecipheriv(this.ALGORITHM, dek, iv);
         decipher.setAuthTag(authTag);
 
         let decrypted = decipher.update(ciphertextBase64, 'base64', 'utf8');

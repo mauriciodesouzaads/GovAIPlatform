@@ -96,3 +96,18 @@ export async function recordTokenUsage(
         client.release();
     }
 }
+
+export function getCostPerToken(model: string): number {
+    const pricing: Record<string, number> = {
+        'gemini/gemini-1.5-flash': 0.000000019,
+        'gemini/gemini-1.5-pro': 0.000000350,
+        'openai/gpt-4o': 0.000005000,
+        'openai/gpt-4o-mini': 0.000000150,
+        'anthropic/claude-3-5-sonnet': 0.000003000,
+        'anthropic/claude-3-haiku': 0.000000250,
+    };
+    for (const [key, cost] of Object.entries(pricing)) {
+        if (model.includes(key.split('/')[1])) return cost;
+    }
+    return 0.000002;
+}
