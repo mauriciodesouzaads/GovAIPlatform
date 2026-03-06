@@ -1,7 +1,7 @@
 # 🏛️ GOVERN.AI Platform
-### Enterprise-Grade AI Governance & Security Layer
+### Corporate Governance & Security Layer for AI Agents
 
-![GovAI Hero](./docs/assets/hero.png)
+![GovAI Flow](./docs/assets/flow.png)
 
 **GOVERN.AI** is a zero-trust governance platform designed to protect corporate AI interactions. It acts as an intelligent firewall between your users/applications and Large Language Models (LLMs), ensuring every request is inspected for data leaks, policy violations, and prompt injections before reaching the AI provider.
 
@@ -14,108 +14,102 @@
 
 ---
 
-## 💎 Key Production Pillars
+## 💎 Pilares de Defesa e Auditoria
 
-| Pillar | Description |
-| :--- | :--- |
-| **🛡️ 4-Stage OPA Engine** | Multi-layer inspection: DLP ➔ Policy ➔ Injection ➔ Human-in-the-Loop. |
-| **🔐 B2B Isolation (RLS)** | Native PostgreSQL Row-Level Security ensuring 100% tenant data separation. |
-| **⚖️ Compliance Audit** | Immutable audit logs with HMAC-SHA256 signing and BYOK encryption. |
-| **💰 FinOps Control** | Real-time token budgeting and monthly cost enforcement (Hard/Soft Caps). |
-| **🌐 Enterprise SSO** | Microsoft Entra ID & Okta integration with JIT Provisioning. |
+A plataforma opera em um modelo de **Defesa em Profundidade**, onde cada interação percorre um pipeline rigoroso de segurança:
+
+1.  **🛡️ OPA Engine (4 Estágios)**: 
+    *   **Estágio 1: DLP Semântico**: Identificação de PII (CPF, Cartões, Emails) via regex e NLP (spacy/Presidio).
+    *   **Estágio 2: Blacklist**: Bloqueio de tópicos proibidos configuráveis por Agente.
+    *   **Estágio 3: Injection Prevention**: Motor WASM nativo detectando tentativas de bypass de instruções.
+    *   **Estágio 4: HITL (Human-in-the-Loop)**: Quarentena de 48h para termos de alto risco financeiro.
+2.  **🔐 Isolamento Multi-Tenant (RLS)**: Aplicação estrita de Row-Level Security no PostgreSQL, garantindo que um tenant nunca acesse dados de outro, mesmo em falhas de aplicação.
+3.  **⚖️ Trilha de Auditoria Imutável**: Logs selados com HMAC-SHA256 e criptografados com AES-256-GCM (BYOK), permitindo auditoria forense e conformidade regulatória (BCB 4.557/17).
+4.  **💰 Controle FinOps**: Gestão de quotas em tempo real com Hard/Soft Caps para evitar estouro de orçamento Cloud.
 
 ---
 
-## 📐 High-Level Architecture
+## 📐 Fluxo de Interação
 
-```mermaid
-graph TB
-    subgraph "Admin UI — Next.js :3001"
-        D["📊 Dashboard + FinOps"]
-        L["📋 Audit Logs"]
-        A["🤖 Assistants + RAG"]
-        K["🔑 API Keys"]
-        AP["✅ HITL Approvals"]
-    end
+O diagrama acima ilustra o ciclo de vida de uma requisição:
+- **User App** solicita execução via API Key segura.
+- **GovAI Gateway** intercepta, valida tokens, aplica o motor OPA/DLP e verifica quotas.
+- **Audit Log** registra a intenção (criptografada e assinada).
+- **AI Models** recebem apenas o prompt blindado e sanitizado.
+- **Results** retornam ao usuário com rastreabilidade total (Trace ID).
 
-    subgraph "API Gateway — Fastify :3000"
-        JWT["🔐 JWT Auth"]
-        SSO["🏢 SSO OIDC"]
-        RL["⏱️ Rate Limiter (Redis)"]
-        OPA["🛡️ OPA Engine (WASM)"]
-        DLP["🔍 Presidio NLP (PII)"]
-        RAG["📚 RAG (pgvector)"]
-        LLM["🧠 LiteLLM Proxy"]
-    end
+---
 
-    subgraph "Data & Workers"
-        PG[("🐘 Postgres + RLS")]
-        RD[("⚡ Redis 7")]
-        AW["📝 Audit Worker"]
-        TW["📡 Telemetry"]
-    end
+## 📂 Estrutura do Repositório (Arvore de Projeto)
 
-    D & L & A & K & AP --> JWT
-    SSO --> JWT
-    JWT --> RL --> OPA --> DLP --> RAG --> LLM
-    LLM --> AW --> PG
-    AW & TW --> RD
+```text
+govai-platform/
+├── admin-ui/                # Frontend Administrativo (Next.js 16)
+│   ├── src/app/             # Router e Páginas (Dashboard, Logs, Assistants)
+│   ├── components/          # UI Components (Cards de FinOps, Gráficos)
+│   └── public/              # Assets estáticos
+├── src/                     # Backend Core (Fastify + TypeScript)
+│   ├── server.ts            # Orquestrador e Registro de Plugins
+│   ├── routes/              # Definição de Endpoints (Admin, Assistants, SSO)
+│   ├── lib/                 # Motores de Governança
+│   │   ├── opa-governance.ts # Integração OPA WASM (4 estágios)
+│   │   ├── dlp-engine.ts    # Detetores de PII e Hook Presidio
+│   │   ├── crypto-service.ts # AES-256-GCM + BYOK Logic
+│   │   ├── finops.ts        # Enforcement de Quotas e Custos
+│   │   └── rag.ts           # Motor RAG com pgvector
+│   ├── workers/             # Processamento Assíncrono (BullMQ)
+│   │   ├── audit.worker.ts  # Persistência Criptografada de Logs
+│   │   └── telemetry.worker.ts # Exportação para Langfuse
+│   └── __tests__/           # Suite de Testes (186 casos de teste)
+├── presidio/                # Microserviço NLP (Python/FastAPI)
+├── docs/                    # Documentação Técnica e Manuais
+│   ├── assets/              # Imagens de Arquitetura e Fluxo
+│   ├── dossie_tecnico.md    # Visão para C-Level e Arquitetos
+│   └── manifesto_seguranca.md # Garantias Técnicas de Hardening
+├── scripts/                 # Utilitários de Setup e Migração
+├── *.sql                    # Evolução de Schema (Migrations 011-021)
+├── docker-compose.yml       # Orquestração de 6 containers
+└── README.md                # Este documento
 ```
 
 ---
 
-## ✅ Production Readiness Scorecard (Sprint 14 Validation)
+## 🚀 Como Iniciar
 
-We have successfully validated the platform under a clean-wipe production simulation:
-
-*   **Infrastructure**: 100% Deterministic Docker build & sequential migrations.
-*   **Security**: RLS strictly enforced on 12 entities; Mandatory password reset flow.
-*   **Governance**: OPA WASM + Native Defense-in-Depth active; PII masking via Presidio NLP.
-*   **Resilience**: Rate-limiting correctly returning `429` (Anti-Brute Force); 180+ tests passing.
-
-Read the [Full Production Scorecard](./docs/ENTERPRISE_AUDIT_REPORT_2026.md) and the [Security Manifesto](./docs/manifesto_seguranca.md).
-
----
-
-## 🚀 Getting Started
-
-### 1. Simple Deployment
+### 1. Deploy Rápido
 ```bash
 git clone https://github.com/mauriciodesouzaads/GovAIPlatform.git
 cd GovAIPlatform
 cp .env.example .env
-# Configure keys in .env
+# Configure suas chaves no .env (GEMINI_API_KEY, etc.)
 docker compose up --build -d
 ```
 
-### 2. Database Initialization
+### 2. Inicialização do Banco
 ```bash
 docker exec govai-platform-api-1 bash scripts/migrate.sh
 ```
 
-### 3. Default Credentials
-- **URL**: `http://localhost:3001`
-- **User**: `admin@govai.com`
-- **Pass**: `admin` (Change required on first login)
+### 3. Acesso Padrão
+- **Admin UI**: `http://localhost:3001` (User: `admin@govai.com` / Pass: `admin`)
+- **API Spec**: `http://localhost:3000/v1/docs/openapi.json`
 
 ---
 
-## 📂 Project Organization
+## ✅ Certificação de Prontidão (Audit 2026)
 
-- `src/`: Core Fastify application (Server, Routes, Workers).
-- `admin-ui/`: Next.js 16 management dashboard.
-- `src/lib/`: Governance engines (OPA, DLP, Crypto, FinOps).
-- `src/__tests__/`: Comprehensive security suite (180+ tests).
-- `presidio/`: Specialized Python NLP container for semantic DLP.
-- `docs/`: Technical dossiers, manuals, and compliance reports.
+A plataforma foi validada em cenário real (clean-wipe), garantindo:
+- **100%** de isolamento em testes de RLS.
+- **Zero** vazamento de PII em prompts auditados.
+- **Resiliência** contra ataques de injeção em motor OPA WASM.
 
 ---
 
-## 👤 Author & Support
+## 👤 Autor
 
 **Maurício de Souza**  
-Senior Software Architect & Security Expert  
-[GitHub Profile](https://github.com/mauriciodesouzaads) | [GovAI Repository](https://github.com/mauriciodesouzaads/GovAIPlatform)
+Senior Software Architect | Cloud Security Specialist  
+[GitHub Profile](https://github.com/mauriciodesouzaads)
 
 ---
 *License: MIT — Professional Enterprise Software for Governance & AI Safety.*
