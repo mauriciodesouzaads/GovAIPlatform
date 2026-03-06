@@ -23,7 +23,7 @@ echo ""
 # Ordered list of migration files
 MIGRATIONS=(
     "011_add_assistant_and_policy_versions.sql"
-    "011_add_assistant_and_policy_versions.sql"
+
     "012_add_mcp_servers_and_grants.sql"
     "013_add_sso_and_federation.sql"
     "014_add_encrypted_runs.sql"
@@ -32,8 +32,9 @@ MIGRATIONS=(
     "017_add_password_and_roles_to_users.sql"
     "018_add_dek_to_encrypted_runs.sql"
     "019_rls_and_immutable_policies.sql"
-    "020_expiration_worker_rls_bypass.sql"
+    "021_fix_users_rls_for_login.sql"
 )
+
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -51,6 +52,7 @@ for migration in "${MIGRATIONS[@]}"; do
     echo -n "▶ Applying $migration... "
 
     if psql "$DB_URL" -f "$FILEPATH" -v ON_ERROR_STOP=1 > /dev/null 2>&1; then
+
         echo "✅ OK"
         ((SUCCESS++))
     else

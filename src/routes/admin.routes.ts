@@ -23,7 +23,9 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
                 timeWindow: '1 minute',
                 keyGenerator: (request: FastifyRequest) => request.ip,
                 errorResponseBuilder: (_request: FastifyRequest, context: any) => ({
-                    error: 'Muitas tentativas de login. Tente novamente em 1 minuto.',
+                    statusCode: 429,
+                    error: 'Too Many Requests',
+                    message: 'Muitas tentativas de login. Tente novamente em 1 minuto.',
                     retryAfter: context.ttl,
                 }),
             }

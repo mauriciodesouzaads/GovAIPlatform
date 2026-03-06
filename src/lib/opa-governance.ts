@@ -103,34 +103,39 @@ export class OpaGovernanceEngine {
                         rules: policyContext?.rules || {}
                     }
                 };
-                console.log("[OPA WASM DEBUG] Payload sent to evaluate:", JSON.stringify(payload));
                 const resultSet = this.opaIns.evaluate(payload);
-                console.log("[OPA WASM DEBUG] ResultSet from WASM:", JSON.stringify(resultSet));
+                if (process.env.LOG_LEVEL === 'debug') {
+                    console.log('[OPA DEBUG] ResultSet:', JSON.stringify(resultSet));
+                }
 
                 const result = resultSet[0]?.result;
-                if (result && result.allow === false) {
+                // O PA WASM logic can return the value directly or an object based on how it was built.
+                // We handle both: if it's a boolean (entrypoint allow) or an object with 'allow' key.
+                const isDisallowed = (result === false) || (result && result.allow === false);
+
+                if (isDisallowed) {
                     return {
                         allowed: false,
-                        reason: result.reason || 'Bloqueado por Política OPA Corporativa',
+                        reason: (result && result.reason) || 'Bloqueado por Política OPA Corporativa',
                         action: 'BLOCK'
                     };
                 }
             } catch (opaErr) {
-                // OPA falhou — fallback para regras nativas abaixo
+                // OPA falhou — segue para fallback nativo
             }
-            return { allowed: true, action: 'ALLOW' };
         }
 
-        // Fallback nativo (quando WASM não disponível)
+        // --- DEFESA EM PROFUNDIDADE: Fallback nativo SEMPRE executa para garantir baseline ---
+        const textToTest = (input.message || '').toLowerCase();
         const forbiddenTopics = policyContext?.rules?.forbidden_topics || [];
         for (const topic of forbiddenTopics) {
-            if (text.includes(topic.toLowerCase())) {
+            if (textToTest.includes(topic.toLowerCase())) {
                 return { allowed: false, reason: `Bloqueado pela Política: Assunto proibido (${topic})`, action: 'BLOCK' };
             }
         }
-        const bypassPhrases = ['ignore previous', 'admin mode', 'bypass'];
-        if (bypassPhrases.some(p => text.includes(p))) {
-            return { allowed: false, reason: 'Bloqueado pela Política: Tentativa de Evasão de Regras', action: 'BLOCK' };
+        const bypassPhrases = ['ignore previous', 'admin mode', 'bypass', 'forget instructions'];
+        if (bypassPhrases.some(p => textToTest.includes(p))) {
+            return { allowed: false, reason: 'Bloqueado pela Política: Tentativa de Evasão de Regras (Prompt Injection)', action: 'BLOCK' };
         }
 
         return { allowed: true, action: 'ALLOW' };

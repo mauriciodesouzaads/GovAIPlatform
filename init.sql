@@ -171,12 +171,5 @@ CREATE POLICY expiration_worker_policy ON pending_approvals
     WITH CHECK (status = 'expired');
 
 -- [BUG-03] Policy Immutability
-CREATE OR REPLACE FUNCTION prevent_version_mutation_func() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-    IF OLD.status != 'draft' THEN
-        RAISE EXCEPTION 'Cannot mutate published or archived versions: %', OLD.id;
-    END IF;
-    RETURN NEW;
-END;
-$$;
-CREATE TRIGGER prevent_version_mutation BEFORE UPDATE ON policy_versions FOR EACH ROW EXECUTE FUNCTION prevent_version_mutation_func();
+-- REMOVED: Managed by migration 011
+

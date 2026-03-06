@@ -30,13 +30,15 @@ FROM node:20-alpine AS production
 WORKDIR /app
 
 # Non-root user for security
-RUN addgroup -g 1001 -S govai && adduser -S govai -u 1001 -G govai
+RUN apk add --no-cache bash postgresql-client && addgroup -g 1001 -S govai && adduser -S govai -u 1001 -G govai
+
 
 COPY --chown=govai:govai --from=builder /prod_modules ./node_modules
 COPY --chown=govai:govai --from=builder /app/dist ./dist
-COPY --chown=govai:govai --from=builder /app/package.json ./
-# Copy scripts for migration
+COPY --chown=govai:govai package.json ./
+# Copy scripts and migrations
 COPY --chown=govai:govai scripts ./scripts
+COPY --chown=govai:govai *.sql ./
 
 USER govai
 
