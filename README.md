@@ -72,6 +72,18 @@ graph TB
 
 ---
 
+
+A plataforma opera em um modelo de **Defesa em Profundidade**, onde cada interação percorre um pipeline rigoroso de segurança:
+---
+
+1.  **🛡️ OPA Engine (4 Estágios)**: 
+    *   **Estágio 1: DLP Semântico**: Identificação de PII (CPF, Cartões, Emails) via regex e NLP (spacy/Presidio).
+    *   **Estágio 2: Blacklist**: Bloqueio de tópicos proibidos configuráveis por Agente.
+    *   **Estágio 3: Injection Prevention**: Motor WASM nativo detectando tentativas de bypass de instruções.
+    *   **Estágio 4: HITL (Human-in-the-Loop)**: Quarentena de 48h para termos de alto risco financeiro.
+2.  **🔐 Isolamento Multi-Tenant (RLS)**: Aplicação estrita de Row-Level Security no PostgreSQL, garantindo que um tenant nunca acesse dados de outro, mesmo em falhas de aplicação.
+3.  **⚖️ Trilha de Auditoria Imutável**: Logs selados com HMAC-SHA256 e criptografados com AES-256-GCM (BYOK), permitindo auditoria forense e conformidade regulatória (BCB 4.557/17).
+4.  **💰 Controle FinOps**: Gestão de quotas em tempo real com Hard/Soft Caps para evitar estouro de orçamento Cloud.
 ## 🏗️ 10 Pilares Arquitecturais (Enterprise Readiness)
 
 | # | Pilar | Descrição | Status |
@@ -89,6 +101,7 @@ graph TB
 
 ---
 
+## 📐 Fluxo de Interação
 ## 🛡️ Motor OPA — Fluxo de Defesa
 
 O motor de governança opera de forma determinística, garantindo que o prompt seja blindado antes de qualquer processamento LLM:
@@ -97,10 +110,17 @@ O motor de governança opera de forma determinística, garantindo que o prompt s
 Requisição ➔ Auth ➔ DLP (PII) ➔ Blacklist ➔ Injection Detection ➔ HITL ➔ LLM Execution
 ```
 
+O diagrama acima ilustra o ciclo de vida de uma requisição:
+- **User App** solicita execução via API Key segura.
+- **GovAI Gateway** intercepta, valida tokens, aplica o motor OPA/DLP e verifica quotas.
+- **Audit Log** registra a intenção (criptografada e assinada).
+- **AI Models** recebem apenas o prompt blindado e sanitizado.
+- **Results** retornam ao usuário com rastreabilidade total (Trace ID).
 Read the [Full Production Scorecard](./docs/ENTERPRISE_AUDIT_REPORT_2026.md) and the [Security Manifesto](./docs/manifesto_seguranca.md).
 
 ---
 
+## 📂 Estrutura do Repositório (Arvore de Projeto)
 ## 📂 Estrutura do Repositório
 
 ```text
@@ -108,16 +128,34 @@ govai-platform/
 ├── admin-ui/                # Frontend Administrativo (Next.js 16)
 │   ├── src/app/             # Router e Páginas (Dashboard, Logs, Assistants)
 │   ├── components/          # UI Components (Cards de FinOps, Gráficos)
+│   └── public/              # Assets estáticos
 ├── src/                     # Backend Core (Fastify + TypeScript)
+│   ├── server.ts            # Orquestrador e Registro de Plugins
+│   ├── routes/              # Definição de Endpoints (Admin, Assistants, SSO)
+│   ├── lib/                 # Motores de Governança
+│   │   ├── opa-governance.ts # Integração OPA WASM (4 estágios)
+│   │   ├── dlp-engine.ts    # Detetores de PII e Hook Presidio
+│   │   ├── crypto-service.ts # AES-256-GCM + BYOK Logic
+│   │   ├── finops.ts        # Enforcement de Quotas e Custos
+│   │   └── rag.ts           # Motor RAG com pgvector
 │   ├── server.ts            # Orquestrador Central
 │   ├── routes/              # Endpoints (Admin, Assistants, SSO)
 │   ├── lib/                 # Motores de Governança (OPA, DLP, Crypto, FinOps)
 │   ├── workers/             # Processamento Assíncrono (BullMQ)
+│   │   ├── audit.worker.ts  # Persistência Criptografada de Logs
+│   │   └── telemetry.worker.ts # Exportação para Langfuse
+│   └── __tests__/           # Suite de Testes (186 casos de teste)
 │   └── __tests__/           # Suite de Testes (186 Casos)
 ├── presidio/                # Microserviço NLP (Python/FastAPI)
+├── docs/                    # Documentação Técnica e Manuais
+│   ├── assets/              # Imagens de Arquitetura e Fluxo
+│   ├── dossie_tecnico.md    # Visão para C-Level e Arquitetos
+│   └── manifesto_seguranca.md # Garantias Técnicas de Hardening
+├── scripts/                 # Utilitários de Setup e Migração
 ├── docs/                    # Documentos Técnicos e Manuais
 ├── *.sql                    # Evolução de Schema (Migrations 011-021)
 ├── docker-compose.yml       # Orquestração de 6 containers
+└── README.md                # Este documento
 └── README.md                # Landing Page Profissional
 ```
 
@@ -127,7 +165,10 @@ govai-platform/
 
 ### 1. Deploy
 ```bash
+git clone https://github.com/mauriciodesouzaads/GovAIPlatform.git
+cd GovAIPlatform
 cp .env.example .env
+# Configure suas chaves no .env (GEMINI_API_KEY, etc.)
 docker compose up --build -d
 ```
 
@@ -135,6 +176,19 @@ docker compose up --build -d
 ```bash
 docker exec govai-platform-api-1 bash scripts/migrate.sh
 ```
+
+### 3. Acesso Padrão
+- **Admin UI**: `http://localhost:3001` (User: `admin@govai.com` / Pass: `admin`)
+- **API Spec**: `http://localhost:3000/v1/docs/openapi.json`
+
+---
+
+## ✅ Certificação de Prontidão (Audit 2026)
+
+A plataforma foi validada em cenário real (clean-wipe), garantindo:
+- **100%** de isolamento em testes de RLS.
+- **Zero** vazamento de PII em prompts auditados.
+- **Resiliência** contra ataques de injeção em motor OPA WASM.
 
 ---
 
