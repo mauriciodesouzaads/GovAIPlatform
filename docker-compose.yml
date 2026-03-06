@@ -88,6 +88,9 @@ services:
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      ORG_MASTER_KEY: ${ORG_MASTER_KEY}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
+      ADMIN_UI_ORIGIN: ${ADMIN_UI_ORIGIN:-http://localhost:3001}
     ports:
       - "3000:3000"
     depends_on:

@@ -32,6 +32,7 @@ MIGRATIONS=(
     "017_add_password_and_roles_to_users.sql"
     "018_add_dek_to_encrypted_runs.sql"
     "019_rls_and_immutable_policies.sql"
+    "020_expiration_worker_rls_bypass.sql"
     "021_fix_users_rls_for_login.sql"
 )
 
