@@ -1,7 +1,7 @@
 # 🏛️ GOVERN.AI Platform
 ### Enterprise-Grade AI Governance & Security Layer
 
-![GovAI Flow](./docs/assets/docs/assets/Gemini_Generated_Image_aixpdhaixpdhaixp.png)
+![GovAI Flow](./docs/assets/Gemini_Generated_Image_aixpdhaixpdhaixp.png)
 
 **GOVERN.AI** is a zero-trust governance platform designed to protect corporate AI interactions. It acts as an intelligent firewall between your users/applications and Large Language Models (LLMs), ensuring every request is inspected for data leaks, policy violations, and prompt injections before reaching the AI provider.
 
