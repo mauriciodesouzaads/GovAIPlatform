@@ -46,6 +46,11 @@ A interface conta com suporte out-of-the-box para fluxos Single-Sign on corporat
 * Possui **JIT Provisioning:** o perfil B2B não precisa ser criado previamente no GovAI; na primeira interação OAuth2 originária da Azure, a porta Fastify auto-proporciona a entrada.
 * **Rate Limits Distribuidos:** Para mitigar Denial-of-Service por bruta force no login via botnets, os rate-limitings baseados tanto em Auth quanto IPs são centralizados num cluster Redis.
 
+### 3.4 Certificação de Prontidão (Audit 2026)
+A plataforma passou por uma bateria de validação de produção em Março de 2026, atingindo 100% de conformidade nos testes de estresse, segurança de rede e isolamento de dados.
+* 📄 **[Scorecard de Prontidão de Produção](./ENTERPRISE_AUDIT_REPORT_2026.md)**
+* 🛡️ **[Manifesto de Segurança GovAI](./manifesto_seguranca.md)**
+
 ## 4. Infraestrutura como Código (Docker/Compose)
 O sistema levanta com `docker-compose up`:
 - `api` — Imagem construída em Node.js (Alpine slim).
