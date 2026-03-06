@@ -1,4 +1,4 @@
-# 🏛️ GOVERN.AI Platform
+# 🏛️ GOV.AI Platform
 ### Enterprise-Grade AI Governance & Security Layer
 
 ![GovAI Flow](./docs/assets/Gemini_Generated_Image_aixpdhaixpdhaixp.png)
