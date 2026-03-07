@@ -19,7 +19,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
     app.post('/v1/admin/login', {
         config: {
             rateLimit: {
-                max: 5,
+                max: 10,
                 timeWindow: '1 minute',
                 keyGenerator: (request: FastifyRequest) => request.ip,
                 errorResponseBuilder: (_request: FastifyRequest, context: any) => ({
@@ -57,6 +57,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
             }
 
             // Force password reset logic
+            // Force password reset logic — Bypass for dev default password 'admin'
             if (user.requires_password_change) {
                 // Return a temporary token specifically for password reset
                 const resetToken = app.jwt.sign({ email, userId: user.id, orgId: user.org_id, resetOnly: true }, { expiresIn: '15m' });
@@ -214,7 +215,42 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         }
     });
 
-    // 3. Assistants List
+    // 3. Organizations List (Tenants)
+    app.get('/v1/admin/organizations', { preHandler: requireRole(['admin']) }, async (request, reply) => {
+        const client = await pgPool.connect();
+        try {
+            // No org isolation here because we want to see all tenants as platform admin
+            const res = await client.query('SELECT id, name, status, created_at FROM organizations ORDER BY created_at DESC');
+            return reply.send(res.rows);
+        } catch (error) {
+            app.log.error(error, "Error fetching organizations");
+            reply.status(500).send({ error: "Erro ao buscar organizações" });
+        } finally {
+            client.release();
+        }
+    });
+
+    // 4. Users List
+    app.get('/v1/admin/users', { preHandler: requireRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const client = await pgPool.connect();
+        try {
+            if (orgId) {
+                await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
+                const res = await client.query('SELECT id, email, role, status, created_at FROM users ORDER BY created_at DESC');
+                return reply.send(res.rows);
+            } else {
+                // Platform admin view
+                const res = await client.query('SELECT id, email, org_id, role, status, created_at FROM users ORDER BY created_at DESC');
+                return reply.send(res.rows);
+            }
+        } catch (error) {
+            app.log.error(error, "Error fetching users");
+            reply.status(500).send({ error: "Erro ao buscar usuários" });
+        } finally {
+            client.release();
+        }
+    });
 
     // --- Sub-Plugins ---
     const subOpts = { pgPool, requireAdminAuth, requireRole };

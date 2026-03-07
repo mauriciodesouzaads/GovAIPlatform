@@ -22,7 +22,7 @@ import Redis from 'ioredis';
 
 // Define telemetryQueue and export it
 const redisConfigUrl = new URL(process.env.REDIS_URL || 'redis://localhost:6379');
-export const telemetryQueue = new Queue('telemetry-export', { connection: { host: redisConfigUrl.hostname, port: parseInt(redisConfigUrl.port || '6379') } as any });
+export const telemetryQueue = new Queue('telemetry', { connection: { host: redisConfigUrl.hostname, port: parseInt(redisConfigUrl.port || '6379') } as any });
 export const redisCache = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
 // ---------------------------------------------------------------------------
@@ -93,10 +93,17 @@ fastify.register(require('@fastify/swagger-ui'), { routePrefix: '/v1/docs' });
 export const requireAdminAuth = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
         await request.jwtVerify();
-        // Extract orgId from JWT claims and inject into headers for downstream RLS
         const user = request.user as { orgId?: string; email?: string; role?: string };
+
+        // Inject orgId for RLS if present
         if (user?.orgId) {
             request.headers['x-org-id'] = user.orgId;
+        }
+
+        // Platform Admin check (optional: some routes might require specific role)
+        if (user?.role !== 'admin' && user?.role !== 'sre') {
+            // If it's just "admin auth", we usually allow admin/sre
+            // But we'll let requireRole handle more granular checks
         }
     } catch (err) {
         return reply.status(401).send({ error: 'Unauthorized: Invalid or expired JWT token.' });
@@ -115,6 +122,11 @@ export const requireRole = (allowedRoles: string[]) => {
             }
 
             const userRole = user?.role || 'operator';
+
+            // Platform admins ('admin') bypass organization-specific role checks for admin routes
+            if (userRole === 'admin') {
+                return;
+            }
 
             if (!allowedRoles.includes(userRole)) {
                 return reply.status(403).send({ error: `Acesso negado. Requer um dos seguintes perfis: ${allowedRoles.join(', ')}` });
@@ -147,13 +159,23 @@ import rateLimit from '@fastify/rate-limit';
 // import Redis from 'ioredis'; // Already imported at the top
 
 fastify.register(rateLimit, {
-    max: 100,           // Max 100 requests per window
+    max: (request: FastifyRequest) => {
+        // Auth header or API key present?
+        return request.headers.authorization ? 1000 : 50;
+    },
     timeWindow: '1 minute',
-    redis: new Redis(process.env.REDIS_URL || 'redis://localhost:6379'),
+    redis: redisCache, // Reuse existing connection
+    skipOnError: true, // Resilience: Allow traffic if Redis fails
     keyGenerator: (request: FastifyRequest) => {
-        // Rate limit by API key or IP
+        // Rate limit by Authorization header (unique per user/key) or IP
         return request.headers.authorization || request.ip;
     },
+    errorResponseBuilder: (request, context) => ({
+        statusCode: 429,
+        error: 'Too Many Requests',
+        message: 'Limite de requisições excedido.',
+        retryAfter: context.ttl
+    })
 });
 
 // Tracing Middleware
@@ -268,7 +290,10 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
             const wasmPathDev = path.join(process.cwd(), 'src/lib/opa/policy.wasm');
             const wasmPath = fs.existsSync(wasmPathProd) ? wasmPathProd : wasmPathDev;
             const wasmBuffer = fs.existsSync(wasmPath) ? fs.readFileSync(wasmPath) : undefined;
-            if (!wasmBuffer) fastify.log.warn("OPA WASM policy not found at " + wasmPath);
+            if (!wasmBuffer) {
+                console.error("\x1b[31m[FATAL] OPA WASM policy not found at " + wasmPath + "\x1b[0m");
+                process.exit(1);
+            }
             await opaEngine.initialize(wasmBuffer, pgPool);
         }
 
@@ -449,7 +474,9 @@ fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (r
             tokens: aiResponse.data.usage,
             cost: costUsd,
             latency_ms: latencyMs,
-            model: aiModel
+            model: aiModel,
+            prompt: safeMessage,
+            completion: aiResponse.data.choices[0].message?.content
         }, { removeOnComplete: true });
 
         fastify.log.info({ orgId, assistantId, tokens: aiResponse.data.usage?.total_tokens }, "Execution Success");

@@ -13,7 +13,7 @@ export const telemetryQueue = new Queue('telemetry', { connection });
 
 export function initTelemetryWorker(pgPool: Pool) {
     const worker = new Worker('telemetry', async job => {
-        const { org_id, assistant_id, traceId, tokens, cost, latency_ms } = job.data;
+        const { org_id, assistant_id, traceId, tokens, cost, latency_ms, prompt, completion } = job.data;
 
         // 1. Send To Langfuse (Delegated Observability)
         try {
@@ -34,6 +34,8 @@ export function initTelemetryWorker(pgPool: Pool) {
                     id: traceId,
                     timestamp: new Date().toISOString(),
                     model: job.data.model || 'gemini-1.5-flash',
+                    input: prompt,
+                    output: completion,
                     usage: {
                         promptTokens: tokens?.prompt || 0,
                         completionTokens: tokens?.completion || 0,

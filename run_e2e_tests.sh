@@ -32,7 +32,7 @@ HEALTH=$(curl -s "$API/health")
 echo "$HEALTH" | grep -q '"status"' && echo "✅ Health OK" || echo "❌ Health falhou: $HEALTH"
 
 echo "Test 1.2: OpenAPI spec"
-curl -s "$API/v1/docs/openapi.json" | grep -q '"title"' && echo "✅ OpenAPI OK" || echo "❌ OpenAPI falhou"
+curl -s "$API/v1/docs/json" | grep -q '"title"' && echo "✅ OpenAPI OK" || echo "❌ OpenAPI falhou"
 
 echo ""
 echo "=== PHASE 2: AUTENTICAÇÃO REAL ==="
@@ -50,7 +50,7 @@ RESP=$(curl -s -X POST "$API/v1/admin/login" \
 echo "$RESP" | grep -q "requires_password_change" && echo "✅ Primeiro login exige troca de senha" \
   || echo "⚠️  Troca de senha não foi exigida (verifique migration 017)"
 
-RESET_TOKEN=$(echo "$RESP" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+RESET_TOKEN=$(echo "$RESP" | grep -o '"resetToken":"[^"]*' | cut -d'"' -f4)
 
 echo "Test 2.3: Troca de senha com token temporário"
 if [ -n "$RESET_TOKEN" ]; then

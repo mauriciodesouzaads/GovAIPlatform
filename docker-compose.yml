@@ -57,6 +57,14 @@ services:
   presidio:
     build:
       context: ./presidio
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 512M
     networks:
       - govai-net
     healthcheck:
@@ -70,6 +78,7 @@ services:
     build: .
     environment:
       DATABASE_URL: postgresql://govai_app:${DB_APP_PASSWORD}@database:5432/govai?schema=public
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD}
       LITELLM_URL: http://litellm:4000
       SIGNING_SECRET: ${SIGNING_SECRET}
       JWT_SECRET: ${JWT_SECRET}
@@ -115,6 +124,8 @@ services:
     build:
       context: ./admin-ui
       dockerfile: Dockerfile.admin
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
     ports:
       - "3001:3001"
     depends_on:

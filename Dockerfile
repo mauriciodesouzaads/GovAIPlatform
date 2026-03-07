@@ -11,7 +11,10 @@ COPY tsconfig.json ./
 COPY src ./src
 
 RUN npm run build
-RUN mkdir -p /app/dist/lib/opa && cp /app/src/lib/opa/policy.wasm /app/dist/lib/opa/ || echo "No WASM module present, continuing"
+RUN mkdir -p /app/dist/lib/opa && \
+    (cp /app/src/lib/opa/policy.wasm /app/dist/lib/opa/ || \
+    cp /app/lib/opa/policy.wasm /app/dist/lib/opa/ || \
+    echo "Warning: policy.wasm not found during build")
 # Test stage — retains devDependencies for running Vitest inside Docker
 FROM node:20-alpine AS test
 

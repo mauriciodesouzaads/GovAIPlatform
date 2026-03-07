@@ -1,20 +1,5 @@
 model_list:
-  - model_name: gemini/gemini-1.5-flash
+  - model_name: govai-llm
     litellm_params:
-      model: gemini/gemini-1.5-flash
+      model: gemini/gemini-flash-latest
       api_key: os.environ/GEMINI_API_KEY
-  - model_name: gemini/gemini-2.5-flash
-    litellm_params:
-      model: gemini/gemini-2.5-flash
-      api_key: os.environ/GEMINI_API_KEY
-  - model_name: gemini
-    litellm_params:
-      model: gemini/gemini-2.5-flash
-      api_key: os.environ/GEMINI_API_KEY
-  - model_name: text-embedding
-    litellm_params:
-      model: gemini/text-embedding-004
-      api_key: os.environ/GEMINI_API_KEY
-      api_base: https://generativelanguage.googleapis.com/v1
-    model_info:
-      mode: embedding
