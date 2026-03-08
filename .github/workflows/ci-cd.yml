@@ -57,12 +57,13 @@ jobs:
           echo "ORG_MASTER_KEY=${{ secrets.ORG_MASTER_KEY }}" >> .env
       - name: SRE Override
         run: |
-          find . -name "*.sql" -type f -exec sed -i 's/GOVAI_APP_PASSWORD_PLACEHOLDER/govai_ci_pass/g' {} +
+          find . -name "*.sql" -type f -exec sed -i 's/GOVAI_APP_PASSWORD_PLACEHOLDER/govai_ci_pass/g' {} + || true
+
       - name: Start Services (Docker Compose)
         run: |
           docker compose --env-file .env up -d
-          
-    - name: Wait for Database and Seeding
+
+      - name: Wait for Database and Seeding
         run: |
           echo "Aguardando Postgres ficar pronto..."
           until docker compose exec -T database pg_isready -U postgres; do
