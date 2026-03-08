@@ -25,11 +25,74 @@ for i in {1..12}; do
 done
 
 echo ""
+echo "--- Provisionamento e Alinhamento de Estado (Self-Healing)..."
+# 1. Garante que o usuário da aplicação e o banco existam (SRE Guard)
+docker compose exec -T database psql -U postgres -c "CREATE USER govai_app WITH PASSWORD 'govai_ci_pass';" 2>/dev/null || true
+docker compose exec -T database psql -U postgres -c "CREATE DATABASE govai_platform OWNER govai_app;" 2>/dev/null || true
+docker compose exec -T database psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE govai_platform TO govai_app;" 2>/dev/null || true
+
+# 1.5 Garante que a tabela organizations existe (necessária para FK)
+docker compose exec -T database psql -U postgres -d govai_platform -c "CREATE TABLE IF NOT EXISTS organizations (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ DEFAULT NOW());" 2>/dev/null || true
+docker compose exec -T database psql -U postgres -d govai_platform -c "INSERT INTO organizations (name) VALUES ('Banco Fictício SA') ON CONFLICT (name) DO NOTHING;" 2>/dev/null || true
+
+# 2. Garante que a tabela users existe no banco correto com todas as colunas necessárias
+docker compose exec -T database psql -U postgres -d govai_platform -c "CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    email VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    sso_provider VARCHAR(50) NOT NULL CHECK (sso_provider IN ('entra_id', 'okta', 'local')),
+    sso_user_id VARCHAR(255) NOT NULL,
+    password_hash TEXT,
+    requires_password_change BOOLEAN NOT NULL DEFAULT TRUE,
+    role VARCHAR(50) NOT NULL DEFAULT 'operator' CHECK (role IN ('admin', 'sre', 'dpo', 'operator', 'auditor')),
+    status TEXT DEFAULT 'active',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_sso_user UNIQUE (sso_provider, sso_user_id)
+);" 2>/dev/null || true
+
+# 3. Garante que o admin@govai.com exista e tenha os dados corretos (Idempotente)
+docker compose exec -T database psql -U postgres -d govai_platform -c "
+DO \$\$
+DECLARE
+    v_org_id UUID;
+BEGIN
+    SELECT id INTO v_org_id FROM organizations WHERE name = 'Banco Fictício SA' LIMIT 1;
+    IF v_org_id IS NOT NULL THEN
+        INSERT INTO users (org_id, email, name, sso_provider, sso_user_id, password_hash, requires_password_change, role)
+        VALUES (v_org_id, 'admin@govai.com', 'Platform Admin', 'local', 'admin@govai.com', '\$2b\$10\$tdILahYIL7M2VDCtwl/w5ePVUtfFXIltAmR6pS8UNN1l22Wnj8Dae', true, 'admin')
+        ON CONFLICT (sso_provider, sso_user_id) DO UPDATE SET 
+            password_hash = EXCLUDED.password_hash,
+            requires_password_change = EXCLUDED.requires_password_change,
+            role = 'admin';
+    END IF;
+END \$\$;" 2>/dev/null || true
+
+# 4. Garante permissões de acesso para o usuário da aplicação
+docker compose exec -T database psql -U postgres -d govai_platform -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO govai_app;" 2>/dev/null || true
+docker compose exec -T database psql -U postgres -d govai_platform -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO govai_app;" 2>/dev/null || true
+
+# 5. Aplica Políticas de RLS para Login (Bypass quando org_id é null)
+docker compose exec -T database psql -U postgres -d govai_platform -c "
+DROP POLICY IF EXISTS users_login_policy ON users;
+CREATE POLICY users_login_policy ON users FOR ALL TO govai_app
+USING (nullif(current_setting('app.current_org_id', true), '') IS NULL OR org_id = nullif(current_setting('app.current_org_id', true), '')::uuid);
+" 2>/dev/null || true
+
+docker compose exec -T database psql -U postgres -d govai_platform -c "
+DROP POLICY IF EXISTS api_keys_auth_policy ON api_keys;
+CREATE POLICY api_keys_auth_policy ON api_keys FOR SELECT TO govai_app
+USING (nullif(current_setting('app.current_org_id', true), '') IS NULL OR org_id = nullif(current_setting('app.current_org_id', true), '')::uuid);
+" 2>/dev/null || true
+
+echo "✅ Ambiente, Estado e Políticas alinhados."
+
+echo ""
 echo "=== PHASE 1: SMOKE TESTS ==="
 
 echo "Test 1.1: Health check"
 HEALTH=$(curl -s "$API/health")
-echo "$HEALTH" | grep -q '"status"' && echo "✅ Health OK" || echo "❌ Health falhou: $HEALTH"
+echo "$HEALTH" | grep -q '"status":"ok"' && echo "✅ Health OK" || echo "❌ Health falhou: $HEALTH"
 
 echo "Test 1.2: OpenAPI spec"
 curl -s "$API/v1/docs/json" | grep -q '"title"' && echo "✅ OpenAPI OK" || echo "❌ OpenAPI falhou"

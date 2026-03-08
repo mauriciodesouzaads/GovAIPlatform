@@ -1,16 +1,48 @@
--- govai-platform/init.sql
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 0. Provisionamento de Usuário da Aplicação (Idempotente)
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'govai_app') THEN
+        CREATE ROLE govai_app WITH LOGIN PASSWORD 'govai_ci_pass';
+    ELSE
+        ALTER ROLE govai_app WITH PASSWORD 'govai_ci_pass';
+    END IF;
+END $$;
+GRANT ALL PRIVILEGES ON DATABASE govai_platform TO govai_app;
+ALTER DATABASE govai_platform OWNER TO govai_app;
 
 -- 1. Organizações (Tenants)
 CREATE TABLE IF NOT EXISTS organizations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    api_key_hash TEXT -- Para autenticação de aplicações externas
+    api_key_hash TEXT, -- Para autenticação de aplicações externas
+    sso_tenant_id VARCHAR(255) UNIQUE
 );
 
--- 2. Chaves de API (Auth)
+-- 2. Tabela de Usuários (Base)
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    email VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    sso_provider VARCHAR(50) NOT NULL CHECK (sso_provider IN ('entra_id', 'okta', 'local')),
+    sso_user_id VARCHAR(255) NOT NULL,
+    password_hash TEXT,
+    requires_password_change BOOLEAN NOT NULL DEFAULT TRUE,
+    role VARCHAR(50) NOT NULL DEFAULT 'operator' CHECK (role IN ('admin', 'sre', 'dpo', 'operator', 'auditor')),
+    status TEXT DEFAULT 'active',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_sso_user UNIQUE (sso_provider, sso_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_org_id ON users(org_id);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+-- 3. Chaves de API (Auth)
 CREATE TABLE IF NOT EXISTS api_keys (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     org_id UUID NOT NULL REFERENCES organizations(id),
