@@ -3,7 +3,7 @@ set -e
 # 8. Setup Inicial de Teste (Mock Data)
 # Script to inject demo tenants into the Database explicitly. Do not use in Production!
 
-export DATABASE_URL="${1:-${DATABASE_URL:-"postgresql://postgres:postgres@localhost:5432/govai_platform"}}"
+export DATABASE_URL="${1:-${DATABASE_URL:-"postgresql://govai_app:${DB_APP_PASSWORD:-govai_ci_pass}@localhost:5432/govai_platform"}}"
 
 # Ensure psql doesn't prompt for password
 export PGPASSWORD="${DB_APP_PASSWORD:-govai_ci_pass}"
