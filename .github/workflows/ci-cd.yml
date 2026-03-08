@@ -75,6 +75,23 @@ jobs:
           docker compose exec -T database psql -U postgres -c "CREATE DATABASE govai_platform OWNER govai_app;" || true
           docker compose exec -T database psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE govai_platform TO govai_app;" || true
           
+          echo "Executando Migrations e Seed..."
+          # Exportar URI para os comandos locais que rodam na rede do runner (localhost:5432 mapeado ao container)
+          export PGPASSWORD=admin
+          export DB_URI="postgresql://postgres:admin@localhost:5432/govai_platform"
+          
+          echo "-> init.sql"
+          psql $DB_URI -f init.sql
+          
+          echo "-> Numeric Migrations"
+          for f in 0*.sql; do
+            echo "Applying $f..."
+            psql $DB_URI -f "$f"
+          done
+          
+          echo "-> Seeding"
+          DB_APP_PASSWORD=govai_ci_pass bash scripts/demo-seed.sh "$DB_URI"
+          
           echo "Aguardando API /health ficar pronto..."
           for i in {1..20}; do
             if curl -s http://localhost:3000/health | grep -q '"status":"ok"'; then
@@ -89,9 +106,6 @@ jobs:
               exit 1
             fi
           done
-          
-          echo "Executando Migrations e Seed..."
-          DB_APP_PASSWORD=govai_ci_pass bash scripts/demo-seed.sh
           
       - name: SRE Override - Force E2E Context
         run: |
