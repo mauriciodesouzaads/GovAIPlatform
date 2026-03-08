@@ -44,17 +44,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         
+      - name: Generate .env file
+        run: |
+          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
+          echo "DB_APP_PASSWORD=${{ secrets.DB_APP_PASSWORD }}" >> .env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
+          echo "SIGNING_SECRET=${{ secrets.SIGNING_SECRET }}" >> .env
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+          echo "LITELLM_KEY=${{ secrets.LITELLM_KEY }}" >> .env
+          echo "ORG_MASTER_KEY=${{ secrets.ORG_MASTER_KEY }}" >> .env
+          
       - name: Start Services (Docker Compose)
         run: |
-          docker compose up -d
-        env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_APP_PASSWORD: ${{ secrets.DB_APP_PASSWORD }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          LITELLM_KEY: ${{ secrets.LITELLM_KEY }}
-          ORG_MASTER_KEY: ${{ secrets.ORG_MASTER_KEY }}
+          docker compose --env-file .env up -d
           
       - name: Run E2E Tests
         run: bash run_e2e_tests.sh
