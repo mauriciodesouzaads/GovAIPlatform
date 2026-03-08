@@ -10,10 +10,10 @@ INSERT INTO organizations (id, name) VALUES ('00000000-0000-0000-0000-0000000000
 
 INSERT INTO assistants (id, org_id, name, status) VALUES ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000001', 'Análise de Risco V1', 'published') ON CONFLICT DO NOTHING;
 
--- Admin account (password: admin)
+-- Admin account (password: admin123)
 INSERT INTO users (org_id, email, name, sso_provider, sso_user_id, password_hash, requires_password_change, role)
 VALUES ('00000000-0000-0000-0000-000000000001', 'admin@govai.com', 'Admin GovAI', 'local', 'admin@govai.com', 
-  '$2b$10$WpONX.8A2yA1/I40ZgXFZe9D/1z3o0I/I/tqB1tLpKz/u.W2qEOWC', TRUE, 'admin')
+  '$2b$10$i9kP3dlhr3hzxepaODQeTeKxiLt4Rv4.ati0bGdkHzwEaZN3ugzvC', TRUE, 'admin')
 ON CONFLICT (sso_provider, sso_user_id) DO UPDATE SET 
   password_hash = EXCLUDED.password_hash,
   requires_password_change = EXCLUDED.requires_password_change,
@@ -22,7 +22,7 @@ ON CONFLICT (sso_provider, sso_user_id) DO UPDATE SET
 -- Operator account (password: admin)
 INSERT INTO users (org_id, email, name, sso_provider, sso_user_id, password_hash, requires_password_change, role)
 VALUES ('00000000-0000-0000-0000-000000000001', 'operator@test.com', 'Operador', 'local', 'operator@test.com',
-  '$2b$10$WpONX.8A2yA1/I40ZgXFZe9D/1z3o0I/I/tqB1tLpKz/u.W2qEOWC', FALSE, 'operator')
+  '$2b$10$hahUeChoDccbv7hrKUqfNeoLD3BXO3pexu5VvQCu9T7lRlj4VDQpC', FALSE, 'operator')
 ON CONFLICT (sso_provider, sso_user_id) DO UPDATE SET 
   password_hash = EXCLUDED.password_hash,
   role = EXCLUDED.role;
