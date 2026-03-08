@@ -55,13 +55,9 @@ jobs:
           echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
           echo "LITELLM_KEY=${{ secrets.LITELLM_KEY }}" >> .env
           echo "ORG_MASTER_KEY=${{ secrets.ORG_MASTER_KEY }}" >> .env
-          
-      - name: SRE Override: Force Brute Credential Alignment
+      - name: SRE Override
         run: |
-          echo "Substituindo GOVAI_APP_PASSWORD_PLACEHOLDER em todas as migrations..."
-          find . -name "*.sql" -type f -exec sed -i 's/GOVAI_APP_PASSWORD_PLACEHOLDER/govai_ci_pass/g' {} + || true
-          echo "Override concluído."
-          
+          find . -name "*.sql" -type f -exec sed -i 's/GOVAI_APP_PASSWORD_PLACEHOLDER/govai_ci_pass/g' {} +
       - name: Start Services (Docker Compose)
         run: |
           docker compose --env-file .env up -d
