@@ -71,6 +71,9 @@ jobs:
             sleep 2
           done
           
+          echo "Aguardando 10s para processamento do init.sql..."
+          sleep 10
+          
           echo "Forçando alinhamento de senha diretamente no SGBD..."
           docker compose exec -T database psql -U postgres -c "ALTER USER govai_app WITH PASSWORD 'govai_ci_pass';" || true
           
