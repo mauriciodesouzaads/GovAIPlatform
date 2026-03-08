@@ -47,11 +47,11 @@ jobs:
       - name: Generate .env file
         run: |
           echo "POSTGRES_USER=postgres" >> .env
-          echo "POSTGRES_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
-          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
-          echo "DB_APP_PASSWORD=${{ secrets.DB_APP_PASSWORD }}" >> .env
-          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
-          echo "SIGNING_SECRET=${{ secrets.SIGNING_SECRET }}" >> .env
+          echo "POSTGRES_PASSWORD=${{ secrets.DB_PASSWORD || 'local_db_pass' }}" >> .env
+          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD || 'local_db_pass' }}" >> .env
+          echo "DB_APP_PASSWORD=GOVAI_APP_PASSWORD_PLACEHOLDER" >> .env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET || 'fallback-secret-for-tests-32chars-min' }}" >> .env
+          echo "SIGNING_SECRET=${{ secrets.SIGNING_SECRET || 'sign-secret-for-tests-32chars-min' }}" >> .env
           echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
           echo "LITELLM_KEY=${{ secrets.LITELLM_KEY }}" >> .env
           echo "ORG_MASTER_KEY=${{ secrets.ORG_MASTER_KEY }}" >> .env
@@ -62,8 +62,27 @@ jobs:
           
       - name: Wait for Database and Seeding
         run: |
-          echo "Aguardando inicialização do Postgres..."
-          sleep 20
+          echo "Aguardando Postgres ficar pronto..."
+          until docker compose exec -T database pg_isready -U postgres; do
+            echo "Postgres ainda não está pronto... aguardando 2s"
+            sleep 2
+          done
+          
+          echo "Aguardando API /health ficar pronto..."
+          for i in {1..20}; do
+            if curl -s http://localhost:3000/health | grep -q '"status":"ok"'; then
+              echo "✅ API configurada e saudável"
+              break
+            fi
+            echo "Tentativa $i/20 — API não respondeu OK. Aguardando 5s..."
+            sleep 5
+            if [ $i -eq 20 ]; then
+              echo "❌ API falhou no health check após 100s"
+              docker compose logs api
+              exit 1
+            fi
+          done
+          
           echo "Iniciando seeding de dados..."
           bash scripts/demo-seed.sh
           
