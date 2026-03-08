@@ -13,7 +13,7 @@ INSERT INTO assistants (id, org_id, name, status) VALUES ('11111111-1111-1111-11
 -- Admin account (password: admin123)
 INSERT INTO users (org_id, email, name, sso_provider, sso_user_id, password_hash, requires_password_change, role)
 VALUES ('00000000-0000-0000-0000-000000000001', 'admin@govai.com', 'Admin GovAI', 'local', 'admin@govai.com', 
-  '$2b$10$i9kP3dlhr3hzxepaODQeTeKxiLt4Rv4.ati0bGdkHzwEaZN3ugzvC', TRUE, 'admin')
+  '$2b$10$i9kP3dlhr3hzxepaODQeTeKxiLt4Rv4.ati0bGdkHzwEaZN3ugzvC', true, 'admin')
 ON CONFLICT (sso_provider, sso_user_id) DO UPDATE SET 
   password_hash = EXCLUDED.password_hash,
   requires_password_change = EXCLUDED.requires_password_change,

@@ -65,7 +65,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
                 return reply.status(401).send({ error: 'Credenciais inválidas.' });
             }
 
-            // Force password reset logic
+            // Force password reset logic (Sprint 8 - Strict Enforcement)
             if (user.requires_password_change) {
                 const resetToken = app.jwt.sign({ email, userId: user.id, orgId: user.org_id, resetOnly: true }, { expiresIn: '15m' });
                 return reply.status(403).send({
