@@ -173,13 +173,7 @@ FOR EACH ROW EXECUTE FUNCTION update_modified_column();
 -- 8. Setup Inicial de Teste (Mock Data)
 -- Movido para scripts/demo-seed.sh exclusivamente (MEL-02: Isolamento de Produção)
 
--- MEL-05: Criar política RLS específica para o expiration worker
-DROP POLICY IF EXISTS expiration_worker_policy ON pending_approvals;
-CREATE POLICY expiration_worker_policy ON pending_approvals
-    FOR UPDATE
-    USING (status = 'pending' AND expires_at <= NOW())
-    WITH CHECK (status = 'expired');
-
 -- [BUG-03] Policy Immutability
 -- REMOVED: Managed by migration 011
+-- MEL-05: Managed by migration 020
 

@@ -35,11 +35,13 @@ CREATE TABLE IF NOT EXISTS token_usage_ledger (
 
 -- 3. RLS on billing_quotas
 ALTER TABLE billing_quotas ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS billing_quotas_tenant_isolation ON billing_quotas;
 CREATE POLICY billing_quotas_tenant_isolation ON billing_quotas
     USING (org_id::text = current_setting('app.current_org_id', true));
 
 -- 4. RLS on token_usage_ledger
 ALTER TABLE token_usage_ledger ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS token_usage_ledger_tenant_isolation ON token_usage_ledger;
 CREATE POLICY token_usage_ledger_tenant_isolation ON token_usage_ledger
     USING (org_id::text = current_setting('app.current_org_id', true));
 

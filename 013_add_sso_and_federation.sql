@@ -19,8 +19,9 @@ CREATE TABLE IF NOT EXISTS users (
 -- Ativar RLS em users para garantir multi-tenancy rigoroso entre orgs
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS users_isolation_policy ON users;
 CREATE POLICY users_isolation_policy ON users
     USING (org_id = nullif(current_setting('app.current_org_id', true), '')::uuid);
 
-CREATE INDEX idx_users_org_id ON users(org_id);
-CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_org_id ON users(org_id);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);

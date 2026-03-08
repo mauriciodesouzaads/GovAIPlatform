@@ -14,10 +14,11 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 -- Ativar RLS em mcp_servers para garantir multi-tenancy rigoroso
 ALTER TABLE mcp_servers ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS mcp_servers_isolation_policy ON mcp_servers;
 CREATE POLICY mcp_servers_isolation_policy ON mcp_servers
     USING (org_id = nullif(current_setting('app.current_org_id', true), '')::uuid);
 
-CREATE INDEX idx_mcp_servers_org_id ON mcp_servers(org_id);
+CREATE INDEX IF NOT EXISTS idx_mcp_servers_org_id ON mcp_servers(org_id);
 
 
 -- 2. Criação da Tabela connector_version_grants (O "Alvará" imutável)
@@ -34,8 +35,9 @@ CREATE TABLE IF NOT EXISTS connector_version_grants (
 -- Ativar RLS em connector_version_grants
 ALTER TABLE connector_version_grants ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS grants_isolation_policy ON connector_version_grants;
 CREATE POLICY grants_isolation_policy ON connector_version_grants
     USING (org_id = nullif(current_setting('app.current_org_id', true), '')::uuid);
 
-CREATE INDEX idx_grants_assistant_version_id ON connector_version_grants(assistant_version_id);
-CREATE INDEX idx_grants_mcp_server_id ON connector_version_grants(mcp_server_id);
+CREATE INDEX IF NOT EXISTS idx_grants_assistant_version_id ON connector_version_grants(assistant_version_id);
+CREATE INDEX IF NOT EXISTS idx_grants_mcp_server_id ON connector_version_grants(mcp_server_id);

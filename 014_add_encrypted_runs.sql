@@ -20,9 +20,10 @@ CREATE TABLE IF NOT EXISTS run_content_encrypted (
 -- Ativar RLS em run_content_encrypted para isolamento militar por Org
 ALTER TABLE run_content_encrypted ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS encrypted_content_isolation_policy ON run_content_encrypted;
 CREATE POLICY encrypted_content_isolation_policy ON run_content_encrypted
     USING (org_id = nullif(current_setting('app.current_org_id', true), '')::uuid);
 
 -- Índices de performance
-CREATE INDEX idx_run_content_org_id ON run_content_encrypted(org_id);
-CREATE INDEX idx_run_content_run_id ON run_content_encrypted(run_id);
+CREATE INDEX IF NOT EXISTS idx_run_content_org_id ON run_content_encrypted(org_id);
+CREATE INDEX IF NOT EXISTS idx_run_content_run_id ON run_content_encrypted(run_id);

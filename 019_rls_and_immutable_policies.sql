@@ -35,6 +35,7 @@ CREATE POLICY org_audit_insert_isolation ON audit_logs_partitioned
 
 -- 3. Immutability trigger for `policy_versions` (Critical 4)
 -- Legal guarantee: governance policies cannot be retroactively altered, only superseded by new versions.
+DROP TRIGGER IF EXISTS trg_immutable_policy_versions ON policy_versions;
 CREATE TRIGGER trg_immutable_policy_versions 
 BEFORE UPDATE OR DELETE ON policy_versions 
 FOR EACH ROW EXECUTE FUNCTION protect_audit_logs();

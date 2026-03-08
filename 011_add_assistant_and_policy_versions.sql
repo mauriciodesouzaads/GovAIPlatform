@@ -14,11 +14,12 @@ CREATE TABLE IF NOT EXISTS policy_versions (
 -- Ativar RLS em policy_versions
 ALTER TABLE policy_versions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS policy_versions_isolation_policy ON policy_versions;
 CREATE POLICY policy_versions_isolation_policy ON policy_versions
     USING (org_id = nullif(current_setting('app.current_org_id', true), '')::uuid);
 
 -- Criar índice para busca rápida por versão
-CREATE INDEX idx_policy_versions_org_id ON policy_versions(org_id);
+CREATE INDEX IF NOT EXISTS idx_policy_versions_org_id ON policy_versions(org_id);
 
 
 -- 2. Criação da Tabela assistant_versions
@@ -37,11 +38,12 @@ CREATE TABLE IF NOT EXISTS assistant_versions (
 -- Ativar RLS em assistant_versions
 ALTER TABLE assistant_versions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS assistant_versions_isolation_policy ON assistant_versions;
 CREATE POLICY assistant_versions_isolation_policy ON assistant_versions
     USING (org_id = nullif(current_setting('app.current_org_id', true), '')::uuid);
 
 -- Criar índice
-CREATE INDEX idx_assistant_versions_assistant_id ON assistant_versions(assistant_id);
+CREATE INDEX IF NOT EXISTS idx_assistant_versions_assistant_id ON assistant_versions(assistant_version_id);
 
 
 -- 3. Trigger de Imutabilidade para assistant_versions (Garantia Jurídica)
@@ -54,6 +56,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS make_assistant_versions_immutable ON assistant_versions;
 CREATE TRIGGER make_assistant_versions_immutable
 BEFORE UPDATE OR DELETE ON assistant_versions
 FOR EACH ROW
