@@ -49,12 +49,19 @@ jobs:
           echo "POSTGRES_USER=postgres" >> .env
           echo "POSTGRES_PASSWORD=admin" >> .env
           echo "DB_PASSWORD=admin" >> .env
-          echo "DB_APP_PASSWORD=GOVAI_APP_PASSWORD_PLACEHOLDER" >> .env
+          echo "DB_APP_PASSWORD=govai_ci_pass" >> .env
           echo "JWT_SECRET=${{ secrets.JWT_SECRET || 'fallback-secret-for-tests-32chars-min' }}" >> .env
           echo "SIGNING_SECRET=${{ secrets.SIGNING_SECRET || 'sign-secret-for-tests-32chars-min' }}" >> .env
           echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
           echo "LITELLM_KEY=${{ secrets.LITELLM_KEY }}" >> .env
           echo "ORG_MASTER_KEY=${{ secrets.ORG_MASTER_KEY }}" >> .env
+          
+      - name: SRE Override: Force Brute Credential Alignment
+        run: |
+          echo "Substituindo GOVAI_APP_PASSWORD_PLACEHOLDER nas migrations..."
+          # Substituir em todos os arquivos .sql na raiz do projeto (onde as migrations costumam ficar neste setup)
+          sed -i 's/GOVAI_APP_PASSWORD_PLACEHOLDER/govai_ci_pass/g' *.sql
+          grep -l "govai_ci_pass" *.sql || echo "Nenhuma substituição necessária ou efetuada."
           
       - name: Start Services (Docker Compose)
         run: |
