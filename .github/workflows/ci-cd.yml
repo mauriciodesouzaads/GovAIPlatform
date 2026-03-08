@@ -115,13 +115,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lowercase repository name
+        run: echo "REPO_LOWER=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
           
       - name: Build and Push Presidio Image
         uses: docker/build-push-action@v5
         with:
           context: ./presidio
           push: true
-          tags: ghcr.io/${{ github.repository }}/govai-presidio:latest
+          tags: ghcr.io/${{ env.REPO_LOWER }}/govai-presidio:latest
 
       - name: Build and Push API Image
         uses: docker/build-push-action@v5
@@ -129,8 +132,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/govai-api:latest
-            ghcr.io/${{ github.repository }}/govai-api:${{ github.sha }}
+            ghcr.io/${{ env.REPO_LOWER }}/govai-api:latest
+            ghcr.io/${{ env.REPO_LOWER }}/govai-api:${{ github.sha }}
           
       - name: Build and Push Admin UI Image
         uses: docker/build-push-action@v5
@@ -139,7 +142,7 @@ jobs:
           file: ./admin-ui/Dockerfile.admin
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/govai-admin-ui:latest
-            ghcr.io/${{ github.repository }}/govai-admin-ui:${{ github.sha }}
+            ghcr.io/${{ env.REPO_LOWER }}/govai-admin-ui:latest
+            ghcr.io/${{ env.REPO_LOWER }}/govai-admin-ui:${{ github.sha }}
           build-args: |
             NEXT_PUBLIC_API_URL=${{ secrets.PROD_API_URL || 'https://api.govai-platform.com' }}
