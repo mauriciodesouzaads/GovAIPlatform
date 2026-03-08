@@ -43,7 +43,7 @@ CREATE POLICY assistant_versions_isolation_policy ON assistant_versions
     USING (org_id = nullif(current_setting('app.current_org_id', true), '')::uuid);
 
 -- Criar índice
-CREATE INDEX IF NOT EXISTS idx_assistant_versions_assistant_id ON assistant_versions(assistant_version_id);
+CREATE INDEX IF NOT EXISTS idx_assistant_versions_assistant_id ON assistant_versions(assistant_id);
 
 
 -- 3. Trigger de Imutabilidade para assistant_versions (Garantia Jurídica)
