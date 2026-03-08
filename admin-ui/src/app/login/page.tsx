@@ -80,19 +80,19 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="min-h-screen bg-[#050505] text-foreground flex items-center justify-center p-4 selection:bg-amber-500/30">
+        <div className="min-h-screen bg-[#050505] text-foreground flex items-center justify-center p-4 selection:bg-emerald-500/30">
             {/* Background Effects */}
             <div className="fixed inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-amber-500/10 blur-[120px] rounded-full" />
-                <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-amber-500/5 blur-[120px] rounded-full" />
+                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-500/10 blur-[120px] rounded-full" />
+                <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-500/5 blur-[120px] rounded-full" />
             </div>
 
             <div className="w-full max-w-md relative">
                 <div className="bg-zinc-900/50 backdrop-blur-2xl border border-zinc-800 rounded-3xl p-8 shadow-2xl overflow-hidden">
                     {/* Header */}
                     <div className="mb-8 text-center">
-                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-600/10 border border-amber-500/20 mb-6 shadow-inner">
-                            <ShieldAlert className="w-8 h-8 text-amber-500" /> {/* Changed to ShieldAlert for consistency with original imports */}
+                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/20 mb-6 shadow-inner">
+                            <ShieldAlert className="w-8 h-8 text-emerald-500" /> {/* Changed to ShieldAlert for consistency with original imports */}
                         </div>
                         <h1 className="text-3xl font-bold tracking-tight text-white mb-2">GovAI Platform</h1>
                         <p className="text-zinc-400 text-sm">Controle e Governança para IA Enterprise</p>
@@ -114,37 +114,39 @@ export default function LoginPage() {
                     )}
 
                     {!isResetting ? (
-                        <form onSubmit={handleLogin} className="space-y-6">
-                            <div className="space-y-5">
-                                <div>
-                                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">E-mail Corporativo</label>
-                                    <input
-                                        type="email"
-                                        value={email}
-                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
-                                        className="w-full bg-black/50 border border-border/80 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 transition-all"
-                                        placeholder="E-mail admin@govai.com"
-                                        required
-                                    />
+                        <>
+                            <form onSubmit={handleLogin} className="space-y-6">
+                                <div className="space-y-5">
+                                    <div>
+                                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">E-mail Corporativo</label>
+                                        <input
+                                            type="email"
+                                            value={email}
+                                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
+                                            className="w-full bg-black/50 border border-border/80 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                                            placeholder="E-mail admin@govai.com"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Senha</label>
+                                        <input
+                                            type="password"
+                                            value={password}
+                                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                                            className="w-full bg-black/50 border border-border/80 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                                            placeholder="••••••••"
+                                            required
+                                        />
+                                    </div>
+                                    <button
+                                        type="submit"
+                                        disabled={loading}
+                                        className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3.5 px-4 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 mt-4 shadow-lg shadow-emerald-500/20"
+                                    >
+                                        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Entrar (Demo Local)'}
+                                    </button>
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Senha</label>
-                                    <input
-                                        type="password"
-                                        value={password}
-                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
-                                        className="w-full bg-black/50 border border-border/80 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 transition-all"
-                                        placeholder="••••••••"
-                                        required
-                                    />
-                                </div>
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="w-full bg-amber-500 hover:bg-amber-400 text-black font-bold py-3.5 px-4 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 mt-4 shadow-lg shadow-amber-500/20"
-                                >
-                                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Entrar (Demo Local)'}
-                                </button>
                             </form>
 
                             <div className="relative mb-8 mt-8">
@@ -176,42 +178,42 @@ export default function LoginPage() {
                                 </button>
                             </div>
                         </>
-                ) : (
-                <form onSubmit={handleResetPassword} className="space-y-4">
-                    <div>
-                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Nova Senha Corporativa (Mín: 12 chars)</label>
-                        <input
-                            type="password"
-                            value={newPassword}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewPassword(e.target.value)}
-                            className="w-full bg-black/50 border border-border/80 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
-                            placeholder="Defina uma senha forte..."
-                            required
-                            minLength={12}
-                        />
-                    </div>
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 px-4 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 mt-4 shadow-lg shadow-emerald-500/20"
-                    >
-                        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirmar e Atualizar Credencial'}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => { setIsResetting(false); setError(''); }}
-                        className="w-full bg-transparent border border-border/80 text-muted-foreground hover:text-white font-medium text-sm py-3.5 px-4 rounded-xl transition-all"
-                    >
-                        Voltar ao Login
-                    </button>
-                </form>
+                    ) : (
+                        <form onSubmit={handleResetPassword} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Nova Senha Corporativa (Mín: 12 chars)</label>
+                                <input
+                                    type="password"
+                                    value={newPassword}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewPassword(e.target.value)}
+                                    className="w-full bg-black/50 border border-border/80 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                                    placeholder="Defina uma senha forte..."
+                                    required
+                                    minLength={12}
+                                />
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 px-4 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 mt-4 shadow-lg shadow-emerald-500/20"
+                            >
+                                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirmar e Atualizar Credencial'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { setIsResetting(false); setError(''); }}
+                                className="w-full bg-transparent border border-border/80 text-muted-foreground hover:text-white font-medium text-sm py-3.5 px-4 rounded-xl transition-all"
+                            >
+                                Voltar ao Login
+                            </button>
+                        </form>
                     )}
-            </div>
+                </div>
 
-            <p className="text-center text-xs text-muted-foreground mt-8">
-                Demonstração: admin@govai.com / admin
-            </p>
+                <p className="text-center text-xs text-muted-foreground mt-8">
+                    Demonstração: admin@govai.com / admin
+                </p>
+            </div>
         </div>
-        </div >
     );
 }

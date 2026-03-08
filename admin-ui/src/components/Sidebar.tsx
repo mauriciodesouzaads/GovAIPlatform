@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, Activity } from 'lucide-react';
+import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
 

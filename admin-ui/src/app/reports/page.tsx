@@ -48,8 +48,9 @@ export default function ReportsPage() {
                 params: { startDate, endDate },
             });
             setData(res.data);
-        } catch (err: any) {
-            setError(err.response?.data?.error || 'Erro ao gerar relatório');
+        } catch (err: unknown) {
+            const errorMsg = (err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Erro ao gerar relatório';
+            setError(errorMsg);
         } finally {
             setLoading(false);
         }
@@ -70,7 +71,7 @@ export default function ReportsPage() {
             link.download = `compliance-report-${startDate}-${endDate}.pdf`;
             link.click();
             window.URL.revokeObjectURL(url);
-        } catch (err: any) {
+        } catch {
             setError('Erro ao baixar PDF');
         } finally {
             setDownloading(false);
@@ -233,7 +234,7 @@ export default function ReportsPage() {
                     <section>
                         <h2 className="text-lg font-semibold mb-3">Log de Execuções — Verificação Criptográfica</h2>
                         <p className="text-xs text-muted-foreground mb-3">
-                            Cada registro contém uma assinatura HMAC-SHA256. O status "Válida" confirma integridade do registro.
+                            Cada registro contém uma assinatura HMAC-SHA256. O status &quot;Válida&quot; confirma integridade do registro.
                         </p>
                         <div className="bg-card border border-border rounded-xl overflow-hidden">
                             <table className="w-full text-sm">
@@ -293,7 +294,7 @@ export default function ReportsPage() {
     );
 }
 
-function SummaryCard({ icon: Icon, label, value, color }: { icon: any; label: string; value: number; color: string }) {
+function SummaryCard({ icon: Icon, label, value, color }: { icon: React.ElementType; label: string; value: number; color: string }) {
     return (
         <div className="p-5 bg-card border border-border rounded-xl">
             <div className="flex items-center gap-2 mb-2">

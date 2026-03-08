@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Activity, ShieldCheck, Coins, ArrowUpRight, ShieldAlert, CreditCard, Bot, Info, Database, Server, Zap, Globe, Cpu } from 'lucide-react';
-import axios from 'axios';
+import { Activity, ShieldCheck, Coins, ArrowUpRight, ShieldAlert, CreditCard, Bot, Info, Database, Server, Zap } from 'lucide-react';
+
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 
 import api, { ENDPOINTS } from '@/lib/api';
@@ -27,8 +27,8 @@ export default function DashboardPage() {
       try {
         const response = await api.get(ENDPOINTS.STATS);
         setStats(response.data);
-      } catch (error) {
-        console.error("Error fetching stats:", error);
+      } catch {
+        console.error("Error fetching stats:");
       } finally {
         setLoading(false);
       }
@@ -319,7 +319,7 @@ function SystemStatusCard() {
       try {
         const res = await api.get('/health');
         setStatus(res.data);
-      } catch (err) {
+      } catch {
         toast('Falha Crítica: Conexão com infraestrutura perdida.', 'error');
         setStatus({ db: 'error', redis: 'error' });
       }

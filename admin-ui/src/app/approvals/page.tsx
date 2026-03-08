@@ -45,7 +45,7 @@ export default function ApprovalsPage() {
         } finally {
             setLoading(false);
         }
-    }, [tab]);
+    }, [tab, toast]);
 
     useEffect(() => { fetchApprovals(); }, [fetchApprovals]);
 

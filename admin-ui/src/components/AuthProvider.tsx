@@ -36,21 +36,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
                 }).join(''));
                 const decoded = JSON.parse(jsonPayload);
+                const role = decoded.role || 'operator';
+                const email = decoded.email || 'user@govai.com';
 
-                setRole(decoded.role || 'operator');
-                setEmail(decoded.email || 'user@govai.com');
+                Promise.resolve().then(() => {
+                    setRole(role);
+                    setEmail(email);
+                });
             } catch (e) {
                 console.error("Invalid token payload", e);
             }
 
-            setToken(storedToken);
+            Promise.resolve().then(() => {
+                setToken(storedToken);
+            });
             // Setup global axios defaults — JWT carries orgId, no need for manual header
             axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
         } else if (pathname !== '/login') {
             router.push('/login');
         }
 
-        setIsLoading(false);
+        Promise.resolve().then(() => {
+            setIsLoading(false);
+        });
     }, [pathname, router]);
 
     const logout = () => {

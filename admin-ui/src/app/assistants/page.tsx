@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import api, { ENDPOINTS } from '@/lib/api';
-import { Plus, Search, Filter, Shield, Upload, CheckCircle2, Bot, Database, Activity, Users, Lock, FileText } from 'lucide-react';
+import { Plus, Upload, CheckCircle2, Bot, Database, Lock, FileText } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 
 interface Assistant { id: string; name: string; status: string; created_at: string; draft_version_id?: string; }
-interface KnowledgeBase { id: string; name: string; created_at: string; }
 export default function AssistantsPage() {
     const [assistants, setAssistants] = useState<Assistant[]>([]);
     const [loading, setLoading] = useState(true);
@@ -14,8 +13,6 @@ export default function AssistantsPage() {
     const [creating, setCreating] = useState(false);
 
     // MCP & Policies State
-    const [policyVersions, setPolicyVersions] = useState<unknown[]>([]);
-    const [mcpServers, setMcpServers] = useState<unknown[]>([]);
     const [selectedPolicyId, setSelectedPolicyId] = useState('');
     const [selectedMcpServerId, setSelectedMcpServerId] = useState('');
     const [allowedToolsInput, setAllowedToolsInput] = useState('');
@@ -48,12 +45,10 @@ export default function AssistantsPage() {
 
     const fetchSelectables = async () => {
         try {
-            const [polRes, mcpRes] = await Promise.all([
+            const [polRes] = await Promise.all([
                 api.get(ENDPOINTS.POLICIES),
                 api.get(ENDPOINTS.MCP)
             ]);
-            setPolicyVersions(polRes.data);
-            setMcpServers(mcpRes.data);
             if (polRes.data.length > 0) setSelectedPolicyId(polRes.data[0].id);
         } catch (e) { console.error(e); }
     };
