@@ -95,8 +95,13 @@ jobs:
           
       - name: SRE Override - Force E2E Context
         run: |
-          echo "Alinhando estado do DB com os testes..."
-          docker compose exec -T database psql -U postgres -d govai_platform -c "UPDATE users SET requires_password_change = true WHERE email = 'admin@govai.com';"
+          echo "Alinhando estado do DB com os testes (Double-Strike)..."
+          
+          echo "Tentativa 1: Banco padrão (govai)..."
+          docker compose exec -T database psql -U postgres -d govai -c "UPDATE users SET requires_password_change = true WHERE email = 'admin@govai.com';" || true
+          
+          echo "Tentativa 2: Banco corporativo (govai_platform)..."
+          docker compose exec -T database psql -U postgres -d govai_platform -c "UPDATE users SET requires_password_change = true WHERE email = 'admin@govai.com';" || true
 
       - name: Run E2E Tests
         run: bash run_e2e_tests.sh
