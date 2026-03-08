@@ -58,10 +58,9 @@ jobs:
           
       - name: SRE Override: Force Brute Credential Alignment
         run: |
-          echo "Substituindo GOVAI_APP_PASSWORD_PLACEHOLDER nas migrations..."
-          # Substituir em todos os arquivos .sql na raiz do projeto (onde as migrations costumam ficar neste setup)
-          sed -i 's/GOVAI_APP_PASSWORD_PLACEHOLDER/govai_ci_pass/g' *.sql
-          grep -l "govai_ci_pass" *.sql || echo "Nenhuma substituição necessária ou efetuada."
+          echo "Substituindo GOVAI_APP_PASSWORD_PLACEHOLDER em todas as migrations..."
+          find . -name "*.sql" -type f -exec sed -i 's/GOVAI_APP_PASSWORD_PLACEHOLDER/govai_ci_pass/g' {} + || true
+          echo "Override concluído."
           
       - name: Start Services (Docker Compose)
         run: |
