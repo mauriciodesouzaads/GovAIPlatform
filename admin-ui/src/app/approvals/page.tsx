@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import api, { ENDPOINTS } from '@/lib/api';
-import { Clock, CheckCircle, XCircle, AlertTriangle, Loader2, ShieldAlert, CheckCircle2, UserCircle, MessageSquare, Database } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, AlertTriangle, Loader2, ShieldAlert, UserCircle, MessageSquare, Database } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useToast } from '@/components/Toast';
@@ -31,8 +31,6 @@ export default function ApprovalsPage() {
     const [tab, setTab] = useState<'pending' | 'approved' | 'rejected'>('pending');
     const [rejectNote, setRejectNote] = useState('');
     const [showRejectModal, setShowRejectModal] = useState<string | null>(null);
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
 
     const { toast } = useToast();
 
@@ -41,8 +39,9 @@ export default function ApprovalsPage() {
         try {
             const res = await api.get(ENDPOINTS.APPROVALS, { params: { status: tab } });
             setApprovals(res.data);
-        } catch (err: any) {
-            setError(err.response?.data?.error || 'Erro ao buscar aprovações');
+        } catch (err: unknown) {
+            const errorMsg = (err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Erro ao buscar aprovações';
+            toast(errorMsg, 'error');
         } finally {
             setLoading(false);
         }
@@ -57,12 +56,13 @@ export default function ApprovalsPage() {
             toast(`Decisão aprovada! Trace: ${res.data._govai?.traceId || id.substring(0, 8)}`, 'success');
             // Optimistic update: remove from current list if in pending tab
             if (tab === 'pending') {
-                setApprovals(prev => prev.filter(a => a.id !== id));
+                setApprovals((prev: Approval[]) => prev.filter((a: Approval) => a.id !== id));
             } else {
                 fetchApprovals();
             }
-        } catch (err: any) {
-            toast(err.response?.data?.error || 'Erro ao aprovar a transação', 'error');
+        } catch (err: unknown) {
+            const axiosError = err as { response?: { data?: { error?: string } } };
+            toast(axiosError.response?.data?.error || 'Erro ao aprovar a transação', 'error');
         } finally {
             setProcessing(null);
         }
@@ -76,12 +76,13 @@ export default function ApprovalsPage() {
             setShowRejectModal(null);
             setRejectNote('');
             if (tab === 'pending') {
-                setApprovals(prev => prev.filter(a => a.id !== id));
+                setApprovals((prev: Approval[]) => prev.filter((a: Approval) => a.id !== id));
             } else {
                 fetchApprovals();
             }
-        } catch (err: any) {
-            toast(err.response?.data?.error || 'Erro ao rejeitar a transação', 'error');
+        } catch (err: unknown) {
+            const axiosError = err as { response?: { data?: { error?: string } } };
+            toast(axiosError.response?.data?.error || 'Erro ao rejeitar a transação', 'error');
         } finally {
             setProcessing(null);
         }
@@ -158,7 +159,7 @@ export default function ApprovalsPage() {
                 {/* Approval Cards */}
                 {!loading && approvals.length > 0 && (
                     <div className="space-y-6">
-                        {approvals.map(a => (
+                        {approvals.map((a: Approval) => (
                             <div key={a.id} className="glass rounded-2xl p-6 md:p-8 space-y-6 border-l-4 hover:border-l-8 transition-all duration-300 relative overflow-hidden group"
                                 style={{
                                     borderLeftColor: a.status === 'pending' ? '#f43f5e' : a.status === 'approved' ? '#10b981' : '#f43f5e'
@@ -281,7 +282,7 @@ export default function ApprovalsPage() {
                                                 </p>
                                                 <textarea
                                                     value={rejectNote}
-                                                    onChange={e => setRejectNote(e.target.value)}
+                                                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setRejectNote(e.target.value)}
                                                     placeholder="Especifique a violação para registro de auditoria..."
                                                     className="w-full bg-background border border-border rounded-lg px-4 py-3 text-sm resize-none h-24 focus:outline-none focus:ring-2 focus:ring-destructive shadow-inner"
                                                 />

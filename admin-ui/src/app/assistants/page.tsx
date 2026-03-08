@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import api, { ENDPOINTS } from '@/lib/api';
-import { Plus, Search, Filter, Shield, MoreVertical, Upload, CheckCircle2, AlertCircle, Info, Database, Activity, Users, Lock, RefreshCcw, FileText, Settings, Trash2, Edit, Check, Bot } from 'lucide-react';
+import { Plus, Search, Filter, Shield, Upload, CheckCircle2, Bot, Database, Activity, Users, Lock, FileText } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 
 interface Assistant { id: string; name: string; status: string; created_at: string; draft_version_id?: string; }
@@ -14,8 +14,8 @@ export default function AssistantsPage() {
     const [creating, setCreating] = useState(false);
 
     // MCP & Policies State
-    const [policyVersions, setPolicyVersions] = useState<any[]>([]);
-    const [mcpServers, setMcpServers] = useState<any[]>([]);
+    const [policyVersions, setPolicyVersions] = useState<unknown[]>([]);
+    const [mcpServers, setMcpServers] = useState<unknown[]>([]);
     const [selectedPolicyId, setSelectedPolicyId] = useState('');
     const [selectedMcpServerId, setSelectedMcpServerId] = useState('');
     const [allowedToolsInput, setAllowedToolsInput] = useState('');
@@ -80,7 +80,7 @@ export default function AssistantsPage() {
         try {
             let tools: string[] = [];
             if (allowedToolsInput) {
-                tools = allowedToolsInput.split(',').map(t => t.trim()).filter(t => t);
+                tools = allowedToolsInput.split(',').map((t: string) => t.trim()).filter((t: string) => t);
             }
             await api.post(ENDPOINTS.ASSISTANTS, {
                 name: newName,
@@ -119,8 +119,9 @@ export default function AssistantsPage() {
             setUploadResult(res.data.message);
             setDocContent('');
             setDocTitle('');
-        } catch (e: any) {
-            setUploadResult(`Erro: ${e.response?.data?.error || e.message}`);
+        } catch (e: unknown) {
+            const axiosError = e as { response?: { data?: { error?: string } }; message?: string };
+            setUploadResult(`Erro: ${axiosError.response?.data?.error || axiosError.message}`);
         }
         finally { setUploading(false); }
     };
@@ -136,8 +137,9 @@ export default function AssistantsPage() {
             setPublishModalAst(null);
             setChecklist({ data_privacy: false, injection_mitigation: false, legal_review: false });
             fetchAssistants();
-        } catch (e: any) {
-            toast(e.response?.data?.error || "Erro ao publicar", 'error');
+        } catch (e: unknown) {
+            const axiosError = e as { response?: { data?: { error?: string } } };
+            toast(axiosError.response?.data?.error || "Erro ao publicar", 'error');
         } finally {
             setPublishing(false);
         }
@@ -154,8 +156,9 @@ export default function AssistantsPage() {
             toast('Nova versão criada em rascunho! Siga para homologação.', 'success');
             setShowNewVersionModal(false);
             fetchAssistants();
-        } catch (e: any) {
-            toast(e.message || 'Erro ao publicar versão. Verifique o JSON.', 'error');
+        } catch (e: unknown) {
+            const error = e as { message?: string };
+            toast(error.message || 'Erro ao publicar versão. Verifique o JSON.', 'error');
         } finally {
             setPublishing(false);
         }
@@ -206,7 +209,7 @@ export default function AssistantsPage() {
                             Nenhum assistente criado. Crie o seu primeiro agente governado acima.
                         </div>
                     ) : (
-                        assistants.map((ast) => (
+                        assistants.map((ast: Assistant) => (
                             <div key={ast.id} className="bg-card border border-border rounded-xl p-6 shadow-sm flex flex-col hover:border-emerald-500/30 transition-all hover:shadow-lg group">
                                 <div className="flex justify-between items-start mb-4">
                                     <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 group-hover:bg-emerald-500/20 transition-colors">
@@ -246,11 +249,11 @@ export default function AssistantsPage() {
                         </h3>
                         <p className="text-sm text-muted-foreground">Cole o conteúdo do documento abaixo. O sistema irá fatiar, vetorizar e armazenar para busca semântica.</p>
 
-                        <input type="text" value={docTitle} onChange={(e) => setDocTitle(e.target.value)}
+                        <input type="text" value={docTitle} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDocTitle(e.target.value)}
                             placeholder="Título do documento (ex: Regulamento Interno 2024)"
                             className="w-full bg-secondary border border-border rounded-md px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                         />
-                        <textarea value={docContent} onChange={(e) => setDocContent(e.target.value)}
+                        <textarea value={docContent} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDocContent(e.target.value)}
                             placeholder="Cole o conteúdo completo do documento aqui..."
                             rows={8}
                             className="w-full bg-secondary border border-border rounded-md px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring resize-y"
@@ -290,11 +293,11 @@ export default function AssistantsPage() {
                                     <label className="text-xs font-bold uppercase text-muted-foreground">Selecionar Assistente</label>
                                     <select
                                         value={versionData.assistantId}
-                                        onChange={(e) => setVersionData(v => ({ ...v, assistantId: e.target.value }))}
+                                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setVersionData(v => ({ ...v, assistantId: e.target.value }))}
                                         className="w-full bg-secondary border border-border rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                                     >
                                         <option value="">Selecione um assistente alvo...</option>
-                                        {assistants.map(a => <option key={a.id} value={a.id}>{a.name} ({a.status})</option>)}
+                                        {assistants.map((a: Assistant) => <option key={a.id} value={a.id}>{a.name} ({a.status})</option>)}
                                     </select>
                                 </div>
 
@@ -302,7 +305,7 @@ export default function AssistantsPage() {
                                     <label className="text-xs font-bold uppercase text-muted-foreground">Nova Política (JSON OPA/DLP)</label>
                                     <textarea
                                         value={versionData.policyJson}
-                                        onChange={(e) => setVersionData(v => ({ ...v, policyJson: e.target.value }))}
+                                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setVersionData(v => ({ ...v, policyJson: e.target.value }))}
                                         rows={10}
                                         className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-sm font-mono outline-none focus:ring-2 focus:ring-ring resize-none"
                                         placeholder='{ "rules": [...] }'
@@ -335,15 +338,15 @@ export default function AssistantsPage() {
 
                             <div className="space-y-4 mb-8">
                                 <label className="flex items-start gap-3 cursor-pointer">
-                                    <input type="checkbox" checked={checklist.data_privacy} onChange={(e) => setChecklist(c => ({ ...c, data_privacy: e.target.checked }))} className="mt-1" />
+                                    <input type="checkbox" checked={checklist.data_privacy} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setChecklist(c => ({ ...c, data_privacy: e.target.checked }))} className="mt-1" />
                                     <span className="text-sm">Confirmo que as configurações de DLP e PII (LGPD Art. 46) estão ativadas e configuradas adequadamente para o grau de sigilo das informações que o assistente terá acesso.</span>
                                 </label>
                                 <label className="flex items-start gap-3 cursor-pointer">
-                                    <input type="checkbox" checked={checklist.injection_mitigation} onChange={(e) => setChecklist(c => ({ ...c, injection_mitigation: e.target.checked }))} className="mt-1" />
+                                    <input type="checkbox" checked={checklist.injection_mitigation} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setChecklist(c => ({ ...c, injection_mitigation: e.target.checked }))} className="mt-1" />
                                     <span className="text-sm">Validei as mitigações contra Prompt Injection e entendo que nenhum dado restrito pode ser forçado para extração por técnicas de jailbreak.</span>
                                 </label>
                                 <label className="flex items-start gap-3 cursor-pointer">
-                                    <input type="checkbox" checked={checklist.legal_review} onChange={(e) => setChecklist(c => ({ ...c, legal_review: e.target.checked }))} className="mt-1" />
+                                    <input type="checkbox" checked={checklist.legal_review} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setChecklist(c => ({ ...c, legal_review: e.target.checked }))} className="mt-1" />
                                     <span className="text-sm">Esta versão foi submetida a revisão do DPO/DSO jurídico, liberando para operação corporativa em conformidade com as diretrizes e responsabilidades da Lei n° 13.709/2018.</span>
                                 </label>
                             </div>
