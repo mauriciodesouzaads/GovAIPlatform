@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- 1. Organizações (Tenants)
-CREATE TABLE organizations (
+CREATE TABLE IF NOT EXISTS organizations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -11,7 +11,7 @@ CREATE TABLE organizations (
 );
 
 -- 2. Chaves de API (Auth)
-CREATE TABLE api_keys (
+CREATE TABLE IF NOT EXISTS api_keys (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     org_id UUID NOT NULL REFERENCES organizations(id),
     name TEXT NOT NULL,
@@ -23,7 +23,7 @@ CREATE TABLE api_keys (
 );
 
 -- 3. Assistentes com Versionamento Múltiplo
-CREATE TABLE assistants (
+CREATE TABLE IF NOT EXISTS assistants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     org_id UUID NOT NULL REFERENCES organizations(id),
     name TEXT NOT NULL,
@@ -34,7 +34,7 @@ CREATE TABLE assistants (
 );
 
 -- 4. RAG Knowledge Bases
-CREATE TABLE knowledge_bases (
+CREATE TABLE IF NOT EXISTS knowledge_bases (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     org_id UUID NOT NULL REFERENCES organizations(id),
     assistant_id UUID REFERENCES assistants(id),
@@ -42,7 +42,7 @@ CREATE TABLE knowledge_bases (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE documents (
+CREATE TABLE IF NOT EXISTS documents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     kb_id UUID NOT NULL REFERENCES knowledge_bases(id),
     content TEXT NOT NULL,
@@ -59,7 +59,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_embedding_hnsw ON documents
 CREATE INDEX IF NOT EXISTS idx_documents_kb_id ON documents (kb_id);
 
 -- 3. Audit Log Imutável com Particionamento Declarativo
-CREATE TABLE audit_logs_partitioned (
+CREATE TABLE IF NOT EXISTS audit_logs_partitioned (
     id UUID NOT NULL DEFAULT uuid_generate_v4(),
     org_id UUID NOT NULL REFERENCES organizations(id),
     assistant_id UUID REFERENCES assistants(id),
@@ -71,7 +71,7 @@ CREATE TABLE audit_logs_partitioned (
 ) PARTITION BY LIST (org_id);
 
 -- 7. Human-in-the-Loop: Pending Approvals
-CREATE TABLE pending_approvals (
+CREATE TABLE IF NOT EXISTS pending_approvals (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     org_id UUID NOT NULL REFERENCES organizations(id),
     assistant_id UUID NOT NULL REFERENCES assistants(id),

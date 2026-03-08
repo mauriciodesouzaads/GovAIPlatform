@@ -17,7 +17,7 @@ END
 $$;
 
 -- Grant privileges to the app user on existing tables and sequences
-GRANT CONNECT ON DATABASE govai TO govai_app;
+GRANT CONNECT ON DATABASE govai_platform TO govai_app;
 GRANT USAGE ON SCHEMA public TO govai_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO govai_app;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO govai_app;
