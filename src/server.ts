@@ -611,10 +611,15 @@ fastify.get('/v1/admin/export/due-diligence', { preHandler: requireRole(['admin'
 fastify.get('/health', async () => {
     try {
         await pgPool.query('SELECT 1');
-        return { status: 'ok', db: 'connected' };
+        const redisStatus = await redisCache.ping();
+        return {
+            status: 'ok',
+            db: 'connected',
+            redis: redisStatus === 'PONG' ? 'connected' : 'disconnected'
+        };
     } catch (e) {
         fastify.log.error(e, "Health check failed");
-        return { status: 'error', db: 'disconnected' };
+        return { status: 'error', db: 'disconnected', redis: 'disconnected' };
     }
 });
 

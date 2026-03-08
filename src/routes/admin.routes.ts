@@ -135,26 +135,30 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         try {
             await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
-            const [assistantsRes, totalExecsRes, violationsRes, tokensRes] = await Promise.all([
+            const [assistantsRes, totalExecsRes, violationsRes, tokensRes, historyRes] = await Promise.all([
                 client.query('SELECT COUNT(*) FROM assistants'),
                 client.query("SELECT COUNT(*) FROM audit_logs_partitioned WHERE action = 'EXECUTION_SUCCESS'"),
                 client.query("SELECT COUNT(*) FROM audit_logs_partitioned WHERE action = 'POLICY_VIOLATION'"),
-                client.query("SELECT SUM((metadata->'usage'->>'total_tokens')::int) as total_tokens FROM audit_logs_partitioned WHERE action = 'EXECUTION_SUCCESS' AND metadata->'usage'->>'total_tokens' IS NOT NULL")
+                client.query("SELECT SUM((metadata->'usage'->>'total_tokens')::int) as total_tokens FROM audit_logs_partitioned WHERE action = 'EXECUTION_SUCCESS' AND metadata->'usage'->>'total_tokens' IS NOT NULL"),
+                client.query(`
+                    SELECT 
+                        date(created_at) as date,
+                        COUNT(*) FILTER (WHERE action = 'EXECUTION_SUCCESS') as requests,
+                        COUNT(*) FILTER (WHERE action = 'POLICY_VIOLATION') as violations
+                    FROM audit_logs_partitioned
+                    WHERE created_at >= NOW() - INTERVAL '7 days'
+                    GROUP BY date(created_at)
+                    ORDER BY date ASC
+                `)
             ]);
 
-            // Mock usage history for charts (Last 7 days)
-            const usage_history = Array.from({ length: 7 }).map((_, i) => {
-                const date = new Date();
-                date.setDate(date.getDate() - (6 - i));
-                return {
-                    name: date.toLocaleDateString('pt-BR', { weekday: 'short' }),
-                    requests: Math.floor(Math.random() * 500) + 100,
-                    violations: Math.floor(Math.random() * 50)
-                };
-            });
+            const usage_history = historyRes.rows.map(row => ({
+                name: new Date(row.date).toLocaleDateString('pt-BR', { weekday: 'short' }),
+                requests: parseInt(row.requests, 10),
+                violations: parseInt(row.violations, 10)
+            }));
 
             const totalTokens = parseInt(tokensRes.rows[0].total_tokens || '0', 10);
-            // Estimate cost (assume averaged $0.15 per 1M tokens)
             const estimatedCost = (totalTokens / 1000000) * 0.15;
 
             return reply.send({
@@ -174,7 +178,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
     });
 
     // 2. Audit Logs (Paginated)
-    app.get('/v1/admin/logs', { preHandler: requireRole(['admin', 'dpo', 'auditor', 'sre', 'operator']) }, async (request, reply) => {
+    app.get('/v1/admin/audit-logs', { preHandler: requireRole(['admin', 'dpo', 'auditor', 'sre', 'operator']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         const { page = '1', limit = '10' } = request.query as { page?: string, limit?: string };
 

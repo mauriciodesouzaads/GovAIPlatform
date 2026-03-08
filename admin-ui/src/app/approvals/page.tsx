@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-import { API_BASE } from '@/lib/api';
+import api, { ENDPOINTS } from '@/lib/api';
 import { Clock, CheckCircle, XCircle, AlertTriangle, Loader2, ShieldAlert, CheckCircle2, UserCircle, MessageSquare, Database } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useToast } from '@/components/Toast';
 
 interface Approval {
     id: string;
@@ -34,10 +34,12 @@ export default function ApprovalsPage() {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
 
+    const { toast } = useToast();
+
     const fetchApprovals = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await axios.get(`${API_BASE}/v1/admin/approvals`, { params: { status: tab } });
+            const res = await api.get(ENDPOINTS.APPROVALS, { params: { status: tab } });
             setApprovals(res.data);
         } catch (err: any) {
             setError(err.response?.data?.error || 'Erro ao buscar aprovações');
@@ -50,35 +52,38 @@ export default function ApprovalsPage() {
 
     const handleApprove = async (id: string) => {
         setProcessing(id);
-        setError('');
-        setSuccess('');
         try {
-            const res = await axios.post(`${API_BASE}/v1/admin/approvals/${id}/approve`);
-            setSuccess(`Aprovado e executado com sucesso! Trace do Gateway: ${res.data._govai?.traceId}`);
-            fetchApprovals();
+            const res = await api.post(`${ENDPOINTS.APPROVALS}/${id}/approve`);
+            toast(`Decisão aprovada! Trace: ${res.data._govai?.traceId || id.substring(0, 8)}`, 'success');
+            // Optimistic update: remove from current list if in pending tab
+            if (tab === 'pending') {
+                setApprovals(prev => prev.filter(a => a.id !== id));
+            } else {
+                fetchApprovals();
+            }
         } catch (err: any) {
-            setError(err.response?.data?.error || 'Erro ao aprovar a transação');
+            toast(err.response?.data?.error || 'Erro ao aprovar a transação', 'error');
         } finally {
             setProcessing(null);
-            setTimeout(() => setSuccess(''), 5000);
         }
     };
 
     const handleReject = async (id: string) => {
         setProcessing(id);
-        setError('');
-        setSuccess('');
         try {
-            await axios.post(`${API_BASE}/v1/admin/approvals/${id}/reject`, { note: rejectNote || undefined });
-            setSuccess('Solicitação rejeitada com sucesso. O Gateway retornou um bloqueio OPA para o cliente.');
+            await api.post(`${ENDPOINTS.APPROVALS}/${id}/reject`, { note: rejectNote || undefined });
+            toast('Solicitação bloqueada via política corporativa.', 'success');
             setShowRejectModal(null);
             setRejectNote('');
-            fetchApprovals();
+            if (tab === 'pending') {
+                setApprovals(prev => prev.filter(a => a.id !== id));
+            } else {
+                fetchApprovals();
+            }
         } catch (err: any) {
-            setError(err.response?.data?.error || 'Erro ao rejeitar a transação');
+            toast(err.response?.data?.error || 'Erro ao rejeitar a transação', 'error');
         } finally {
             setProcessing(null);
-            setTimeout(() => setSuccess(''), 5000);
         }
     };
 
@@ -91,8 +96,8 @@ export default function ApprovalsPage() {
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                     <div>
-                        <h1 className="text-3xl font-black tracking-tight flex items-center gap-3 bg-clip-text text-transparent bg-gradient-to-r from-amber-400 to-amber-600">
-                            <ShieldAlert className="w-8 h-8 text-amber-500" />
+                        <h1 className="text-3xl font-black tracking-tight flex items-center gap-3 bg-clip-text text-transparent bg-gradient-to-r from-rose-400 to-rose-600">
+                            <ShieldAlert className="w-8 h-8 text-rose-500" />
                             Quarentena HITL
                         </h1>
                         <p className="text-muted-foreground mt-2 font-medium">
@@ -119,7 +124,7 @@ export default function ApprovalsPage() {
                             {t === 'pending' ? 'Fila Pendente' : t === 'approved' ? 'Aprovados' : 'Rejeitados (Blocks)'}
 
                             {t === 'pending' && pendingCount > 0 && (
-                                <span className={`ml-1.5 px-2 py-0.5 rounded-full text-[10px] bg-amber-500 text-black animate-pulse`}>
+                                <span className={`ml-1.5 px-2 py-0.5 rounded-full text-[10px] bg-rose-500 text-white animate-pulse font-black`}>
                                     {pendingCount}
                                 </span>
                             )}
@@ -127,17 +132,7 @@ export default function ApprovalsPage() {
                     ))}
                 </div>
 
-                {/* Alerts */}
-                {error && (
-                    <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-xl text-destructive text-sm font-semibold flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-                        <AlertTriangle className="w-5 h-5" /> {error}
-                    </div>
-                )}
-                {success && (
-                    <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-500 text-sm font-semibold flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-                        <CheckCircle2 className="w-5 h-5" /> {success}
-                    </div>
-                )}
+                {/* Alerts (Legacy - removing to use Toasts) */}
 
                 {/* Loading */}
                 {loading && (
@@ -166,21 +161,21 @@ export default function ApprovalsPage() {
                         {approvals.map(a => (
                             <div key={a.id} className="glass rounded-2xl p-6 md:p-8 space-y-6 border-l-4 hover:border-l-8 transition-all duration-300 relative overflow-hidden group"
                                 style={{
-                                    borderLeftColor: a.status === 'pending' ? '#f59e0b' : a.status === 'approved' ? '#10b981' : '#ef4444'
+                                    borderLeftColor: a.status === 'pending' ? '#f43f5e' : a.status === 'approved' ? '#10b981' : '#f43f5e'
                                 }}
                             >
                                 {/* Decorative background glow */}
-                                <div className={`absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl -mr-32 -mt-32 opacity-20 pointer-events-none transition-opacity duration-500 ${a.status === 'pending' ? 'bg-amber-500 group-hover:opacity-40' : a.status === 'approved' ? 'bg-emerald-500' : 'bg-destructive'
+                                <div className={`absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl -mr-32 -mt-32 opacity-20 pointer-events-none transition-opacity duration-500 ${a.status === 'pending' ? 'bg-rose-500 group-hover:opacity-40' : a.status === 'approved' ? 'bg-emerald-500' : 'bg-rose-500'
                                     }`} />
 
                                 <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 relative z-10">
                                     <div className="space-y-2">
                                         <div className="flex items-center gap-3">
-                                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${a.status === 'pending'
-                                                ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
+                                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${a.status === 'pending'
+                                                ? 'bg-rose-500/10 text-rose-500 border-rose-500/20'
                                                 : a.status === 'approved'
-                                                    ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
-                                                    : 'bg-destructive/10 text-destructive border-destructive/30'
+                                                    ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                                                    : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
                                                 }`}>
                                                 {a.status === 'pending' && <Clock className="w-3.5 h-3.5" />}
                                                 {a.status === 'approved' && <CheckCircle className="w-3.5 h-3.5" />}
@@ -188,11 +183,11 @@ export default function ApprovalsPage() {
                                                 {a.status.toUpperCase()}
                                             </span>
                                             {a.risk_level && (
-                                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border shadow-sm ${a.risk_level === 'high'
-                                                    ? 'bg-red-600/10 text-red-500 border-red-500/30'
+                                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-sm ${a.risk_level === 'high'
+                                                    ? 'bg-rose-600/10 text-rose-500 border-rose-500/20'
                                                     : a.risk_level === 'medium'
-                                                        ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30'
-                                                        : 'bg-blue-500/10 text-blue-500 border-blue-500/30'
+                                                        ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                                                        : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
                                                     }`}>
                                                     <ShieldAlert className="w-3.5 h-3.5" />
                                                     {a.risk_level} RISK
@@ -216,8 +211,8 @@ export default function ApprovalsPage() {
 
                                 <div className="grid md:grid-cols-2 gap-6 relative z-10 p-1">
                                     {/* Risk Reason */}
-                                    <div className="p-5 bg-amber-500/5 border border-amber-500/20 rounded-xl shadow-inner">
-                                        <div className="flex items-center gap-2 text-amber-500 text-xs font-bold uppercase tracking-widest mb-3">
+                                    <div className="p-5 bg-rose-500/5 border border-rose-500/10 rounded-xl shadow-inner group-hover:bg-rose-500/10 transition-colors">
+                                        <div className="flex items-center gap-2 text-rose-500 text-[10px] font-black uppercase tracking-widest mb-3">
                                             <AlertTriangle className="w-4 h-4" /> Motivo da Interceptação (OPA)
                                         </div>
                                         <p className="text-sm font-medium leading-relaxed">{a.justification || a.policy_reason}</p>

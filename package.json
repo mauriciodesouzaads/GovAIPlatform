@@ -6,7 +6,8 @@
         "build": "tsc",
         "start": "node dist/server.js",
         "dev": "ts-node src/server.ts",
-        "test": "vitest run"
+        "test": "vitest run",
+        "lint": "tsc --noEmit"
     },
     "dependencies": {
         "@aws-sdk/client-kms": "^3.1002.0",
@@ -38,6 +39,7 @@
         "@types/bcrypt": "^6.0.0",
         "@types/node": "^20.0.0",
         "@types/pg": "^8.10.0",
+        "@types/uuid": "^10.0.0",
         "ts-node": "^10.9.1",
         "typescript": "^5.0.0",
         "vitest": "^3.2.4"

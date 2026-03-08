@@ -1,0 +1,111 @@
+name: GovAI Platform CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-test:
+    name: Lint & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install Dependencies (API)
+        run: npm ci
+        
+      - name: Lint API
+        run: npm run lint
+        
+      - name: Run Unit Tests (API)
+        run: npm test
+        
+      - name: Install Dependencies (Admin UI)
+        run: cd admin-ui && npm install
+        
+      - name: Lint Admin UI
+        run: cd admin-ui && npm run lint
+
+  e2e-security:
+    name: Security & E2E Validation
+    needs: lint-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Start Services (Docker Compose)
+        run: |
+          docker compose up -d
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_APP_PASSWORD: ${{ secrets.DB_APP_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LITELLM_KEY: ${{ secrets.LITELLM_KEY }}
+          ORG_MASTER_KEY: ${{ secrets.ORG_MASTER_KEY }}
+          
+      - name: Run E2E Tests
+        run: bash run_e2e_tests.sh
+        
+      - name: Stop Services
+        if: always()
+        run: docker compose down
+
+  build-push:
+    name: Build & Push Images
+    needs: e2e-security
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Build and Push Presidio Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./presidio
+          push: true
+          tags: ghcr.io/${{ github.repository }}/govai-presidio:latest
+
+      - name: Build and Push API Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/govai-api:latest
+            ghcr.io/${{ github.repository }}/govai-api:${{ github.sha }}
+          
+      - name: Build and Push Admin UI Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin-ui
+          file: ./admin-ui/Dockerfile.admin
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/govai-admin-ui:latest
+            ghcr.io/${{ github.repository }}/govai-admin-ui:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.PROD_API_URL || 'https://api.govai-platform.com' }}

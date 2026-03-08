@@ -1,0 +1,119 @@
+services:
+  database:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_DB: govai
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - govai-net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d govai" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 512mb --maxmemory-policy noeviction --appendonly yes
+    volumes:
+      - redisdata:/data
+    networks:
+      - govai-net
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    command: --config /app/config.yaml
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    networks:
+      - govai-net
+    healthcheck:
+      test: [ "CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:4000/health\")'" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  presidio:
+    image: ghcr.io/${GH_REPO_OWNER}/govai-presidio:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    networks:
+      - govai-net
+    healthcheck:
+      test: [ "CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:5001/health\")'" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  api:
+    image: ghcr.io/${GH_REPO_OWNER}/govai-api:latest
+    environment:
+      DATABASE_URL: postgresql://govai_app:${DB_APP_PASSWORD}@database:5432/govai?schema=public
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD}
+      LITELLM_URL: http://litellm:4000
+      SIGNING_SECRET: ${SIGNING_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+      AI_MODEL: ${AI_MODEL}
+      REDIS_URL: redis://redis:6379
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      LITELLM_KEY: ${LITELLM_KEY}
+      PRESIDIO_URL: http://presidio:5001
+      LANGFUSE_URL: ${LANGFUSE_URL:-https://cloud.langfuse.com}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      ORG_MASTER_KEY: ${ORG_MASTER_KEY}
+      APP_BASE_URL: ${APP_BASE_URL}
+      FRONTEND_URL: ${FRONTEND_URL}
+      ADMIN_UI_ORIGIN: ${ADMIN_UI_ORIGIN}
+    ports:
+      - "3000:3000"
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+      presidio:
+        condition: service_healthy
+    networks:
+      - govai-net
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  admin-ui:
+    image: ghcr.io/${GH_REPO_OWNER}/govai-admin-ui:latest
+    ports:
+      - "3001:3001"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - govai-net
+
+volumes:
+  pgdata:
+  redisdata:
+
+
+networks:
+  govai-net:
+    driver: bridge

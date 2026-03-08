@@ -11,6 +11,7 @@ export const metadata: Metadata = {
 
 import { AuthProvider } from '@/components/AuthProvider';
 import { LayoutWrapper } from '@/components/LayoutWrapper';
+import { ToastProvider } from '@/components/Toast';
 
 export default function RootLayout({
   children,
@@ -21,9 +22,11 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-background text-foreground h-screen flex overflow-hidden`}>
         <AuthProvider>
-          <LayoutWrapper>
-            {children}
-          </LayoutWrapper>
+          <ToastProvider>
+            <LayoutWrapper>
+              {children}
+            </LayoutWrapper>
+          </ToastProvider>
         </AuthProvider>
       </body>
     </html>

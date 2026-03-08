@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { Activity, ShieldCheck, Coins, ArrowUpRight, ShieldAlert, CreditCard, Bot, Info } from 'lucide-react';
+import { Activity, ShieldCheck, Coins, ArrowUpRight, ShieldAlert, CreditCard, Bot, Info, Database, Server, Zap, Globe, Cpu } from 'lucide-react';
 import axios from 'axios';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 
-import { API_BASE } from '@/lib/api';
+import api, { ENDPOINTS } from '@/lib/api';
+import { useToast } from '@/components/Toast';
 
 interface DashboardStats {
   total_assistants: number;
@@ -24,7 +25,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await axios.get(`${API_BASE}/v1/admin/stats`);
+        const response = await api.get(ENDPOINTS.STATS);
         setStats(response.data);
       } catch (error) {
         console.error("Error fetching stats:", error);
@@ -36,8 +37,8 @@ export default function DashboardPage() {
     fetchStats();
   }, []);
 
-  const interceptionRate = stats && stats.total_executions > 0
-    ? Math.round((stats.total_violations / stats.total_executions) * 100)
+  const interceptionRate = stats && (stats.total_executions + stats.total_violations) > 0
+    ? Math.min(100, Math.round((stats.total_violations / (stats.total_executions + stats.total_violations)) * 100))
     : 0;
 
   return (
@@ -69,6 +70,11 @@ export default function DashboardPage() {
               Gerar PDF de Auditoria
             </Link>
           </div>
+        </div>
+
+        {/* Health Monitoring Section */}
+        <div className="flex gap-4 p-4 bg-white/5 border border-white/10 rounded-2xl relative z-10 items-center justify-between">
+          <HealthStatus />
         </div>
 
         {loading ? (
@@ -103,24 +109,24 @@ export default function DashboardPage() {
             </div>
 
             {/* 2. Bento Box: Policy Violations (Highlighted/Danger) */}
-            <div className="bg-gradient-to-br from-red-950/40 to-[#111] border border-red-500/20 rounded-2xl p-5 hover:border-red-500/40 transition-all group flex flex-col justify-between relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 blur-3xl pointer-events-none" />
+            <div className="bg-gradient-to-br from-rose-950/40 to-[#111] border border-rose-500/20 rounded-2xl p-5 hover:border-rose-500/40 transition-all group flex flex-col justify-between relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/10 blur-3xl pointer-events-none" />
               <div className="flex justify-between items-start relative z-10">
-                <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center border border-red-500/20">
-                  <ShieldAlert className="h-5 w-5 text-red-500" />
+                <div className="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center border border-rose-500/20">
+                  <ShieldAlert className="h-5 w-5 text-rose-500" />
                 </div>
-                <Link href="/approvals" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-red-500/20 hover:bg-red-500/40 px-2 py-1 rounded text-red-200 border border-red-500/20 flex items-center gap-1">
+                <Link href="/approvals" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-rose-500/20 hover:bg-rose-500/40 px-2 py-1 rounded text-rose-200 border border-rose-500/20 flex items-center gap-1">
                   Quarentena <ArrowUpRight className="w-3 h-3" />
                 </Link>
               </div>
               <div className="mt-4 relative z-10">
-                <p className="text-xs text-red-400/80 font-semibold uppercase tracking-wider mb-1 flex items-center justify-between">
+                <p className="text-xs text-rose-400/80 font-semibold uppercase tracking-wider mb-1 flex items-center justify-between">
                   Violações OPA Barradas
-                  <span title="Incidentes de segurança mitigados automaticamente. Previne vazamento de PII (LGPD Art. 46) e ataques (BCB 4.557 Art. 21)."><Info className="w-3.5 h-3.5 opacity-60 hover:opacity-100 cursor-help text-red-300 transition-opacity" /></span>
+                  <span title="Incidentes de segurança mitigados automaticamente. Previne vazamento de PII (LGPD Art. 46) e ataques (BCB 4.557 Art. 21)."><Info className="w-3.5 h-3.5 opacity-60 hover:opacity-100 cursor-help text-rose-300 transition-opacity" /></span>
                 </p>
                 <div className="text-3xl font-black text-white flex items-baseline gap-2">
                   {stats?.total_violations.toLocaleString() || 0}
-                  <span className="text-sm font-medium text-red-400/60 bg-red-500/10 px-1.5 py-0.5 rounded">Bloqueios P0</span>
+                  <span className="text-sm font-medium text-rose-400/60 bg-rose-500/10 px-1.5 py-0.5 rounded">Bloqueios P0</span>
                 </div>
               </div>
             </div>
@@ -158,6 +164,9 @@ export default function DashboardPage() {
               </div>
             </div>
 
+            {/* 5. Bento Box: System Status (Real-time Health) */}
+            <SystemStatusCard />
+
             {/* 5. Bento Box: Gateway Traffic Chart (Large) */}
             <div className="md:col-span-3 bg-[#111] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all flex flex-col min-h-[400px]">
               <div className="flex items-center justify-between mb-6">
@@ -169,7 +178,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex gap-4">
                   <div className="flex items-center gap-2 text-xs font-medium text-emerald-400"><span className="w-2 h-2 rounded bg-emerald-500"></span> Clean</div>
-                  <div className="flex items-center gap-2 text-xs font-medium text-red-500"><span className="w-2 h-2 rounded bg-red-500"></span> OPA Block</div>
+                  <div className="flex items-center gap-2 text-xs font-medium text-rose-500"><span className="w-2 h-2 rounded bg-rose-500"></span> OPA Block</div>
                 </div>
               </div>
 
@@ -183,8 +192,8 @@ export default function DashboardPage() {
                           <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                         </linearGradient>
                         <linearGradient id="colorViolations" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
-                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} opacity={0.5} />
@@ -196,7 +205,7 @@ export default function DashboardPage() {
                         cursor={{ stroke: '#555', strokeWidth: 1, strokeDasharray: '4 4' }}
                       />
                       <Area type="monotone" name="Clean Executions" dataKey="requests" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorRequests)" activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }} />
-                      <Area type="monotone" name="Policy Blocks" dataKey="violations" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorViolations)" activeDot={{ r: 6, strokeWidth: 0, fill: '#ef4444' }} />
+                      <Area type="monotone" name="Policy Blocks" dataKey="violations" stroke="#f43f5e" strokeWidth={3} fillOpacity={1} fill="url(#colorViolations)" activeDot={{ r: 6, strokeWidth: 0, fill: '#f43f5e' }} />
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (
@@ -236,7 +245,7 @@ export default function DashboardPage() {
                       </RadialBarChart>
                     </ResponsiveContainer>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className={`text-4xl font-black ${interceptionRate > 5 ? 'text-red-500' : 'text-emerald-400'}`}>
+                      <span className={`text-4xl font-black ${interceptionRate > 5 ? 'text-rose-500' : 'text-emerald-400'}`}>
                         {interceptionRate}%
                       </span>
                       <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest mt-1">Interceptado</span>
@@ -249,7 +258,7 @@ export default function DashboardPage() {
                 {stats && (
                   <div className="mt-8 text-center bg-[#161616] border border-white/5 rounded-xl p-4 w-full">
                     <p className="text-sm text-gray-300 font-medium leading-tight">
-                      <span className="text-red-400 font-bold">{stats.total_violations}</span> incidentes isolados de um total de <span className="text-white font-bold">{stats.total_executions}</span> transações.
+                      <span className="text-rose-400 font-bold">{stats.total_violations}</span> incidentes isolados de um total de <span className="text-white font-bold">{stats.total_executions + stats.total_violations}</span> transações.
                     </p>
                   </div>
                 )}
@@ -258,6 +267,98 @@ export default function DashboardPage() {
 
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function HealthStatus() {
+  const [status, setStatus] = useState<{ db: string; redis: string } | null>(null);
+
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const res = await api.get('/health');
+        setStatus(res.data);
+      } catch {
+        setStatus({ db: 'error', redis: 'error' });
+      }
+    };
+    checkHealth();
+    const interval = setInterval(checkHealth, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="flex items-center gap-6">
+      <div className="flex items-center gap-2">
+        <Database className={`w-4 h-4 ${status?.db === 'connected' ? 'text-emerald-500' : 'text-rose-500'}`} />
+        <span className="text-xs font-bold text-white uppercase tracking-tighter">Database</span>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded font-black ${status?.db === 'connected' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+          {status?.db === 'connected' ? 'UP' : 'DOWN'}
+        </span>
+      </div>
+      <div className="w-px h-4 bg-white/10" />
+      <div className="flex items-center gap-2">
+        <Activity className={`w-4 h-4 ${status?.redis === 'connected' ? 'text-emerald-500' : 'text-rose-500'}`} />
+        <span className="text-xs font-bold text-white uppercase tracking-tighter">Redis Cache</span>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded font-black ${status?.redis === 'connected' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+          {status?.redis === 'connected' ? 'UP' : 'DOWN'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function SystemStatusCard() {
+  const [status, setStatus] = useState<{ db: string; redis: string } | null>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res = await api.get('/health');
+        setStatus(res.data);
+      } catch (err) {
+        toast('Falha Crítica: Conexão com infraestrutura perdida.', 'error');
+        setStatus({ db: 'error', redis: 'error' });
+      }
+    };
+    check();
+  }, [toast]);
+
+  return (
+    <div className="bg-[#111] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all group flex flex-col justify-between overflow-hidden relative">
+      <div className="absolute top-0 right-0 p-2 opacity-20 group-hover:opacity-100 transition-opacity">
+        <Zap className="w-4 h-4 text-indigo-400" />
+      </div>
+      <div className="flex justify-between items-start">
+        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
+          <Server className="h-5 w-5 text-indigo-400" />
+        </div>
+      </div>
+      <div className="mt-4">
+        <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-3">Infraestrutura</p>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between bg-white/[0.02] p-2 rounded-lg border border-white/5">
+            <div className="flex items-center gap-2">
+              <div className={`w-1.5 h-1.5 rounded-full ${status?.db === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+              <span className="text-[10px] font-black tracking-widest text-white/50 uppercase">Database</span>
+            </div>
+            <span className={`text-[9px] font-black ${status?.db === 'connected' ? 'text-emerald-400' : 'text-red-400'}`}>
+              {status?.db === 'connected' ? 'OPERATIONAL' : 'DEGRADED'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between bg-white/[0.02] p-2 rounded-lg border border-white/5">
+            <div className="flex items-center gap-2">
+              <div className={`w-1.5 h-1.5 rounded-full ${status?.redis === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+              <span className="text-[10px] font-black tracking-widest text-white/50 uppercase">Redis</span>
+            </div>
+            <span className={`text-[9px] font-black ${status?.redis === 'connected' ? 'text-emerald-400' : 'text-red-400'}`}>
+              {status?.redis === 'connected' ? 'OPERATIONAL' : 'DEGRADED'}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );

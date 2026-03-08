@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import axios from 'axios';
-import { Users, Plus, Upload, Database, FileText, CheckCircle2 } from 'lucide-react';
-import { API_BASE } from '@/lib/api';
+import api, { ENDPOINTS } from '@/lib/api';
+import { Plus, Search, Filter, Shield, MoreVertical, Upload, CheckCircle2, AlertCircle, Info, Database, Activity, Users, Lock, RefreshCcw, FileText, Settings, Trash2, Edit, Check, Bot } from 'lucide-react';
+import { useToast } from '@/components/Toast';
 
 interface Assistant { id: string; name: string; status: string; created_at: string; draft_version_id?: string; }
 interface KnowledgeBase { id: string; name: string; created_at: string; }
@@ -31,9 +31,16 @@ export default function AssistantsPage() {
     // Homologation State
     const [publishModalAst, setPublishModalAst] = useState<Assistant | null>(null);
     const [publishing, setPublishing] = useState(false);
-    const [checklist, setChecklist] = useState({ data_privacy: false, injection_mitigation: false, legal_review: false }); const fetchAssistants = async () => {
+    const [checklist, setChecklist] = useState({ data_privacy: false, injection_mitigation: false, legal_review: false });
+
+    // New Version Modal State
+    const [showNewVersionModal, setShowNewVersionModal] = useState(false);
+    const [versionData, setVersionData] = useState({ assistantId: '', policyJson: '{\n  "version": "1.0",\n  "rules": []\n}' });
+
+    const { toast } = useToast();
+    const fetchAssistants = async () => {
         try {
-            const res = await axios.get(`${API_BASE}/v1/admin/assistants`);
+            const res = await api.get(ENDPOINTS.ASSISTANTS);
             setAssistants(res.data);
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
@@ -42,8 +49,8 @@ export default function AssistantsPage() {
     const fetchSelectables = async () => {
         try {
             const [polRes, mcpRes] = await Promise.all([
-                axios.get(`${API_BASE}/v1/admin/policy_versions`),
-                axios.get(`${API_BASE}/v1/admin/mcp_servers`)
+                api.get(ENDPOINTS.POLICIES),
+                api.get(ENDPOINTS.MCP)
             ]);
             setPolicyVersions(polRes.data);
             setMcpServers(mcpRes.data);
@@ -75,7 +82,7 @@ export default function AssistantsPage() {
             if (allowedToolsInput) {
                 tools = allowedToolsInput.split(',').map(t => t.trim()).filter(t => t);
             }
-            await axios.post(`${API_BASE}/v1/admin/assistants`, {
+            await api.post(ENDPOINTS.ASSISTANTS, {
                 name: newName,
                 policy_version_id: selectedPolicyId,
                 mcp_server_id: selectedMcpServerId || undefined,
@@ -94,7 +101,7 @@ export default function AssistantsPage() {
         setUploadResult(null);
         // Create a knowledge base for this assistant
         try {
-            const res = await axios.post(`${API_BASE}/v1/admin/assistants/${assistantId}/knowledge`,
+            const res = await api.post(`${ENDPOINTS.ASSISTANTS}/${assistantId}/knowledge`,
                 { name: 'Base Principal' }
             );
             setKbId(res.data.id);
@@ -106,7 +113,7 @@ export default function AssistantsPage() {
         setUploading(true);
         setUploadResult(null);
         try {
-            const res = await axios.post(`${API_BASE}/v1/admin/knowledge/${kbId}/documents`,
+            const res = await api.post(`${ENDPOINTS.KNOWLEDGE}/${kbId}/documents`,
                 { content: docContent, title: docTitle }
             );
             setUploadResult(res.data.message);
@@ -122,14 +129,33 @@ export default function AssistantsPage() {
         if (!publishModalAst || !publishModalAst.draft_version_id) return;
         setPublishing(true);
         try {
-            await axios.post(`${API_BASE}/v1/admin/assistants/${publishModalAst.id}/versions/${publishModalAst.draft_version_id}/approve`, {
+            await api.post(`${ENDPOINTS.ASSISTANTS}/${publishModalAst.id}/versions/${publishModalAst.draft_version_id}/approve`, {
                 checklist
             });
+            toast('Assistente homologado e publicado com sucesso!', 'success');
             setPublishModalAst(null);
             setChecklist({ data_privacy: false, injection_mitigation: false, legal_review: false });
             fetchAssistants();
         } catch (e: any) {
-            alert(e.response?.data?.error || "Erro ao publicar");
+            toast(e.response?.data?.error || "Erro ao publicar", 'error');
+        } finally {
+            setPublishing(false);
+        }
+    };
+
+    const handleNewVersion = async () => {
+        if (!versionData.assistantId) return;
+        setPublishing(true);
+        try {
+            const policy = JSON.parse(versionData.policyJson);
+            await api.post(`${ENDPOINTS.ASSISTANTS}/${versionData.assistantId}/versions`, {
+                policy_json: policy
+            });
+            toast('Nova versão criada em rascunho! Siga para homologação.', 'success');
+            setShowNewVersionModal(false);
+            fetchAssistants();
+        } catch (e: any) {
+            toast(e.message || 'Erro ao publicar versão. Verifique o JSON.', 'error');
         } finally {
             setPublishing(false);
         }
@@ -145,40 +171,27 @@ export default function AssistantsPage() {
                     </div>
                 </div>
 
-                {/* Create New Assistant */}
-                <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
-                    <h3 className="font-semibold mb-4 flex items-center gap-2"><Plus className="w-4 h-4" /> Publicar Nova Versão de Assistente</h3>
-                    <div className="flex flex-col gap-4">
-                        <div className="flex gap-3">
+                {/* Header Action */}
+                <div className="bg-card border border-border rounded-xl p-6 shadow-sm flex justify-between items-center">
+                    <div>
+                        <h3 className="font-semibold flex items-center gap-2"><Plus className="w-4 h-4" /> Gestão de Assistentes</h3>
+                        <p className="text-sm text-muted-foreground">Adicione novos agentes ou publique novas versões de políticas.</p>
+                    </div>
+                    <div className="flex gap-3">
+                        <button onClick={() => setShowNewVersionModal(true)}
+                            className="bg-foreground text-background font-medium text-sm px-6 py-2 rounded-md hover:bg-foreground/90 transition-colors flex items-center gap-2">
+                            <Upload className="w-4 h-4" /> Publicar Nova Versão
+                        </button>
+                        <div className="w-px h-8 bg-border" />
+                        <div className="flex gap-2">
                             <input
                                 type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
-                                placeholder="Nome do assistente (ex: Análise Jurídica)"
-                                className="flex-1 bg-secondary border border-border rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                placeholder="Novo Assistente..."
+                                className="bg-secondary border border-border rounded-md px-3 py-2 text-sm focus:outline-none w-40"
                             />
-                            <select
-                                value={selectedPolicyId} onChange={(e) => setSelectedPolicyId(e.target.value)}
-                                className="bg-secondary border border-border rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
-                                <option value="" disabled>Selecione a Política OPA</option>
-                                {policyVersions.map((p: any) => <option key={p.id} value={p.id}>{p.name} (v{p.version})</option>)}
-                            </select>
-                        </div>
-                        <div className="flex gap-3">
-                            <select
-                                value={selectedMcpServerId} onChange={(e) => setSelectedMcpServerId(e.target.value)}
-                                className="flex-1 bg-secondary border border-border rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
-                                <option value="">Sem Integração Externa (MCP)</option>
-                                {mcpServers.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                            </select>
-                            {selectedMcpServerId && (
-                                <input
-                                    type="text" value={allowedToolsInput} onChange={(e) => setAllowedToolsInput(e.target.value)}
-                                    placeholder="Alvará de Tools (ex: create_ticket, search_docs)"
-                                    className="flex-1 bg-secondary border border-border rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                                />
-                            )}
                             <button onClick={createAssistant} disabled={creating || !newName}
-                                className="bg-foreground text-background font-medium text-sm px-6 py-2 rounded-md hover:bg-foreground/90 transition-colors disabled:opacity-50 flex items-center gap-2">
-                                <CheckCircle2 className="w-4 h-4" /> Publicar Versão
+                                className="bg-blue-600 text-white font-medium text-sm px-4 py-2 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50">
+                                Criar
                             </button>
                         </div>
                     </div>
@@ -194,26 +207,29 @@ export default function AssistantsPage() {
                         </div>
                     ) : (
                         assistants.map((ast) => (
-                            <div key={ast.id} className="bg-card border border-border rounded-xl p-6 shadow-sm flex flex-col hover:border-border/80 transition-colors">
+                            <div key={ast.id} className="bg-card border border-border rounded-xl p-6 shadow-sm flex flex-col hover:border-emerald-500/30 transition-all hover:shadow-lg group">
                                 <div className="flex justify-between items-start mb-4">
-                                    <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center">
-                                        <Users className="w-5 h-5 text-blue-500" />
+                                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 group-hover:bg-emerald-500/20 transition-colors">
+                                        <Bot className="w-5 h-5 text-emerald-500" />
                                     </div>
-                                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${ast.status === 'published' ? 'bg-green-500/10 text-green-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest border ${ast.status === 'published' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border-rose-500/20'}`}>
                                         {ast.status}
                                     </span>
                                 </div>
-                                <h3 className="font-semibold text-lg">{ast.name}</h3>
-                                <p className="text-xs text-muted-foreground font-mono mt-1 truncate">{ast.id}</p>
-                                <div className="mt-4 pt-4 border-t border-border flex flex-col gap-2">
+                                <h3 className="font-bold text-lg text-white group-hover:text-emerald-400 transition-colors">{ast.name}</h3>
+                                <p className="text-[10px] text-muted-foreground font-mono mt-1 flex items-center gap-1.5">
+                                    <Lock className="w-3 h-3" />
+                                    {ast.id}
+                                </p>
+                                <div className="mt-6 pt-4 border-t border-border/50 flex flex-col gap-2">
                                     <button onClick={() => startRAG(ast.id)}
-                                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 transition-colors">
-                                        <Database className="w-4 h-4" /> Alimentar com Conhecimento (RAG)
+                                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-white/5 text-white hover:bg-white/10 border border-white/5 transition-all">
+                                        <Database className="w-3.5 h-3.5" /> Vetorizar Conhecimento
                                     </button>
                                     {ast.status === 'draft' && ast.draft_version_id && (
                                         <button onClick={() => setPublishModalAst(ast)}
-                                            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-green-500/10 text-green-500 hover:bg-green-500/20 transition-colors">
-                                            <CheckCircle2 className="w-4 h-4" /> Homologar Versão
+                                            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-emerald-500 text-black hover:bg-emerald-400 transition-all">
+                                            <CheckCircle2 className="w-3.5 h-3.5" /> Homologar Versão
                                         </button>
                                     )}
                                 </div>
@@ -257,9 +273,60 @@ export default function AssistantsPage() {
                     </div>
                 )}
 
+                {/* New Version Publication Modal */}
+                {showNewVersionModal && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+                        <div className="bg-[#0a0a0a] w-full max-w-2xl rounded-3xl p-8 shadow-[0_0_50px_-12px_rgba(16,185,129,0.3)] border border-emerald-500/20 space-y-6 animate-in zoom-in-95 duration-200">
+                            <h3 className="text-2xl font-black text-white flex items-center gap-3">
+                                <div className="p-2 bg-emerald-500/20 rounded-xl border border-emerald-500/30">
+                                    <Upload className="w-6 h-6 text-emerald-500" />
+                                </div>
+                                Publicar Versão de Segurança
+                            </h3>
+                            <p className="text-sm text-muted-foreground font-medium">As novas políticas entrarão em modo rascunho e exigem homologação HITL.</p>
+
+                            <div className="space-y-4">
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold uppercase text-muted-foreground">Selecionar Assistente</label>
+                                    <select
+                                        value={versionData.assistantId}
+                                        onChange={(e) => setVersionData(v => ({ ...v, assistantId: e.target.value }))}
+                                        className="w-full bg-secondary border border-border rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                                    >
+                                        <option value="">Selecione um assistente alvo...</option>
+                                        {assistants.map(a => <option key={a.id} value={a.id}>{a.name} ({a.status})</option>)}
+                                    </select>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold uppercase text-muted-foreground">Nova Política (JSON OPA/DLP)</label>
+                                    <textarea
+                                        value={versionData.policyJson}
+                                        onChange={(e) => setVersionData(v => ({ ...v, policyJson: e.target.value }))}
+                                        rows={10}
+                                        className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-sm font-mono outline-none focus:ring-2 focus:ring-ring resize-none"
+                                        placeholder='{ "rules": [...] }'
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-3 pt-4 border-t border-border">
+                                <button onClick={() => setShowNewVersionModal(false)}
+                                    className="px-4 py-2 text-sm font-medium hover:bg-secondary rounded-lg transition-colors">
+                                    Cancelar
+                                </button>
+                                <button onClick={handleNewVersion} disabled={publishing || !versionData.assistantId}
+                                    className="px-6 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50">
+                                    {publishing ? 'Publicando...' : 'Publicar Agora'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Homologation Modal */}
                 {publishModalAst && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                         <div className="bg-card w-full max-w-lg rounded-2xl p-6 shadow-2xl border border-border">
                             <h3 className="text-xl font-bold mb-2">Homologação de Agente</h3>
                             <p className="text-sm text-muted-foreground mb-6">
