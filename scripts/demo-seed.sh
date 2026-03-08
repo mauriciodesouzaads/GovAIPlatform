@@ -8,7 +8,7 @@ export DATABASE_URL="${1:-${DATABASE_URL:-"postgresql://govai_app:${DB_APP_PASSW
 # Debug help (hidden in CI but useful for logging redirection)
 echo "Running seed on: $(echo $DATABASE_URL | sed 's/:.*@/:****@/')"
 
-psql "$DATABASE_URL" <<EOF
+psql "$DATABASE_URL" <<'EOF'
 INSERT INTO organizations (id, name) VALUES ('00000000-0000-0000-0000-000000000001', 'Banco Fictício SA') ON CONFLICT DO NOTHING;
 
 INSERT INTO assistants (id, org_id, name, status) VALUES ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000001', 'Análise de Risco V1', 'published') ON CONFLICT DO NOTHING;

@@ -57,6 +57,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
 
             try {
                 const isValid = await bcrypt.compare(password, user.password_hash);
+                app.log.info({ email, isValid, requires_password_change: user.requires_password_change }, "Login attempt details");
                 if (!isValid) {
                     return reply.status(401).send({ error: 'Credenciais inválidas.' });
                 }

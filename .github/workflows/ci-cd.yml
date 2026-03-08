@@ -117,7 +117,7 @@ jobs:
           docker compose exec -T database env PGPASSWORD=admin psql -U postgres -d govai -c "UPDATE users SET requires_password_change = true WHERE email = 'admin@govai.com';" || echo "Banco 'govai' não disponível para update."
           
           echo "Tentativa 2: Banco Real (govai_platform)..."
-          docker compose exec -T database env PGPASSWORD=admin psql -U postgres -d govai_platform -c "UPDATE users SET requires_password_change = true WHERE email = 'admin@govai.com';"
+          docker compose exec -T database env PGPASSWORD=admin psql -U postgres -d govai_platform -c "UPDATE users SET requires_password_change = true, password_hash = '\$2b\$10\$tdILahYIL7M2VDCtwl/w5ePVUtfFXIltAmR6pS8UNN1l22Wnj8Dae' WHERE email = 'admin@govai.com';"
           
           echo "Verificação Final pós-update:"
           docker compose exec -T database env PGPASSWORD=admin psql -U postgres -d govai_platform -c "SELECT email, requires_password_change FROM users WHERE email = 'admin@govai.com';"
