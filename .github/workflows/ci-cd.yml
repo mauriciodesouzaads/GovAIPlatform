@@ -65,7 +65,7 @@ jobs:
           echo "Aguardando inicialização do Postgres..."
           sleep 20
           echo "Iniciando seeding de dados..."
-          bash demo-seed.sh
+          bash scripts/demo-seed.sh
           
       - name: Run E2E Tests
         run: bash run_e2e_tests.sh
