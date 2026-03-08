@@ -63,21 +63,24 @@ jobs:
         run: |
           docker compose --env-file .env up -d
 
-      - name: Wait for Database and Seeding
+      - name: Manual Database Provisioning
         run: |
-          echo "Aguardando Postgres ficar pronto..."
+          echo "Aguardando motor do Postgres..."
           until docker compose exec -T database pg_isready -U postgres; do
-            echo "Postgres ainda não está pronto... aguardando 2s"
             sleep 2
           done
           
-          echo "Aguardando 10s para processamento do init.sql..."
-          sleep 10
+          echo "Provisionando Usuário e Database Real..."
+          # Criar usuário, database e dar permissões à força
+          docker compose exec -T database psql -U postgres -c "CREATE USER govai_app WITH PASSWORD 'govai_ci_pass';" || true
+          docker compose exec -T database psql -U postgres -c "CREATE DATABASE govai_platform OWNER govai_app;" || true
+          docker compose exec -T database psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE govai_platform TO govai_app;" || true
           
-          echo "Forçando alinhamento de senha diretamente no SGBD..."
-          docker compose exec -T database psql -U postgres -c "ALTER USER govai_app WITH PASSWORD 'govai_ci_pass';" || true
+          echo "Executando Migrations e Seed..."
+          # Agora que o banco existe, rodamos o seed real
+          bash scripts/demo-seed.sh
           
-          echo "Aguardando API /health ficar pronto..."
+          echo "Aguardando API /health..."
           for i in {1..20}; do
             if curl -s http://localhost:3000/health | grep -q '"status":"ok"'; then
               echo "✅ API configurada e saudável"
@@ -91,9 +94,6 @@ jobs:
               exit 1
             fi
           done
-          
-          echo "Iniciando seeding de dados..."
-          bash scripts/demo-seed.sh
           
       - name: Run E2E Tests
         run: bash run_e2e_tests.sh
