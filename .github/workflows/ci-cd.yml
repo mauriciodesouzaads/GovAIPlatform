@@ -73,12 +73,24 @@ jobs:
           echo "Provisionando Usuário e Database Real..."
           # Criar usuário, database e dar permissões à força
           docker compose exec -T database psql -U postgres -c "CREATE USER govai_app WITH PASSWORD 'govai_ci_pass';" || true
-          docker compose exec -T database psql -U postgres -c "CREATE DATABASE govai_platform OWNER govai_app;" || true
-          docker compose exec -T database psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE govai_platform TO govai_app;" || true
+          docker compose exec -T database psql -U postgres -c "CREATE DATABASE govai OWNER govai_app;" || true
+          docker compose exec -T database psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE govai TO govai_app;" || true
           
           echo "Executando Migrations e Seed..."
-          # Agora que o banco existe, rodamos o seed real
-          bash scripts/demo-seed.sh
+          export PGPASSWORD=admin
+          export DB_URI="postgresql://postgres:admin@localhost:5432/govai"
+          
+          echo "-> init.sql"
+          psql $DB_URI -f init.sql
+          
+          echo "-> Numeric Migrations"
+          for f in 0*.sql; do
+            echo "Applying $f..."
+            psql $DB_URI -f "$f"
+          done
+          
+          echo "-> Seeding"
+          bash scripts/demo-seed.sh "$DB_URI"
           
           echo "Aguardando API /health..."
           for i in {1..20}; do

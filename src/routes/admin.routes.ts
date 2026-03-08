@@ -32,6 +32,10 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         }
     }, async (request, reply) => {
         const { email, password } = request.body as any;
+        if (!email || !password) {
+            return reply.status(401).send({ error: 'Credenciais inválidas.' });
+        }
+
         const client = await pgPool.connect();
 
         try {
@@ -51,15 +55,18 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
                 return reply.status(401).send({ error: 'Conta não configurada para login local.' });
             }
 
-            const isValid = await bcrypt.compare(password, user.password_hash);
-            if (!isValid) {
+            try {
+                const isValid = await bcrypt.compare(password, user.password_hash);
+                if (!isValid) {
+                    return reply.status(401).send({ error: 'Credenciais inválidas.' });
+                }
+            } catch (bcryptError) {
+                app.log.error(bcryptError, "Bcrypt comparison error");
                 return reply.status(401).send({ error: 'Credenciais inválidas.' });
             }
 
             // Force password reset logic
-            // Force password reset logic — Bypass for dev default password 'admin'
             if (user.requires_password_change) {
-                // Return a temporary token specifically for password reset
                 const resetToken = app.jwt.sign({ email, userId: user.id, orgId: user.org_id, resetOnly: true }, { expiresIn: '15m' });
                 return reply.status(403).send({
                     error: 'Troca de senha obrigatória no primeiro login.',
