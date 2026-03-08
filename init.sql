@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
 CREATE INDEX IF NOT EXISTS idx_pending_approvals_status ON pending_approvals (status, expires_at);
 
 -- 8. Per-tenant HITL Keywords (configurable risk dictionary)
-CREATE TABLE org_hitl_keywords (
+CREATE TABLE IF NOT EXISTS org_hitl_keywords (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     org_id UUID NOT NULL REFERENCES organizations(id),
     keyword TEXT NOT NULL,
@@ -100,6 +100,7 @@ CREATE TABLE org_hitl_keywords (
 );
 
 ALTER TABLE org_hitl_keywords ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_hitl_keywords_isolation ON org_hitl_keywords;
 CREATE POLICY org_hitl_keywords_isolation ON org_hitl_keywords
     USING (org_id = current_setting('app.current_org_id', true)::uuid);
 
@@ -113,6 +114,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_on_new_org_create_partition ON organizations;
 CREATE TRIGGER trg_on_new_org_create_partition
 AFTER INSERT ON organizations
 FOR EACH ROW EXECUTE FUNCTION create_org_partition();
@@ -123,19 +125,24 @@ ALTER TABLE assistants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE knowledge_bases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs_partitioned ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS org_isolation_api_keys ON api_keys;
 CREATE POLICY org_isolation_api_keys ON api_keys 
     FOR ALL USING (org_id = current_setting('app.current_org_id', true)::UUID);
 
+DROP POLICY IF EXISTS org_isolation ON assistants;
 CREATE POLICY org_isolation ON assistants 
     FOR ALL USING (org_id = current_setting('app.current_org_id', true)::UUID);
 
+DROP POLICY IF EXISTS org_isolation_knowledge ON knowledge_bases;
 CREATE POLICY org_isolation_knowledge ON knowledge_bases 
     FOR ALL USING (org_id = current_setting('app.current_org_id', true)::UUID);
 
+DROP POLICY IF EXISTS org_audit_isolation ON audit_logs_partitioned;
 CREATE POLICY org_audit_isolation ON audit_logs_partitioned 
     FOR SELECT USING (org_id = current_setting('app.current_org_id', true)::UUID);
 
 ALTER TABLE pending_approvals ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_approvals ON pending_approvals;
 CREATE POLICY org_isolation_approvals ON pending_approvals 
     FOR ALL USING (org_id = current_setting('app.current_org_id', true)::UUID);
 
@@ -146,6 +153,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_immutable_audit ON audit_logs_partitioned;
 CREATE TRIGGER trg_immutable_audit BEFORE UPDATE OR DELETE ON audit_logs_partitioned 
 FOR EACH ROW EXECUTE FUNCTION protect_audit_logs();
 
@@ -158,6 +166,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS trg_assistants_updated_at ON assistants;
 CREATE TRIGGER trg_assistants_updated_at BEFORE UPDATE ON assistants 
 FOR EACH ROW EXECUTE FUNCTION update_modified_column();
 
@@ -165,6 +174,7 @@ FOR EACH ROW EXECUTE FUNCTION update_modified_column();
 -- Movido para scripts/demo-seed.sh exclusivamente (MEL-02: Isolamento de Produção)
 
 -- MEL-05: Criar política RLS específica para o expiration worker
+DROP POLICY IF EXISTS expiration_worker_policy ON pending_approvals;
 CREATE POLICY expiration_worker_policy ON pending_approvals
     FOR UPDATE
     USING (status = 'pending' AND expires_at <= NOW())
