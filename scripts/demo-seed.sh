@@ -5,8 +5,8 @@ set -e
 
 export DATABASE_URL="${1:-${DATABASE_URL:-"postgresql://govai_app:${DB_APP_PASSWORD:-govai_ci_pass}@localhost:5432/govai_platform"}}"
 
-# Ensure psql doesn't prompt for password
-export PGPASSWORD="${DB_APP_PASSWORD:-govai_ci_pass}"
+# Debug help (hidden in CI but useful for logging redirection)
+echo "Running seed on: $(echo $DATABASE_URL | sed 's/:.*@/:****@/')"
 
 psql "$DATABASE_URL" <<EOF
 INSERT INTO organizations (id, name) VALUES ('00000000-0000-0000-0000-000000000001', 'Banco Fictício SA') ON CONFLICT DO NOTHING;

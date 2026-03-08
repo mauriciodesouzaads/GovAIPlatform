@@ -25,8 +25,8 @@ DO $$
 DECLARE
     v_org_id UUID;
     v_admin_email TEXT := 'admin@govai.com';
-    -- Hash para a senha padrão 'admin' (Deve ser trocada no primeiro acesso)
-    v_default_hash TEXT := '$2b$10$WpONX.8A2yA1/I40ZgXFZe9D/1z3o0I/I/tqB1tLpKz/u.W2qEOWC';
+    -- Hash para a senha padrão 'admin' (Sincronizado com E2E)
+    v_default_hash TEXT := '$2b$10$tdILahYIL7M2VDCtwl/w5ePVUtfFXIltAmR6pS8UNN1l22Wnj8Dae';
 BEGIN
     -- Busca a organização padrão (Banco Fictício) injetada no setup inicial
     SELECT id INTO v_org_id FROM organizations WHERE name = 'Banco Fictício SA' LIMIT 1;

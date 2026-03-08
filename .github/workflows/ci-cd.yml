@@ -90,7 +90,8 @@ jobs:
           done
           
           echo "-> Seeding"
-          DB_APP_PASSWORD=govai_ci_pass bash scripts/demo-seed.sh "$DB_URI"
+          # No argument needed, script uses govai_app defaults
+          DB_APP_PASSWORD=govai_ci_pass bash scripts/demo-seed.sh
           
           echo "Aguardando API /health ficar pronto..."
           for i in {1..20}; do
@@ -110,12 +111,13 @@ jobs:
       - name: SRE Override - Force E2E Context
         run: |
           echo "Alinhando estado do DB com os testes (Double-Strike)..."
+          # Usar psql direto via 'exec' injetando PGPASSWORD para evitar prompt interativo
           
           echo "Tentativa 1: Banco padrão (govai)..."
-          docker compose exec -T database psql -U postgres -d govai -c "UPDATE users SET requires_password_change = true WHERE email = 'admin@govai.com';" || true
+          docker compose exec -T database env PGPASSWORD=admin psql -U postgres -d govai -c "UPDATE users SET requires_password_change = true WHERE email = 'admin@govai.com';" || echo "Banco 'govai' ignorado."
           
           echo "Tentativa 2: Banco corporativo (govai_platform)..."
-          docker compose exec -T database psql -U postgres -d govai_platform -c "UPDATE users SET requires_password_change = true WHERE email = 'admin@govai.com';" || true
+          docker compose exec -T database env PGPASSWORD=admin psql -U postgres -d govai_platform -c "UPDATE users SET requires_password_change = true WHERE email = 'admin@govai.com';" || echo "Banco 'govai_platform' ignorado."
 
       - name: Run E2E Tests
         run: bash run_e2e_tests.sh
