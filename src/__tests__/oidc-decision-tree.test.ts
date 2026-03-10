@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import cookie from '@fastify/cookie';
+import { Pool } from 'pg';
 import { registerOidcRoutes } from '../lib/auth-oidc';
 
 // ─── Shared Mock PG Pool ──────────────────────────────────────────────────────
@@ -43,7 +44,7 @@ async function buildTestServer(envOverrides: Record<string, string | undefined> 
 
     const pool = buildMockPool();
     await app.register(async (instance: any) => {
-        registerOidcRoutes(instance, pool);
+        registerOidcRoutes(instance, pool as unknown as Pool);
     });
     await app.ready();
     return { app, pool };
