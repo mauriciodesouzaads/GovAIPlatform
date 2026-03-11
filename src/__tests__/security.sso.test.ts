@@ -7,7 +7,7 @@
  * - Confirma criação automática de Org + User na primeira autenticação
  * - Valida que o JWT interno emitido contém os identificadores de federação corretos
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import cookie from '@fastify/cookie';
@@ -101,6 +101,32 @@ async function jitProvision(
 // CENÁRIO 1: OIDC Login Redirect
 // ─────────────────────────────────────────
 describe('[SSO] Just-In-Time Provisioning — Microsoft Entra ID', () => {
+    const savedEnv: Record<string, string | undefined> = {};
+    const envKeys = ['NODE_ENV', 'OIDC_ISSUER_URL', 'OIDC_CLIENT_ID', 'OIDC_CLIENT_SECRET', 'ENABLE_SSO_MOCK', 'FRONTEND_URL'];
+
+    beforeEach(async () => {
+        envKeys.forEach(k => { savedEnv[k] = process.env[k]; });
+
+        process.env.OIDC_ISSUER_URL = 'https://login.microsoftonline.com/common/v2.0';
+        process.env.OIDC_CLIENT_ID = 'test-id';
+        process.env.OIDC_CLIENT_SECRET = 'test-secret';
+
+        const { Issuer } = await import('openid-client');
+        vi.spyOn(Issuer, 'discover').mockResolvedValue({
+            Client: vi.fn().mockImplementation(() => ({
+                metadata: { redirect_uris: ['http://localhost:3000/v1/auth/sso/callback'] },
+                authorizationUrl: vi.fn().mockReturnValue('https://login.microsoftonline.com/auth?response_type=code&client_id=123'),
+            })),
+        } as any);
+    });
+
+    afterEach(() => {
+        envKeys.forEach(k => {
+            if (savedEnv[k] === undefined) delete process.env[k];
+            else process.env[k] = savedEnv[k]!;
+        });
+        vi.restoreAllMocks();
+    });
 
     it('GET /v1/auth/sso/login should redirect to the Entra ID authorization URL', async () => {
         const fastify = Fastify({ logger: false });
@@ -109,7 +135,11 @@ describe('[SSO] Just-In-Time Provisioning — Microsoft Entra ID', () => {
         await fastify.register(async (inst) => registerOidcRoutes(inst, {} as any));
         await fastify.ready();
 
-        const res = await fastify.inject({ method: 'GET', url: '/v1/auth/sso/login?provider=entra_id' });
+        const res = await fastify.inject({
+            method: 'GET',
+            url: '/v1/auth/sso/login?provider=entra_id',
+            remoteAddress: '1.2.3.' + Math.random().toString().slice(2, 5)
+        });
 
         expect(res.statusCode).toBe(302);
         expect(res.headers.location).toContain('microsoftonline.com');
@@ -174,7 +204,11 @@ describe('[SSO] Just-In-Time Provisioning — Microsoft Entra ID', () => {
         await fastify.register(async (inst) => registerOidcRoutes(inst, {} as any));
         await fastify.ready();
 
-        const res = await fastify.inject({ method: 'GET', url: '/v1/auth/sso/login?provider=google_saml' });
+        const res = await fastify.inject({
+            method: 'GET',
+            url: '/v1/auth/sso/login?provider=google_saml',
+            remoteAddress: '1.2.3.' + Math.random().toString().slice(2, 5)
+        });
 
         expect(res.statusCode).toBe(400);
         expect(JSON.parse(res.payload).error).toContain('não suportado');
@@ -189,7 +223,11 @@ describe('[SSO] Just-In-Time Provisioning — Microsoft Entra ID', () => {
         await fastify.register(async (inst) => registerOidcRoutes(inst, {} as any));
         await fastify.ready();
 
-        const res = await fastify.inject({ method: 'GET', url: '/v1/auth/sso/login?provider=okta' });
+        const res = await fastify.inject({
+            method: 'GET',
+            url: '/v1/auth/sso/login?provider=okta',
+            remoteAddress: '1.2.3.' + Math.random().toString().slice(2, 5)
+        });
         expect(res.statusCode).toBe(302);
 
         await fastify.close();

@@ -77,9 +77,13 @@ describe('OIDC Decision Tree — isMockTokenSet paths', () => {
             OIDC_CLIENT_SECRET: undefined,
         });
 
-        const res = await app.inject({ method: 'GET', url: '/v1/auth/sso/login?provider=entra_id' });
-        expect(res.statusCode).toBe(503);
-        expect(JSON.parse(res.payload).error).toContain('não configurado');
+        const res = await app.inject({
+            method: 'GET',
+            url: '/v1/auth/sso/login?provider=entra_id',
+            remoteAddress: '1.2.3.' + Math.random().toString().slice(2, 5)
+        });
+        expect(res.statusCode).toBe(500);
+        expect(JSON.parse(res.payload).error).toContain('indisponível');
 
         await app.close();
     });
@@ -111,6 +115,7 @@ describe('OIDC Decision Tree — isMockTokenSet paths', () => {
             method: 'GET',
             url: '/v1/auth/sso/callback?code=test-code&state=saved-state',
             cookies: { oidc_state: 'saved-state' },
+            remoteAddress: '1.2.3.' + Math.random().toString().slice(2, 5)
         });
 
         // Must return 500 — the mock must NOT have been activated
@@ -147,6 +152,7 @@ describe('OIDC Decision Tree — isMockTokenSet paths', () => {
             method: 'GET',
             url: '/v1/auth/sso/callback?code=test-code&state=saved-state',
             cookies: { oidc_state: 'saved-state' },
+            remoteAddress: '1.2.3.' + Math.random().toString().slice(2, 5)
         });
 
         // Must redirect to frontend with sso_success (stub identity was used for JIT provisioning)
@@ -185,6 +191,7 @@ describe('OIDC Decision Tree — isMockTokenSet paths', () => {
             method: 'GET',
             url: '/v1/auth/sso/callback?code=test-code&state=saved-state',
             cookies: { oidc_state: 'saved-state' },
+            remoteAddress: '1.2.3.' + Math.random().toString().slice(2, 5)
         });
 
         expect(res.statusCode).toBe(500);

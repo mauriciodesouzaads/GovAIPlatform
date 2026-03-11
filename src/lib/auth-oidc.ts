@@ -58,9 +58,14 @@ export async function registerOidcRoutes(fastify: FastifyInstance, pgPool: Pool)
     // Load OIDC Client dynamically (lazy load to not crash dev environment if vars are missing)
     const initClient = async () => {
         if (oidcClient) return oidcClient;
-        const issuerUrl = process.env.OIDC_ISSUER_URL || 'https://login.microsoftonline.com/common/v2.0';
-        const clientId = process.env.OIDC_CLIENT_ID || 'dummy_client_id';
-        const clientSecret = process.env.OIDC_CLIENT_SECRET || 'dummy_client_secret';
+        const issuerUrl = process.env.OIDC_ISSUER_URL;
+        const clientId = process.env.OIDC_CLIENT_ID;
+        const clientSecret = process.env.OIDC_CLIENT_SECRET;
+
+        if (!issuerUrl || !clientId || !clientSecret) {
+            throw new Error('OIDC configuration incomplete.');
+        }
+
         const redirectUri = process.env.APP_BASE_URL ? `${process.env.APP_BASE_URL}/v1/auth/sso/callback` : 'http://localhost:3000/v1/auth/sso/callback';
 
         const issuer = await Issuer.discover(issuerUrl);
@@ -107,23 +112,37 @@ export async function registerOidcRoutes(fastify: FastifyInstance, pgPool: Pool)
             const client = await initClient();
             const params = client.callbackParams(request.raw as any);
 
-            // In production, validate state from cookies. Bypassing for demo.
-            const tokenSet = await client.callback(client.metadata.redirect_uris![0], params, { state: 'dummy_state_for_sso_123', nonce: 'dummy_nonce_for_sso_123' })
-                .catch(async () => {
-                    // Mock TokenSet for local demo since we don't have a real EntraID code
-                    return new TokenSet({
-                        access_token: "mock_token",
-                        id_token: "mock_id_token",
-                    });
-                });
+            let tokenSet: TokenSet;
+            let isMockTokenSet = false;
 
-            // Demo mock claims if no real ID token was exchanged
-            const claims = tokenSet.claims ? tokenSet.claims() : {
-                sub: 'user_12345_entra',
-                email: 'diretor@govai.com',
-                name: 'Diretor de Operações',
-                tid: 'tenant_12345_corporativo' // Tenant ID do Entra ID
-            };
+            try {
+                // In production, validate state from cookies. Bypassing for demo.
+                tokenSet = await client.callback(client.metadata.redirect_uris![0], params, { state: 'dummy_state_for_sso_123', nonce: 'dummy_nonce_for_sso_123' });
+            } catch (err) {
+                const isProd = process.env.NODE_ENV === 'production';
+                const enableMock = process.env.ENABLE_SSO_MOCK === 'true';
+
+                if (!isProd && enableMock) {
+                    fastify.log.warn("[DEV/TEST] SSO: Real OIDC exchange failed. Using MOCK token (ENABLE_SSO_MOCK active). NOT FOR PRODUCTION.");
+                    tokenSet = new TokenSet({ access_token: "mock_token" });
+                    isMockTokenSet = true;
+                } else {
+                    throw err; // Secure fallback
+                }
+            }
+
+            let claims: { sub: string; email?: string; name?: string; tid?: string };
+            if (!isMockTokenSet) {
+                claims = tokenSet.claims();
+            } else {
+                // Demo mock claims if no real ID token was exchanged
+                claims = {
+                    sub: 'user_12345_entra',
+                    email: 'diretor@govai.com',
+                    name: 'Diretor de Operações',
+                    tid: 'tenant_12345_corporativo' // Tenant ID do Entra ID
+                };
+            }
 
             const ssoUserId = claims.sub;
             const ssoTenantId = claims.tid || 'default_local_tenant';

@@ -9,7 +9,7 @@
  * 4. SSO rate-limiting (429 after burst)
  * 5. Admin route access control (401 without JWT)
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import Fastify, { FastifyInstance } from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import cookie from '@fastify/cookie';
@@ -171,6 +171,31 @@ describe('[E2E] API Key Middleware', () => {
 });
 
 describe('[E2E] SSO Rate-Limiting (DT-5)', () => {
+    const savedEnv: Record<string, string | undefined> = {};
+    const envKeys = ['NODE_ENV', 'OIDC_ISSUER_URL', 'OIDC_CLIENT_ID', 'OIDC_CLIENT_SECRET'];
+
+    beforeEach(async () => {
+        envKeys.forEach(k => { savedEnv[k] = process.env[k]; });
+        process.env.OIDC_ISSUER_URL = 'https://login.microsoftonline.com/common/v2.0';
+        process.env.OIDC_CLIENT_ID = 'test-id';
+        process.env.OIDC_CLIENT_SECRET = 'test-secret';
+
+        const { Issuer } = await import('openid-client');
+        vi.spyOn(Issuer, 'discover').mockResolvedValue({
+            Client: vi.fn().mockImplementation(() => ({
+                metadata: { redirect_uris: ['http://localhost:3000/v1/auth/sso/callback'] },
+                authorizationUrl: vi.fn().mockReturnValue('https://login.microsoftonline.com/auth'),
+            })),
+        } as any);
+    });
+
+    afterEach(() => {
+        envKeys.forEach(k => {
+            if (savedEnv[k] === undefined) delete process.env[k];
+            else process.env[k] = savedEnv[k]!;
+        });
+        vi.restoreAllMocks();
+    });
     it('GET /v1/auth/sso/login should work for the first request', async () => {
         const res = await app.inject({ method: 'GET', url: '/v1/auth/sso/login?provider=entra_id' });
         expect(res.statusCode).toBe(302); // Redirect to Entra ID
