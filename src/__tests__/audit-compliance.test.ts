@@ -8,11 +8,22 @@ import path from 'path';
 
 describe('B2B Enterprise Audit — Testes Comportamentais Reais', () => {
 
-    it('[TEST-01] RLS: govai_app role existe no schema PostgreSQL (verifica migration 019)', async () => {
-        // Verifica que a migration foi escrita corretamente
+    it('[TEST-01] RLS: govai_app role — migration 019 valida pré-requisito em vez de criar com senha hardcoded', async () => {
         const migration = fs.readFileSync(path.join(process.cwd(), '019_rls_and_immutable_policies.sql'), 'utf8');
-        expect(migration).toContain('CREATE USER govai_app');
+
+        // A role govai_app NÃO deve ser criada na migration com senha hardcoded (vulnerabilidade corrigida).
+        // Em vez disso, a migration usa um guard que levanta EXCEPTION se a role não existir.
+        // A role é criada com senha de ambiente por scripts/init-roles.sh ou scripts/bootstrap-db.sh.
+        expect(migration).not.toContain("CREATE USER govai_app WITH PASSWORD");
+        expect(migration).not.toContain("GOVAI_APP_PASSWORD_PLACEHOLDER");
+
+        // Verifica a presença do guard de pré-requisito (RAISE EXCEPTION)
+        expect(migration).toContain('RAISE EXCEPTION');
+        expect(migration).toContain('govai_app');
+
+        // Verifica que os grants mínimos de privilégio estão presentes
         expect(migration).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES');
+
         // Verifica que a connection string no docker-compose usa govai_app
         const compose = fs.readFileSync(path.join(process.cwd(), 'docker-compose.yml'), 'utf8');
         expect(compose).toContain('govai_app');

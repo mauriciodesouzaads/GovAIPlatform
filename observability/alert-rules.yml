@@ -1,0 +1,218 @@
+# ============================================================================
+# GovAI Platform — Prometheus Alert Rules
+# ============================================================================
+# Referenciado em prometheus.yml via rule_files.
+# Cada grupo define alertas para um domínio específico do sistema.
+#
+# Nomes de métricas canônicos (definidos em src/lib/sre-metrics.ts):
+#   govai_http_requests_total{status="success"|"blocked"|"approved"}
+#   govai_gateway_latency_ms_bucket / _sum / _count (Histogram, buckets em ms)
+#   govai_dlp_detections_total
+#   govai_quota_exceeded_total
+#   govai_active_pg_connections          (Gauge)
+#   govai_redis_queue_depth              (Gauge — fila de auditoria)
+#   govai_telemetry_queue_depth          (Gauge — fila de telemetria Langfuse)
+#   govai_compliance_consented_orgs      (Gauge — LGPD: orgs com consent=TRUE)
+#   govai_node_nodejs_heap_size_used_bytes
+#   govai_node_nodejs_eventloop_lag_seconds (Histogram com prefix govai_node_)
+# ============================================================================
+
+groups:
+
+  # ── SRE: Latência e Disponibilidade ────────────────────────────────────────
+  - name: govai.sre.latency
+    interval: 30s
+    rules:
+      # Latência p99 acima de 5000ms (5s) por 3 minutos consecutivos.
+      # Métrica é em milissegundos (govai_gateway_latency_ms).
+      - alert: HighGatewayLatencyP99
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum(rate(govai_gateway_latency_ms_bucket[5m])) by (le, job)
+          ) > 5000
+        for: 3m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "Latência p99 do gateway > 5s"
+          description: "A latência no percentil 99 está em {{ $value }}ms (limite: 5000ms). Verifique LiteLLM, Presidio e PostgreSQL."
+          value: "{{ $value }}ms"
+          runbook_url: "https://docs.govai-platform.com/runbooks/high-latency"
+
+      # Latência p95 acima de 3000ms (3s) — aviso preventivo
+      - alert: ElevatedGatewayLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(govai_gateway_latency_ms_bucket[5m])) by (le, job)
+          ) > 3000
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "Latência p95 do gateway > 3s"
+          description: "A latência no percentil 95 está em {{ $value }}ms (limite: 3000ms). Monitorar evolução."
+          value: "{{ $value }}ms"
+          runbook_url: "https://docs.govai-platform.com/runbooks/high-latency"
+
+      # API sem tráfego — detecta outage total usando absent()
+      # absent() retorna 1 quando a métrica está ausente (serviço offline ou sem scrapes)
+      - alert: APIServiceDown
+        expr: absent(govai_http_requests_total)
+        for: 3m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "API GovAI sem tráfego — possível outage"
+          description: "A métrica govai_http_requests_total está ausente há mais de 3 minutos. O serviço pode estar offline ou o Prometheus não consegue fazer scrape."
+          value: "absent"
+          runbook_url: "https://docs.govai-platform.com/runbooks/api-errors"
+
+  # ── SRE: PostgreSQL ────────────────────────────────────────────────────────
+  - name: govai.sre.postgresql
+    interval: 30s
+    rules:
+      # Conexões ativas no pool > 18 (o pool máximo é 20 — sobra pouca folga)
+      - alert: PostgreSQLConnectionsHigh
+        expr: govai_active_pg_connections > 18
+        for: 2m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "Conexões ativas ao PostgreSQL > 18"
+          description: "{{ $value }} conexões ativas no pool (máximo: 20). Risco de esgotamento de pool. Verificar queries lentas."
+          value: "{{ $value }}"
+          runbook_url: "https://docs.govai-platform.com/runbooks/pg-connections"
+
+      # Conexões ativas > 15 — aviso antes de atingir o crítico
+      - alert: PostgreSQLConnectionsElevated
+        expr: govai_active_pg_connections > 15
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "Conexões ao PostgreSQL elevadas (> 15)"
+          description: "{{ $value }} conexões ativas no pool. Monitorar crescimento."
+          value: "{{ $value }}"
+          runbook_url: "https://docs.govai-platform.com/runbooks/pg-connections"
+
+  # ── SRE: Redis e Filas BullMQ ──────────────────────────────────────────────
+  - name: govai.sre.redis
+    interval: 30s
+    rules:
+      # Fila de telemetria com > 500 jobs aguardando — worker parado?
+      - alert: TelemetryQueueBacklogHigh
+        expr: govai_telemetry_queue_depth > 500
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "Backlog da fila de telemetria > 500 jobs"
+          description: "{{ $value }} jobs aguardando na fila de telemetria. Worker pode estar parado ou Langfuse indisponível."
+          value: "{{ $value }}"
+          runbook_url: "https://docs.govai-platform.com/runbooks/queue-backlog"
+
+      # Fila de auditoria com > 200 jobs — auditoria atrasada é risco de compliance
+      - alert: AuditQueueBacklogHigh
+        expr: govai_redis_queue_depth > 200
+        for: 3m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "Backlog da fila de auditoria > 200 jobs"
+          description: "{{ $value }} logs de auditoria aguardando gravação. Risco de perda de dados de compliance se o worker não processar."
+          value: "{{ $value }}"
+          runbook_url: "https://docs.govai-platform.com/runbooks/audit-queue"
+
+  # ── Compliance & Governança: DLP e Políticas ──────────────────────────────
+  - name: govai.compliance.dlp
+    interval: 60s
+    rules:
+      # Spike de detecções DLP: > 50 detecções/min nos últimos 5 min
+      - alert: DLPDetectionSpike
+        expr: |
+          sum(rate(govai_dlp_detections_total[5m])) * 60 > 50
+        for: 3m
+        labels:
+          severity: warning
+          team: compliance
+        annotations:
+          summary: "Spike de detecções DLP (> 50/min)"
+          description: "Taxa de detecção de PII está em {{ $value | humanize }} detecções/min. Possível exfiltração de dados ou mau uso da API."
+          value: "{{ $value | humanize }}"
+          runbook_url: "https://docs.govai-platform.com/runbooks/dlp-spike"
+
+      # Taxa de bloqueio por política > 50% das requisições — possível ataque de enumeração
+      - alert: HighPolicyBlockRate
+        expr: |
+          sum(rate(govai_http_requests_total{status="blocked"}[5m])) by (job)
+          /
+          sum(rate(govai_http_requests_total[5m])) by (job)
+          > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          team: compliance
+        annotations:
+          summary: "Taxa de bloqueio por política > 50%"
+          description: "{{ $value | humanizePercentage }} das requisições estão sendo bloqueadas por política OPA. Verificar configuração de políticas ou possível ataque de enumeração."
+          value: "{{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.govai-platform.com/runbooks/policy-block-rate"
+
+      # Violações de quota acima do normal
+      - alert: QuotaViolationSurge
+        expr: |
+          sum(rate(govai_quota_exceeded_total[10m])) * 60 > 20
+        for: 5m
+        labels:
+          severity: warning
+          team: compliance
+        annotations:
+          summary: "Violações de quota acima de 20/min"
+          description: "Taxa de violações de quota: {{ $value | humanize }}/min. Possível abuso de API ou configuração incorreta de limites."
+          value: "{{ $value | humanize }}"
+          runbook_url: "https://docs.govai-platform.com/runbooks/quota-violations"
+
+  # ── Runtime Node.js ────────────────────────────────────────────────────────
+  - name: govai.runtime.nodejs
+    interval: 30s
+    rules:
+      # Heap memory > 1.5 GB — possível memory leak
+      - alert: NodeJSHeapMemoryHigh
+        expr: |
+          govai_node_nodejs_heap_size_used_bytes{job="govai-api"} > 1610612736
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "Heap do Node.js > 1.5 GB"
+          description: "Uso de heap: {{ $value | humanize1024 }}. Possível memory leak. Verificar logs e profiles."
+          value: "{{ $value | humanize1024 }}"
+          runbook_url: "https://docs.govai-platform.com/runbooks/nodejs-memory"
+
+      # Event loop lag > 200ms — prom-client com prefix govai_node_ cria
+      # govai_node_nodejs_eventloop_lag_seconds (Histogram)
+      - alert: NodeJSEventLoopLagHigh
+        expr: |
+          rate(govai_node_nodejs_eventloop_lag_seconds_sum{job="govai-api"}[1m])
+          /
+          rate(govai_node_nodejs_eventloop_lag_seconds_count{job="govai-api"}[1m])
+          > 0.2
+        for: 3m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "Event loop lag do Node.js > 200ms"
+          description: "Event loop lag médio: {{ $value | humanizeDuration }}. Possível operação síncrona bloqueando o loop. Verificar CPU e I/O."
+          value: "{{ $value | humanizeDuration }}"
+          runbook_url: "https://docs.govai-platform.com/runbooks/event-loop-lag"

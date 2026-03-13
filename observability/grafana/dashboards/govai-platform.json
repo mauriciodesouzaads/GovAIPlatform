@@ -1,0 +1,553 @@
+{
+  "__inputs": [],
+  "__requires": [
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" }
+  ],
+  "annotations": { "list": [] },
+  "description": "GovAI Platform — AI Governance, Security & Observability",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Throughput & Latency",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "id": 1,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "rate(govai_http_requests_total{status=\"success\"}[2m])",
+          "legendFormat": "Success",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "rate(govai_http_requests_total{status=\"blocked\"}[2m])",
+          "legendFormat": "Blocked (Policy)",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "rate(govai_http_requests_total{status=\"approved\"}[2m])",
+          "legendFormat": "Approved (HITL)",
+          "refId": "C"
+        }
+      ],
+      "title": "Request Rate by Outcome",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "id": 2,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "histogram_quantile(0.50, rate(govai_gateway_latency_ms_bucket[5m]))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "histogram_quantile(0.95, rate(govai_gateway_latency_ms_bucket[5m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "histogram_quantile(0.99, rate(govai_gateway_latency_ms_bucket[5m]))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "title": "Gateway Latency Percentiles (ms)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "id": 101,
+      "title": "Security & Governance",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 15 },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "id": 3,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "rate(govai_dlp_detections_total[5m])",
+          "legendFormat": "DLP Detections/s",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "rate(govai_quota_exceeded_total[5m])",
+          "legendFormat": "Quota Exceeded/s",
+          "refId": "B"
+        }
+      ],
+      "title": "DLP Detections & Quota Violations",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "min": 0, "max": 100 },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Blocked Rate" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "id": 4,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "sum(rate(govai_http_requests_total{status=\"blocked\"}[5m])) / sum(rate(govai_http_requests_total[5m])) * 100",
+          "legendFormat": "Blocked Rate",
+          "refId": "A"
+        }
+      ],
+      "title": "Policy Block Rate (%)",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "id": 102,
+      "title": "Infrastructure Health",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 14 },
+              { "color": "red", "value": 18 }
+            ]
+          },
+          "unit": "short",
+          "min": 0,
+          "max": 20
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 19 },
+      "id": 5,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "showThresholdLabels": false },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "govai_active_pg_connections",
+          "legendFormat": "Active PG Connections",
+          "refId": "A"
+        }
+      ],
+      "title": "PostgreSQL Active Connections (max 20)",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 500 }
+            ]
+          },
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 19 },
+      "id": 6,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "govai_redis_queue_depth",
+          "legendFormat": "Audit Queue",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "govai_telemetry_queue_depth",
+          "legendFormat": "Telemetry Queue",
+          "refId": "B"
+        }
+      ],
+      "title": "BullMQ Queue Depths",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 1, "fillOpacity": 8 },
+          "unit": "bytes"
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 19 },
+      "id": 7,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "govai_node_process_resident_memory_bytes",
+          "legendFormat": "RSS Memory",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "govai_node_nodejs_heap_size_used_bytes",
+          "legendFormat": "Heap Used",
+          "refId": "B"
+        }
+      ],
+      "title": "Node.js Memory Usage",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "id": 103,
+      "title": "Node.js Event Loop",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 8 },
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.05 },
+              { "color": "red", "value": 0.1 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 26 },
+      "id": 8,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "rate(govai_node_nodejs_eventloop_lag_seconds_sum[1m]) / rate(govai_node_nodejs_eventloop_lag_seconds_count[1m])",
+          "legendFormat": "Event Loop Lag (avg)",
+          "refId": "A"
+        }
+      ],
+      "title": "Event Loop Lag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 1, "fillOpacity": 5 },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 26 },
+      "id": 9,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "rate(govai_node_nodejs_gc_duration_seconds_sum[2m])",
+          "legendFormat": "GC Duration/s",
+          "refId": "A"
+        }
+      ],
+      "title": "Garbage Collection Activity",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 },
+      "id": 104,
+      "title": "LGPD Compliance — Telemetry Consent",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          },
+          "unit": "short",
+          "min": 0,
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "Nenhuma", "color": "yellow" } } }
+          ]
+        }
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 34 },
+      "id": 10,
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "govai_compliance_consented_orgs",
+          "legendFormat": "Orgs com Consentimento LGPD",
+          "refId": "A"
+        }
+      ],
+      "title": "Organizações com Telemetria Consentida (LGPD)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 1, "fillOpacity": 15 },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 5, "w": 18, "x": 6, "y": 34 },
+      "id": 11,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "govai_compliance_consented_orgs",
+          "legendFormat": "Orgs com consent=TRUE",
+          "refId": "A"
+        }
+      ],
+      "title": "Histórico de Consentimento LGPD (atualizações a cada 5min)",
+      "type": "timeseries"
+    }
+  ],
+    ,
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 39 },
+      "id": 105,
+      "title": "Per-Assistant Performance (P95 / P99)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 6 },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 40 },
+      "id": 12,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (assistant_id, le) (rate(govai_assistant_latency_ms_bucket[5m])))",
+          "legendFormat": "p95 — {{assistant_id}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Latência P95 por Assistente (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 6 },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 40 },
+      "id": 13,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (assistant_id, le) (rate(govai_assistant_latency_ms_bucket[5m])))",
+          "legendFormat": "p99 — {{assistant_id}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Latência P99 por Assistente (ms)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 49 },
+      "id": 106,
+      "title": "BYOK Key Rotation",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          },
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 50 },
+      "id": 14,
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "increase(govai_dek_rotations_total[24h])",
+          "legendFormat": "DEKs Rotacionadas (24h)",
+          "refId": "A"
+        }
+      ],
+      "title": "DEKs Rotacionadas (último dia)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 50 },
+      "id": 15,
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "value_and_name",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "increase(govai_dek_rotation_errors_total[24h])",
+          "legendFormat": "Erros de Rotação (24h)",
+          "refId": "A"
+        }
+      ],
+      "title": "Erros de Rotação DEK (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 1, "fillOpacity": 10 },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 50 },
+      "id": 16,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "rate(govai_dek_rotations_total[1h])",
+          "legendFormat": "Rotações DEK/s",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "govai-prometheus" },
+          "expr": "rate(govai_dek_rotation_errors_total[1h])",
+          "legendFormat": "Erros/s",
+          "refId": "B"
+        }
+      ],
+      "title": "Taxa de Rotação DEK (histórico)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["govai", "ai-governance", "security", "sre", "lgpd"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "GovAI Platform — SRE Dashboard",
+  "uid": "govai-sre-v1",
+  "version": 3
+}

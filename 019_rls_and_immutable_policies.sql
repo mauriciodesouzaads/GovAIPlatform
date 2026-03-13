@@ -1,17 +1,19 @@
 -- Migration 019: True RLS Enforcement, Immutable Policies, and Strict Audit Insertions
 
--- 1. Create limited application user (Critical 1: Real RLS Enforcement)
+-- 1. Verificação do usuário da aplicação (Critical 1: Real RLS Enforcement)
 -- PostgreSQL superusers (like 'postgres') bypass RLS completely (BYPASSRLS).
--- We create a specific user for the Node.js application to connect with.
+-- A role govai_app DEVE existir antes desta migration, criada por:
+--   - Docker: scripts/init-roles.sh (montado como 00_init_roles.sh no entrypoint)
+--   - Direto: scripts/bootstrap-db.sh
+-- Ambos leem DB_APP_PASSWORD da variável de ambiente — sem senha hardcoded.
 DO $$ 
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'govai_app') THEN
--- ATENÇÃO: Execute este script substituindo GOVAI_APP_PASSWORD pela senha real
--- Exemplo: psql -v APP_PASS='senha_forte' -f 019_rls_and_immutable_policies.sql
--- e usar: WITH PASSWORD :'APP_PASS'
-    CREATE USER govai_app WITH PASSWORD 'GOVAI_APP_PASSWORD_PLACEHOLDER';
--- Em produção, altere a senha imediatamente após a migration:
--- ALTER USER govai_app WITH PASSWORD 'sua_senha_forte_aqui';
+    RAISE EXCEPTION
+      'ERRO DE PRÉ-REQUISITO: role govai_app não existe. '
+      'Execute scripts/bootstrap-db.sh ou certifique-se de que o container '
+      'iniciou com DB_APP_PASSWORD definido e scripts/init-roles.sh montado '
+      'em /docker-entrypoint-initdb.d/00_init_roles.sh.';
   END IF;
 END
 $$;

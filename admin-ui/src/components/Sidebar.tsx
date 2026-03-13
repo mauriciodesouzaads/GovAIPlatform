@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, ToggleRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -16,6 +16,7 @@ export function Sidebar() {
         { label: 'Assistants & RAG', href: '/assistants', icon: MessageSquareText, allowed: ['admin', 'sre', 'operator'] },
         { label: 'API Keys', href: '/api-keys', icon: Key, allowed: ['admin'] },
         { label: 'Approvals', href: '/approvals', icon: ShieldCheck, allowed: ['admin', 'sre', 'dpo'] },
+        { label: 'Compliance LGPD', href: '/compliance', icon: ToggleRight, allowed: ['admin', 'dpo'] },
         { label: 'Reports', href: '/reports', icon: FileText, allowed: ['admin', 'dpo', 'auditor'] },
     ];
 

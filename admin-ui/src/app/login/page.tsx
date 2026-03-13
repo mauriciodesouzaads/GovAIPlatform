@@ -211,7 +211,7 @@ export default function LoginPage() {
                 </div>
 
                 <p className="text-center text-xs text-muted-foreground mt-8">
-                    Demonstração: admin@govai.com / admin
+                    GovAI Platform &copy; {new Date().getFullYear()}
                 </p>
             </div>
         </div>

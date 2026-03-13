@@ -288,16 +288,34 @@ const rgDetector: PIIDetector = {
     }
 };
 
+/**
+ * PIX Key detector — requires explicit PIX context keyword before the value to
+ * avoid false positives on CPFs and other 11-digit sequences in unrelated fields.
+ *
+ * Supported key formats (when preceded by "pix", "via pix", or "chave pix"):
+ *   - Email (e.g. user@bank.com)
+ *   - CPF formatted (xxx.xxx.xxx-xx) — common for personal PIX keys
+ *   - CNPJ formatted (xx.xxx.xxx/xxxx-xx) — common for corporate PIX keys
+ *   - 11–14 raw digits (CPF/CNPJ unformatted, phone number)
+ *   - UUID (random key)
+ *
+ * Confidence is HIGH to win deduplication over CPF/CNPJ detectors when
+ * the same number appears in a PIX context.
+ */
 const pixKeyDetector: PIIDetector = {
     type: 'PIX_KEY',
     detect(text: string): PIIDetection[] {
         const detections: PIIDetection[] = [];
-        const p = /\b(chave\s*pix|pix)\s*:?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|\d{11,14}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/gi;
+        const pattern = /\b(?:chave\s+pix|via\s+pix|pix)\s*:?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|\d{3}\.\d{3}\.\d{3}-\d{2}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{11,14}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi;
         let m;
-        while ((m = p.exec(text)) !== null) {
+        while ((m = pattern.exec(text)) !== null) {
             detections.push({
-                type: 'PIX_KEY', original: m[0], masked: '[PIX_KEY_REDACTED]',
-                startIndex: m.index, endIndex: m.index + m[0].length, confidence: 'MEDIUM'
+                type: 'PIX_KEY',
+                original: m[0],
+                masked: '[PIX_KEY_REDACTED]',
+                startIndex: m.index,
+                endIndex: m.index + m[0].length,
+                confidence: 'HIGH',
             });
         }
         return detections;
@@ -312,9 +330,14 @@ export class DLPEngine {
     private detectors: PIIDetector[];
 
     constructor() {
+        // pixKeyDetector is listed first so that a CPF-format number preceded by "pix" context
+        // is recognized as PIX_KEY rather than CPF during deduplication.
+        // The deduplication logic retains the detection with the smaller index in `all[]`
+        // when two overlapping detections have equal confidence — so the detector that
+        // runs first wins the tie.
         this.detectors = [
-            cpfDetector, cnpjDetector, creditCardDetector, emailDetector,
-            phoneDetector, bankAccountDetector, cepDetector, rgDetector, pixKeyDetector,
+            pixKeyDetector, cpfDetector, cnpjDetector, creditCardDetector, emailDetector,
+            phoneDetector, bankAccountDetector, cepDetector, rgDetector,
         ];
     }
 
@@ -349,20 +372,28 @@ export class DLPEngine {
         return { sanitizedText: sanitized, detections, hasPII: true };
     }
 
-    /** Deep sanitize all string values in a nested object. */
-    sanitizeObject(obj: any): { sanitized: any; totalDetections: number } {
+    /**
+     * Deep sanitize all string values in a nested object.
+     * Async: delegates to sanitizeSemanticNLP (Tier 1 regex + Tier 2 Presidio NLP).
+     * Falls back to Tier 1 regex when Presidio is unavailable.
+     */
+    async sanitizeObject(obj: any): Promise<{ sanitized: any; totalDetections: number }> {
         let total = 0;
-        const recurse = (v: any): any => {
-            if (typeof v === 'string') { const r = this.sanitize(v); total += r.detections.length; return r.sanitizedText; }
-            if (Array.isArray(v)) return v.map(recurse);
+        const recurse = async (v: any): Promise<any> => {
+            if (typeof v === 'string') {
+                const r = await this.sanitizeSemanticNLP(v);
+                total += r.detections.length;
+                return r.sanitizedText;
+            }
+            if (Array.isArray(v)) return Promise.all(v.map(recurse));
             if (v !== null && typeof v === 'object') {
                 const o: any = {};
-                for (const k of Object.keys(v)) o[k] = recurse(v[k]);
+                for (const k of Object.keys(v)) o[k] = await recurse(v[k]);
                 return o;
             }
             return v;
         };
-        return { sanitized: recurse(obj), totalDetections: total };
+        return { sanitized: await recurse(obj), totalDetections: total };
     }
 
     /**

@@ -1,0 +1,206 @@
+# ============================================================================
+# GovAI Platform — Nginx Reverse Proxy (Production Reference Configuration)
+# ============================================================================
+# Requisitos:
+#   - Certificados TLS em /etc/ssl/govai/ (gerados via Let's Encrypt/certbot ou ACM)
+#   - Variáveis de ambiente: API_DOMAIN, ADMIN_DOMAIN, GRAFANA_DOMAIN
+#
+# Uso com Docker Compose (produção):
+#   Adicione o serviço nginx ao docker-compose.prod.yml montando este arquivo
+#   e os certificados em volumes.
+#
+# Geração de certificados (Let's Encrypt):
+#   certbot certonly --standalone -d api.yourcompany.com -d admin.yourcompany.com
+# ============================================================================
+
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    # ── Logging ─────────────────────────────────────────────────────────────
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for" '
+                    'rt=$request_time uct="$upstream_connect_time" '
+                    'uht="$upstream_header_time" urt="$upstream_response_time"';
+
+    access_log /var/log/nginx/access.log main;
+
+    # ── Performance ──────────────────────────────────────────────────────────
+    sendfile        on;
+    tcp_nopush      on;
+    tcp_nodelay     on;
+    keepalive_timeout 65;
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript
+               text/xml application/xml application/xml+rss text/javascript;
+
+    # ── Security — desativa versão do servidor em respostas ──────────────────
+    server_tokens off;
+
+    # ── Limites de rate e tamanho de body ────────────────────────────────────
+    client_max_body_size 10m;
+    client_body_timeout 30s;
+    client_header_timeout 30s;
+
+    # Zona de rate-limit: 10 req/s por IP (burst de 20, sem delay para as primeiras 5)
+    limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+    limit_req_zone $binary_remote_addr zone=admin_limit:10m rate=5r/s;
+
+    # ── Redirecionamento HTTP → HTTPS (global) ────────────────────────────────
+    server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+        server_name _;
+        return 301 https://$host$request_uri;
+    }
+
+    # ========================================================================
+    # API Backend — api.yourcompany.com
+    # ========================================================================
+    server {
+        listen 443 ssl http2;
+        listen [::]:443 ssl http2;
+        server_name ${API_DOMAIN};
+
+        # TLS — certificados gerados por Let's Encrypt ou CA corporativa
+        ssl_certificate     /etc/ssl/govai/api/fullchain.pem;
+        ssl_certificate_key /etc/ssl/govai/api/privkey.pem;
+
+        # TLS moderno: apenas TLS 1.2 e 1.3, sem ciphers fracos
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256';
+        ssl_prefer_server_ciphers off;
+        ssl_session_timeout 1d;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_tickets off;
+        ssl_stapling on;
+        ssl_stapling_verify on;
+        resolver 1.1.1.1 8.8.8.8 valid=300s;
+        resolver_timeout 5s;
+
+        # HSTS: 2 anos, inclui subdomínios, preload
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+        # Rate limiting na API
+        limit_req zone=api_limit burst=20 nodelay;
+        limit_req_status 429;
+
+        location / {
+            proxy_pass http://127.0.0.1:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+            proxy_read_timeout 60s;
+            proxy_connect_timeout 10s;
+            proxy_send_timeout 60s;
+        }
+
+        # Bloqueia acesso direto ao endpoint de métricas pela internet
+        # (Prometheus scrapa internamente via govai-net)
+        location = /metrics {
+            deny all;
+            return 403 '{"error":"Forbidden"}';
+        }
+    }
+
+    # ========================================================================
+    # Admin UI — admin.yourcompany.com
+    # ========================================================================
+    server {
+        listen 443 ssl http2;
+        listen [::]:443 ssl http2;
+        server_name ${ADMIN_DOMAIN};
+
+        ssl_certificate     /etc/ssl/govai/admin/fullchain.pem;
+        ssl_certificate_key /etc/ssl/govai/admin/privkey.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 1d;
+        ssl_session_tickets off;
+        ssl_stapling on;
+        ssl_stapling_verify on;
+
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        # CSP enforçado (complementa o next.config.ts)
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://${API_DOMAIN}; frame-ancestors 'none';" always;
+
+        limit_req zone=admin_limit burst=10 nodelay;
+        limit_req_status 429;
+
+        location / {
+            proxy_pass http://127.0.0.1:3001;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 30s;
+            proxy_connect_timeout 5s;
+        }
+    }
+
+    # ========================================================================
+    # Grafana — grafana.yourcompany.com (restrito a rede corporativa / VPN)
+    # ========================================================================
+    server {
+        listen 443 ssl http2;
+        listen [::]:443 ssl http2;
+        server_name ${GRAFANA_DOMAIN};
+
+        ssl_certificate     /etc/ssl/govai/grafana/fullchain.pem;
+        ssl_certificate_key /etc/ssl/govai/grafana/privkey.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_tickets off;
+
+        add_header Strict-Transport-Security "max-age=63072000" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+
+        # Restrição de IP: substitua pelos ranges da VPN/rede corporativa
+        # allow 10.0.0.0/8;
+        # allow 172.16.0.0/12;
+        # deny all;
+
+        location / {
+            proxy_pass http://127.0.0.1:3002;
+            proxy_http_version 1.1;
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            # Necessário para WebSocket do Grafana Live
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+    }
+}

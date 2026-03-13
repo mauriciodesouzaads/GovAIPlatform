@@ -1,0 +1,42 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'production'
+    app: 'govai-platform'
+
+# ─── Alert Rules ─────────────────────────────────────────────────────────────
+rule_files:
+  - '/etc/prometheus/alert-rules.yml'
+
+# ─── AlertManager ─────────────────────────────────────────────────────────────
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+      timeout: 10s
+
+scrape_configs:
+  # ── GovAI API — prom-client metrics (authenticated) ──────────────────────
+  - job_name: 'govai-api'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    # Bearer token read from file so the value is never in prometheus.yml itself.
+    # The file is created by docker-compose entrypoint from METRICS_API_KEY env var.
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/metrics_api_key
+    static_configs:
+      - targets: ['api:3000']
+        labels:
+          service: 'govai-api'
+
+  # ── Prometheus self-scrape ────────────────────────────────────────────────
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── AlertManager self-scrape ─────────────────────────────────────────────
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']

@@ -130,7 +130,7 @@ describe('DLP Engine', () => {
     // Deep Object Sanitization
     // -----------------------------------------------------------------------
     describe('Deep Object Sanitization', () => {
-        it('should sanitize all string values in nested objects', () => {
+        it('should sanitize all string values in nested objects', async () => {
             const obj = {
                 input: 'Meu CPF é 529.982.247-25',
                 output: {
@@ -141,7 +141,7 @@ describe('DLP Engine', () => {
                 usage: { tokens: 100 }
             };
 
-            const { sanitized, totalDetections } = dlpEngine.sanitizeObject(obj);
+            const { sanitized, totalDetections } = await dlpEngine.sanitizeObject(obj);
             expect(totalDetections).toBe(2);
             expect(sanitized.input).toContain('[CPF_REDACTED]');
             expect(sanitized.output.message.content).toContain('[EMAIL_REDACTED]');

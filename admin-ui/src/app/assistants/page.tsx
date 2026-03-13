@@ -54,17 +54,9 @@ export default function AssistantsPage() {
     };
 
     useEffect(() => {
-        // Intercept SSO JWT Token from HttpOnly cookie bypass
-        const cookies = document.cookie.split(';');
-        const tokenCookie = cookies.find(c => c.trim().startsWith('token='));
-        if (tokenCookie) {
-            const token = tokenCookie.split('=')[1];
-            if (token) {
-                localStorage.setItem('govai_admin_token', token);
-                document.cookie = "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-            }
-        }
-
+        // A autenticação SSO é gerenciada pelo AuthProvider via /v1/admin/me.
+        // O httpOnly cookie é enviado automaticamente em cada requisição.
+        // Não há mais extração manual de cookies aqui.
         fetchAssistants();
         fetchSelectables();
     }, []);

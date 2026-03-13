@@ -12,7 +12,7 @@ import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import cookie from '@fastify/cookie';
 import { Pool } from 'pg';
-import { registerOidcRoutes } from '../lib/auth-oidc';
+import { registerOidcRoutes, oidcStateStore } from '../lib/auth-oidc';
 
 // ─── Shared Mock PG Pool ──────────────────────────────────────────────────────
 function buildMockPool() {
@@ -90,7 +90,6 @@ describe('OIDC Decision Tree — isMockTokenSet paths', () => {
 
     // ─── PATH 3b: OIDC exchange fails + production → error propagated, no mock ─
     it('Path 3b: SSO callback propagates error in production even with ENABLE_SSO_MOCK=true', async () => {
-        // Mock the openid-client Issuer.discover to simulate a failed exchange
         const { Issuer } = await import('openid-client');
         const mockClient = {
             metadata: { redirect_uris: ['http://localhost:3000/v1/auth/sso/callback'] },
@@ -111,14 +110,21 @@ describe('OIDC Decision Tree — isMockTokenSet paths', () => {
             FRONTEND_URL: 'http://localhost:3001',
         });
 
+        // Pre-populate the OIDC state store so CSRF validation passes.
+        // Without this, the callback returns 400 (invalid state) before reaching client.callback().
+        oidcStateStore.set('saved-state', {
+            nonce: 'test-nonce-for-3b',
+            expiresAt: Date.now() + 600_000,
+        });
+
         const res = await app.inject({
             method: 'GET',
             url: '/v1/auth/sso/callback?code=test-code&state=saved-state',
             cookies: { oidc_state: 'saved-state' },
-            remoteAddress: '1.2.3.' + Math.random().toString().slice(2, 5)
+            remoteAddress: '1.2.3.' + Math.random().toString().slice(2, 5),
         });
 
-        // Must return 500 — the mock must NOT have been activated
+        // Must return 500 — CSRF passed, OIDC exchange failed, mock NOT activated (production)
         expect(res.statusCode).toBe(500);
         expect(JSON.parse(res.payload).error).toContain('Falha na verificação');
         expect(mockClient.callback).toHaveBeenCalledOnce();
@@ -187,13 +193,20 @@ describe('OIDC Decision Tree — isMockTokenSet paths', () => {
             ENABLE_SSO_MOCK: undefined, // ← Not set → no mock fallback
         });
 
+        // Pre-populate state store so CSRF validation passes and client.callback() is reached
+        oidcStateStore.set('saved-state', {
+            nonce: 'test-nonce-for-3c',
+            expiresAt: Date.now() + 600_000,
+        });
+
         const res = await app.inject({
             method: 'GET',
             url: '/v1/auth/sso/callback?code=test-code&state=saved-state',
             cookies: { oidc_state: 'saved-state' },
-            remoteAddress: '1.2.3.' + Math.random().toString().slice(2, 5)
+            remoteAddress: '1.2.3.' + Math.random().toString().slice(2, 5),
         });
 
+        // Must return 500 — CSRF passed, OIDC exchange failed, no mock fallback configured
         expect(res.statusCode).toBe(500);
         expect(JSON.parse(res.payload).error).toContain('Falha na verificação');
 

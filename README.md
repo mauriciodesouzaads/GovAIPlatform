@@ -192,6 +192,49 @@ A plataforma foi validada em cenário real (clean-wipe), garantindo:
 
 ---
 
+## 🔐 Segurança
+
+### Chave exposta — ação obrigatória
+
+> **ATENÇÃO:** O prefixo `sk-govai-1e3acc` de uma API key foi acidentalmente
+> versionado em `stress_test.js`. Esta chave **deve ser revogada imediatamente**
+> no banco de dados antes de qualquer deploy em produção.
+
+**Revogar chave exposta:**
+
+```bash
+# Revoga a chave com prefixo sk-govai-1e3a no banco
+bash scripts/revoke-exposed-key.sh
+```
+
+### Executar o stress test de forma segura
+
+O script `stress_test.sh` e o módulo k6 `stress_test.js` **nunca** devem conter
+chaves hardcoded. Use variável de ambiente:
+
+```bash
+# stress_test.sh (bash)
+export GOVAI_STRESS_TEST_KEY=<sua-api-key-de-teste>
+./stress_test.sh
+
+# stress_test.js (k6)
+k6 run -e GOVAI_STRESS_TEST_KEY=<sua-api-key-de-teste> stress_test.js
+```
+
+### GitHub Actions Secrets obrigatórios
+
+Consulte [`.github/SECRETS.md`](.github/SECRETS.md) para a lista completa de
+secrets que devem ser configurados no repositório antes de habilitar o CI/CD.
+
+### Secret Scanning automático
+
+Todo push e pull request para `main` ou `develop` é verificado pelo
+[Gitleaks](.github/workflows/secret-scanning.yml). O workflow falhará
+automaticamente se qualquer credencial for detectada no código. A configuração
+de allowlist está em [`.gitleaks.toml`](.gitleaks.toml).
+
+---
+
 ## 👤 Autor
 
 **Maurício de Souza**  

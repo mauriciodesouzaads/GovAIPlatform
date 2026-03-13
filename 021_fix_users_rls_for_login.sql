@@ -1,35 +1,38 @@
 -- Migration: 021_fix_users_rls_for_login.sql
--- Descrição: Permite que o serviço de API localize o usuário pelo e-mail durante o login, 
--- mesmo antes do contexto de organização (org_id) ser estabelecido na sessão do banco.
+-- Descrição: Política de acesso à tabela users para o fluxo de login local.
+--
+-- NOTA DE SEGURANÇA (P-01):
+--   A versão original desta migration criava policies com condição IS NULL
+--   que permitiam leitura irrestrita de todos os usuários sem contexto de org.
+--   Isso foi corrigido aqui (novos deploys) e em 028_create_user_lookup.sql
+--   (deploys existentes, via DROP + CREATE no mesmo BEGIN/COMMIT).
+--
+-- Fluxo correto pós-P-01:
+--   O endpoint de login consulta primeiro user_lookup (tabela pública sem RLS)
+--   para obter o org_id, depois seta app.current_org_id, e só então consulta
+--   users (com RLS ativo). Nenhuma policy com IS NULL é necessária.
 
 BEGIN;
 
--- Remover a política restritiva anterior ou complementá-la
--- A política users_isolation_policy em 013 bloqueia tudo se app.current_org_id estiver vazio.
-
+-- Policy para usuários: acesso somente dentro do contexto org ativo.
+-- NÃO contém IS NULL — isolamento garantido em 100% das queries.
 DROP POLICY IF EXISTS users_login_policy ON users;
 
 CREATE POLICY users_login_policy ON users
     FOR ALL
     TO govai_app
     USING (
-        -- Permite busca se o contexto de org ainda não foi definido (fase de login)
-        nullif(current_setting('app.current_org_id', true), '') IS NULL
-        OR 
-        -- Ou se o registro pertence à org do contexto atual
         org_id = nullif(current_setting('app.current_org_id', true), '')::uuid
     );
 
--- Permitir busca de chaves de API durante a autenticação
+-- Policy para api_keys: acesso somente dentro do contexto org ativo.
+-- requireApiKey consulta api_key_lookup (sem RLS) em vez de api_keys diretamente.
 DROP POLICY IF EXISTS api_keys_auth_policy ON api_keys;
 CREATE POLICY api_keys_auth_policy ON api_keys
     FOR SELECT
     TO govai_app
     USING (
-        nullif(current_setting('app.current_org_id', true), '') IS NULL
-        OR 
         org_id = nullif(current_setting('app.current_org_id', true), '')::uuid
     );
 
 COMMIT;
-

@@ -1,52 +1,78 @@
-import Fastify, { FastifyInstance, FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
-import { Pool } from 'pg';
-import { GovernanceRequestSchema, IntegrityService, ActionType } from './lib/governance';
-import { opaEngine } from './lib/opa-governance';
-import axios from 'axios';
-import { v4 as uuidv4 } from 'uuid';
-import { auditQueue, initAuditWorker } from './workers/audit.worker';
+import 'dotenv/config';
+import fs from 'fs';
+import path from 'path';
+import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import fastifyJwt from '@fastify/jwt';
 import cookie from '@fastify/cookie';
+import fastifySwagger from '@fastify/swagger';
+import fastifySwaggerUi from '@fastify/swagger-ui';
+import rateLimit from '@fastify/rate-limit';
+import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
-import { dlpEngine } from './lib/dlp-engine';
-import { notificationQueue, initNotificationWorker } from './workers/notification.worker';
-import { initTelemetryWorker } from './workers/telemetry.worker'; // Keep initTelemetryWorker import
-import { initExpirationWorker } from './workers/expiration.worker';
-import { registerOidcRoutes } from './lib/auth-oidc';
-import { recordRequest, recordDlpDetection } from './lib/sre-metrics';
-import { checkQuota, recordTokenUsage, getCostPerToken } from './lib/finops';
-import { Queue } from 'bullmq'; // Assuming Queue is from bullmq
-import { URL } from 'url'; // Assuming URL is needed for redisConfigUrl
-import Redis from 'ioredis';
 
-// Define telemetryQueue and export it
-const redisConfigUrl = new URL(process.env.REDIS_URL || 'redis://localhost:6379');
-export const telemetryQueue = new Queue('telemetry', { connection: { host: redisConfigUrl.hostname, port: parseInt(redisConfigUrl.port || '6379') } as any });
-export const redisCache = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+import { GovernanceRequestSchema } from './lib/governance';
+import { opaEngine } from './lib/opa-governance';
+import { dlpEngine } from './lib/dlp-engine';
+import { pgPool } from './lib/db';
+import { redisCache } from './lib/redis';
+import { renderPrometheusMetrics, getMetricsContentType, activePgConnections, updateComplianceConsentedOrgs } from './lib/sre-metrics';
+import { registerOidcRoutes } from './lib/auth-oidc';
+import { executeAssistant } from './services/execution.service';
+import { auditQueue, initAuditWorker } from './workers/audit.worker';
+import { initNotificationWorker } from './workers/notification.worker';
+import { initTelemetryWorker } from './workers/telemetry.worker';
+import { initExpirationWorker } from './workers/expiration.worker';
+import { exportTenantData, exportToCSV, generateDueDiligencePDF } from './lib/offboarding';
+import { initKeyRotationJob } from './jobs/key-rotation.job';
 
 // ---------------------------------------------------------------------------
-// C1 FIX: Hard-fail if SIGNING_SECRET is missing — prevents silent crypto failures
+// Fail-fast guards — must run before anything else
 // ---------------------------------------------------------------------------
 if (!process.env.SIGNING_SECRET || process.env.SIGNING_SECRET.trim() === '') {
     console.error('\n\x1b[31m[FATAL] SIGNING_SECRET is not defined or is empty.\x1b[0m');
-    console.error('The server CANNOT start without a valid signing secret.');
-    console.error('Set SIGNING_SECRET in your .env file or environment variables.\n');
     process.exit(1);
 }
 if (process.env.SIGNING_SECRET.length < 32) {
     console.error('\n\x1b[31m[FATAL] SIGNING_SECRET is too short (minimum 32 characters required).\x1b[0m');
-    console.error(`Current length: ${process.env.SIGNING_SECRET.length} characters.`);
-    console.error('Use a cryptographically strong secret: openssl rand -hex 32\n');
+    process.exit(1);
+}
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    console.error('\n\x1b[31m[FATAL] JWT_SECRET is not defined or too short (minimum 32 characters).\x1b[0m');
     process.exit(1);
 }
 
-const pgPool = new Pool({ connectionString: process.env.DATABASE_URL }); // Define pgPool before initTelemetryWorker
-
+// ---------------------------------------------------------------------------
+// Workers — started before the HTTP server
+// ---------------------------------------------------------------------------
 initAuditWorker();
 initExpirationWorker();
 initNotificationWorker();
-initTelemetryWorker(pgPool);
+initTelemetryWorker();
+
+// ---------------------------------------------------------------------------
+// Jobs — scheduled tasks (run after server startup via internal delay)
+// ---------------------------------------------------------------------------
+initKeyRotationJob();
+
+// ---------------------------------------------------------------------------
+// Fastify instance — pino-pretty only in non-production environments
+// ---------------------------------------------------------------------------
+const isProduction = process.env.NODE_ENV === 'production';
+
+const fastify: FastifyInstance = Fastify({
+    logger: isProduction
+        ? { level: process.env.LOG_LEVEL || 'info' }
+        : {
+            level: process.env.LOG_LEVEL || 'info',
+            transport: {
+                target: 'pino-pretty',
+                options: { translateTime: 'HH:MM:ss Z', ignore: 'pid,hostname' },
+            },
+        },
+    bodyLimit: 1_048_576, // 1 MB — rejects oversized payloads before they reach route handlers
+});
 
 declare module 'fastify' {
     interface FastifyRequest {
@@ -54,131 +80,156 @@ declare module 'fastify' {
     }
 }
 
-const fastify: FastifyInstance = Fastify({
-    logger: {
-        level: process.env.LOG_LEVEL || 'info',
-        transport: {
-            target: 'pino-pretty',
-            options: {
-                translateTime: 'HH:MM:ss Z',
-                ignore: 'pid,hostname',
+// ---------------------------------------------------------------------------
+// Plugins
+// ---------------------------------------------------------------------------
+
+// P-09: Security headers — MUST be registered before any route
+fastify.register(helmet, {
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", 'data:', 'https:'],
+            connectSrc: ["'self'"],
+            fontSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            mediaSrc: ["'self'"],
+            frameSrc: ["'none'"],
+        },
+    },
+    crossOriginEmbedderPolicy: false,
+    hsts: {
+        maxAge: 31536000,
+        includeSubDomains: true,
+        preload: true,
+    },
+    frameguard: { action: 'deny' },
+    noSniff: true,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+});
+
+// Swagger must be registered before routes to auto-document them
+fastify.register(fastifySwagger, {
+    openapi: {
+        openapi: '3.0.3',
+        info: {
+            title: 'Gov.AI Platform API',
+            description: 'Enterprise AI Governance Gateway — Compliance, Security & Observability',
+            version: '1.0.0',
+        },
+        components: {
+            securitySchemes: {
+                bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'API Key (sk-govai-...)' }, // gitleaks:allow — swagger doc placeholder
             },
         },
-    }
+    },
 });
 
-// ---------------------------------------------------------------------------
-// B2 FIX: Hard-fail if JWT_SECRET is missing — prevents forged admin tokens
-// ---------------------------------------------------------------------------
-if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
-    console.error('\n\x1b[31m[FATAL] JWT_SECRET is not defined or too short (minimum 32 characters).\x1b[0m');
-    console.error('Use a cryptographically strong secret: openssl rand -hex 32\n');
-    process.exit(1);
-}
+fastify.register(fastifySwaggerUi, { routePrefix: '/v1/docs' });
 
-// Register JWT
 fastify.register(fastifyJwt, {
-    secret: process.env.JWT_SECRET
+    secret: process.env.JWT_SECRET!,
+    cookie: { cookieName: 'token', signed: false },
 });
 
-// Register Swagger
-fastify.register(require('@fastify/swagger'), {
-    swagger: {
-        info: { title: 'Gov.AI Platform API', description: 'Governança Corporativa de Modelos', version: '1.0.0' }
-    }
-});
-fastify.register(require('@fastify/swagger-ui'), { routePrefix: '/v1/docs' });
-
-// Admin Auth Hook — enforces JWT and injects orgId from token claims
-export const requireAdminAuth = async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-        await request.jwtVerify();
-        const user = request.user as { orgId?: string; email?: string; role?: string };
-
-        // Inject orgId for RLS if present
-        if (user?.orgId) {
-            request.headers['x-org-id'] = user.orgId;
-        }
-
-        // Platform Admin check (optional: some routes might require specific role)
-        if (user?.role !== 'admin' && user?.role !== 'sre') {
-            // If it's just "admin auth", we usually allow admin/sre
-            // But we'll let requireRole handle more granular checks
-        }
-    } catch (err) {
-        return reply.status(401).send({ error: 'Unauthorized: Invalid or expired JWT token.' });
-    }
-};
-
-// RBAC Middleware Factory
-export const requireRole = (allowedRoles: string[]) => {
-    return async (request: FastifyRequest, reply: FastifyReply) => {
-        try {
-            await request.jwtVerify();
-            const user = request.user as { orgId?: string; email?: string; role?: string };
-
-            if (user?.orgId) {
-                request.headers['x-org-id'] = user.orgId;
-            }
-
-            const userRole = user?.role || 'operator';
-
-            // Platform admins ('admin') bypass organization-specific role checks for admin routes
-            if (userRole === 'admin') {
-                return;
-            }
-
-            if (!allowedRoles.includes(userRole)) {
-                return reply.status(403).send({ error: `Acesso negado. Requer um dos seguintes perfis: ${allowedRoles.join(', ')}` });
-            }
-        } catch (err) {
-            return reply.status(401).send({ error: 'Unauthorized: Invalid or expired JWT token.' });
-        }
-    };
-};
-
-// Register CORS (restricted to admin UI origins)
-// Configure cookies for OIDC state tracking
 fastify.register(cookie, {
-    secret: process.env.SIGNING_SECRET || 'fallback-secret-for-dev',
-    parseOptions: {}
+    secret: process.env.SIGNING_SECRET,
+    parseOptions: {},
 });
 
 fastify.register(cors, {
     origin: [
-        'http://localhost:3000',                   // Admin UI (free port)
-        'http://localhost:3001',                   // Admin UI (dev/docker)
-        'http://localhost:3002',                   // Admin UI (alternative local dev)
-        process.env.ADMIN_UI_ORIGIN || ''          // Production override via env
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:3002',
+        process.env.ADMIN_UI_ORIGIN || '',
     ].filter(Boolean),
     credentials: true,
 });
 
-// Register Rate Limiting (Redis-backed)
-import rateLimit from '@fastify/rate-limit';
-// import Redis from 'ioredis'; // Already imported at the top
-
 fastify.register(rateLimit, {
-    max: (request: FastifyRequest) => {
-        // Auth header or API key present?
-        return request.headers.authorization ? 1000 : 50;
-    },
+    max: (request: FastifyRequest) => (request.headers.authorization ? 1000 : 50),
     timeWindow: '1 minute',
-    redis: redisCache, // Reuse existing connection
-    skipOnError: true, // Resilience: Allow traffic if Redis fails
-    keyGenerator: (request: FastifyRequest) => {
-        // Rate limit by Authorization header (unique per user/key) or IP
-        return request.headers.authorization || request.ip;
-    },
-    errorResponseBuilder: (request, context) => ({
+    redis: redisCache,
+    skipOnError: true,
+    keyGenerator: (request: FastifyRequest) => request.headers.authorization as string || request.ip,
+    errorResponseBuilder: (_request, context) => ({
         statusCode: 429,
         error: 'Too Many Requests',
         message: 'Limite de requisições excedido.',
-        retryAfter: context.ttl
-    })
+        retryAfter: context.ttl,
+    }),
 });
 
-// Tracing Middleware
+// ---------------------------------------------------------------------------
+// Auth middleware — exported for use in route plugins
+// ---------------------------------------------------------------------------
+export const requireAdminAuth = async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+        await request.jwtVerify();
+        const user = request.user as { orgId?: string };
+        if (user?.orgId) request.headers['x-org-id'] = user.orgId;
+    } catch {
+        return reply.status(401).send({ error: 'Unauthorized: Invalid or expired JWT token.' });
+    }
+};
+
+export const requireRole = (allowedRoles: string[]) =>
+    async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            await request.jwtVerify();
+            const user = request.user as { orgId?: string; role?: string };
+            if (user?.orgId) request.headers['x-org-id'] = user.orgId;
+            const userRole = user?.role || 'operator';
+            if (userRole === 'admin') return;
+            if (!allowedRoles.includes(userRole)) {
+                return reply.status(403).send({
+                    error: `Acesso negado. Requer um dos seguintes perfis: ${allowedRoles.join(', ')}`,
+                });
+            }
+        } catch {
+            return reply.status(401).send({ error: 'Unauthorized: Invalid or expired JWT token.' });
+        }
+    };
+
+const requireApiKey = async (request: FastifyRequest, reply: FastifyReply) => {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+        return reply.status(401).send({ error: 'Unauthorized: Missing or invalid Authorization header.' });
+    }
+    const token = authHeader.substring(7);
+    const tokenHash = crypto
+        .createHmac('sha256', process.env.SIGNING_SECRET!)
+        .update(JSON.stringify({ key: token }))
+        .digest('hex');
+    const prefix = token.substring(0, 12);
+    // P-01: Consulta api_key_lookup (sem RLS) em vez de api_keys.
+    // api_keys_auth_policy não tem mais IS NULL — qualquer query sem contexto
+    // org retornaria 0 rows. api_key_lookup é a fonte de verdade pública para
+    // resolução de org_id a partir de uma API key (sem bypass de isolamento).
+    const client = await pgPool.connect();
+    try {
+        const res = await client.query(
+            'SELECT org_id FROM api_key_lookup WHERE key_hash = $1 AND prefix = $2 AND is_active = TRUE LIMIT 1',
+            [tokenHash, prefix]
+        );
+        if (res.rowCount === 0) {
+            return reply.status(403).send({ error: 'Forbidden: Invalid or revoked API Key.' });
+        }
+        request.headers['x-org-id'] = res.rows[0].org_id;
+    } catch (e) {
+        request.log.error(e, 'Error checking API key');
+        return reply.status(500).send({ error: 'Auth Validation failed' });
+    } finally {
+        client.release();
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Hooks
+// ---------------------------------------------------------------------------
 fastify.addHook('onRequest', async (request, reply) => {
     const traceId = uuidv4();
     request.headers['x-govai-trace-id'] = traceId;
@@ -186,337 +237,76 @@ fastify.addHook('onRequest', async (request, reply) => {
     request.auditContext = { traceId };
 });
 
-// --- AUTHENTICATION MIDDLEWARE ---
-const requireApiKey = async (request: FastifyRequest, reply: FastifyReply) => {
-    // 1. Extract API Key from Bearer token
-    const authHeader = request.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return reply.status(401).send({ error: "Unauthorized: Missing or invalid Authorization header (Bearer token required)." });
-    }
-    const token = authHeader.substring(7);
+// Update PG connection gauge periodically (non-blocking)
+setInterval(() => {
+    activePgConnections.set(pgPool.totalCount - pgPool.idleCount);
+}, 15_000);
 
-    // 2. Compute SHA-256 hash of provided token and compare against DB
-    const tokenHash = crypto.createHmac('sha256', process.env.SIGNING_SECRET || 'govai-default-secret')
-        .update(JSON.stringify({ key: token }))
-        .digest('hex');
-    const prefix = token.substring(0, 12);
-
-    const client = await pgPool.connect();
-    try {
-        const res = await client.query(
-            'SELECT org_id FROM api_keys WHERE key_hash = $1 AND prefix = $2 AND is_active = TRUE LIMIT 1',
-            [tokenHash, prefix]
-        );
-
-        if (res.rowCount === 0) {
-            return reply.status(403).send({ error: "Forbidden: Invalid or revoked API Key." });
-        }
-
-        // 3. Inject org context for downstream RLS
-        request.headers['x-org-id'] = res.rows[0].org_id;
-
-    } catch (e) {
-        request.log.error(e, "Error checking API key");
-        return reply.status(500).send({ error: "Auth Validation failed" });
-    } finally {
-        client.release();
-    }
-};
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
 
 fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (request, reply) => {
     const { assistantId } = request.params as { assistantId: string };
-
-    // Auth middleware (requireApiKey) automatically injects the verified x-org-id
     const orgId = request.headers['x-org-id'] as string;
-
-    const parseResult = GovernanceRequestSchema.safeParse(request.body);
-    if (!parseResult.success) {
-        return reply.status(400).send({ error: "Input inválido", details: parseResult.error.format() });
-    }
-
-    const { message } = parseResult.data;
-    const client = await pgPool.connect();
-    const execStart = Date.now();
-
-    try {
-        // 1. RLS: Define context for current org
-        await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
-
-        // 1.a FinOps Quota Enforcement
-        const quota = await checkQuota(pgPool, orgId, assistantId);
-        if (quota.exceeded) {
-            return reply.status(429).send({ error: "Limite da cota de uso mensal (Hard Cap) excedido." });
-        }
-        if (quota.warning) {
-            reply.header('X-GovAI-Quota-Warning', 'Soft Cap exceeded');
-        }
-
-        // 2. Fetch Active Assistant Version & Policy (RLS ensures it belongs to the Org)
-        const cacheKey = `assistant:${assistantId}:rules`;
-        let policyRulesStr = await redisCache.get(cacheKey);
-        let policyRules;
-
-        if (policyRulesStr) {
-            policyRules = JSON.parse(policyRulesStr);
-        } else {
-            const versionRes = await client.query(`
-                SELECT av.id as version_id, pv.rules_jsonb as policy_rules
-                FROM assistant_versions av
-                JOIN policy_versions pv ON av.policy_version_id = pv.id
-                WHERE av.assistant_id = $1 AND av.status = 'published'
-                ORDER BY av.version DESC LIMIT 1
-            `, [assistantId]);
-
-            if (versionRes.rows.length > 0) {
-                policyRules = versionRes.rows[0].policy_rules;
-                await redisCache.setex(cacheKey, 60, JSON.stringify(policyRules));
-            } else {
-                policyRules = { pii_filter: true, forbidden_topics: ['hack', 'bypass'] };
-                const assistantRes = await client.query('SELECT id FROM assistants WHERE id = $1 AND status = $2', [assistantId, 'published']);
-                if (assistantRes.rows.length === 0) {
-                    return reply.status(404).send({ error: 'Assistente não encontrado.' });
-                }
-            }
-        }
-
-        const traceId = request.auditContext?.traceId;
-
-        // 3. Active Governance Validation (OPA + Native Rules)
-        // Initialize OPA with pgPool for DB-driven keyword lookup
-        if (!opaEngine['pool']) {
-            const fs = require('fs');
-            const path = require('path');
-            const wasmPathProd = path.join(__dirname, 'lib/opa/policy.wasm');
-            const wasmPathDev = path.join(process.cwd(), 'src/lib/opa/policy.wasm');
-            const wasmPath = fs.existsSync(wasmPathProd) ? wasmPathProd : wasmPathDev;
-            const wasmBuffer = fs.existsSync(wasmPath) ? fs.readFileSync(wasmPath) : undefined;
-            if (!wasmBuffer) {
-                console.error("\x1b[31m[FATAL] OPA WASM policy not found at " + wasmPath + "\x1b[0m");
-                process.exit(1);
-            }
-            await opaEngine.initialize(wasmBuffer, pgPool);
-        }
-
-        const policyContext = {
-            orgId, // Passed to OPA for per-tenant keyword lookup from org_hitl_keywords
-            rules: policyRules
-        };
-
-        const policyCheck = await opaEngine.evaluate({ message, orgId }, policyContext);
-
-        // HITL: If OPA says PENDING_APPROVAL, pause execution and queue for human review
-        if (policyCheck.action === 'PENDING_APPROVAL') {
-            const sanitizedMessage = dlpEngine.sanitize(message).sanitizedText;
-
-            // Save to pending_approvals table
-            const approvalRes = await client.query(
-                `INSERT INTO pending_approvals (org_id, assistant_id, message, policy_reason, trace_id) 
-                 VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
-                [orgId, assistantId, sanitizedMessage, policyCheck.reason, traceId]
-            );
-            const approvalId = approvalRes.rows[0].id;
-
-            // Audit log
-            const hitlPayload = { reason: policyCheck.reason, input: sanitizedMessage, approvalId, traceId };
-            const signature = IntegrityService.signPayload(hitlPayload, process.env.SIGNING_SECRET!);
-
-            await auditQueue.add('persist-log', {
-                org_id: orgId,
-                assistant_id: assistantId,
-                action: 'PENDING_APPROVAL' satisfies ActionType,
-                metadata: hitlPayload,
-                signature,
-                traceId
-            }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
-
-            // Structured webhook notification via notification queue
-            await notificationQueue.add('send-notification', {
-                event: 'PENDING_APPROVAL',
-                orgId, assistantId, approvalId,
-                reason: policyCheck.reason || 'Ação de alto risco',
-                traceId,
-                expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-                timestamp: new Date().toISOString(),
-            }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
-
-            return reply.status(202).send({
-                status: 'PENDING_APPROVAL',
-                approvalId,
-                message: 'Ação de alto risco detectada. Execução pausada e aguardando aprovação humana.',
-                reason: policyCheck.reason,
-                traceId,
-            });
-        }
-
-        if (!policyCheck.allowed) {
-            recordRequest('blocked', Date.now() - execStart);
-            // DLP-sanitize even the violation payload before signing
-            const sanitizedMessage = policyCheck.sanitizedInput || dlpEngine.sanitize(message).sanitizedText;
-            const violationPayload = { reason: policyCheck.reason, input: sanitizedMessage, traceId };
-            const signature = IntegrityService.signPayload(violationPayload, process.env.SIGNING_SECRET!);
-
-            await auditQueue.add('persist-log', {
-                org_id: orgId,
-                assistant_id: assistantId,
-                action: 'POLICY_VIOLATION' satisfies ActionType,
-                metadata: violationPayload,
-                signature,
-                traceId
-            }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
-
-            fastify.log.warn({ orgId, assistantId, reason: policyCheck.reason }, "Policy Violation");
-            return reply.status(403).send({ error: policyCheck.reason, traceId });
-        }
-
-        // If DLP flagged PII, use the sanitized (masked) version for downstream processing
-        const safeMessage = policyCheck.sanitizedInput || message;
-        if (policyCheck.action === 'FLAG') {
-            fastify.log.info({
-                orgId, assistantId,
-                dlpDetections: policyCheck.dlpReport?.totalDetections,
-                dlpTypes: policyCheck.dlpReport?.types
-            }, 'DLP: PII detected and masked before pipeline');
-            if (policyCheck.dlpReport) {
-                recordDlpDetection(policyCheck.dlpReport.totalDetections);
-            }
-        }
-
-        // 4. RAG Context Retrieval (token-aware)
-        let ragContext = '';
-        let ragMeta = { chunksUsed: 0, estimatedTokens: 0, truncated: false };
-        try {
-            const kbRes = await client.query(
-                'SELECT id FROM knowledge_bases WHERE assistant_id = $1 LIMIT 1',
-                [assistantId]
-            );
-            if (kbRes.rows.length > 0) {
-                const { searchWithTokenLimit } = await import('./lib/rag');
-                const aiModel = process.env.AI_MODEL || 'gemini/gemini-1.5-flash';
-                const ragResult = await searchWithTokenLimit(pgPool, kbRes.rows[0].id, message, aiModel, 10);
-                ragContext = ragResult.context;
-                ragMeta = { chunksUsed: ragResult.chunksUsed, estimatedTokens: ragResult.estimatedTokens, truncated: ragResult.truncated };
-                if (ragResult.chunksUsed > 0) {
-                    fastify.log.info({
-                        assistantId,
-                        chunksUsed: ragResult.chunksUsed,
-                        chunksAvailable: ragResult.chunksAvailable,
-                        estimatedTokens: ragResult.estimatedTokens,
-                        tokenBudget: ragResult.tokenBudget,
-                        truncated: ragResult.truncated,
-                    }, 'RAG context injected (token-aware)');
-                }
-            }
-        } catch (ragError) {
-            fastify.log.warn(ragError, 'RAG retrieval failed, proceeding without context');
-        }
-
-        // 5. LiteLLM Proxy Call (Real AI Execution)
-        const messages: { role: string; content: string }[] = [];
-
-        if (ragContext) {
-            messages.push({
-                role: 'system',
-                content: `Use the following proprietary knowledge base context to answer the user's question. If the context doesn't contain the answer, say you don't have enough information.\n\n---\n${ragContext}\n---`
-            });
-        }
-        messages.push({ role: 'user', content: safeMessage });
-
-        let aiResponse;
-        try {
-            aiResponse = await axios.post(`${process.env.LITELLM_URL}/chat/completions`, {
-                model: process.env.AI_MODEL || "gemini/gemini-1.5-flash",
-                messages
-            }, {
-                headers: { 'Authorization': `Bearer ${process.env.LITELLM_KEY}` },
-                timeout: 30000 // 30s timeout (RAG prompts can be longer)
-            });
-        } catch (error: any) {
-            fastify.log.error(error, "Error communicating with LiteLLM");
-            return reply.status(502).send({ error: "Falha ao comunicar com o provedor de IA", details: error.message, traceId });
-        }
-
-        // 5. DLP: Sanitize the ENTIRE audit payload (input + AI output) before signing
-        const rawLogContent = {
-            input: safeMessage,
-            output: aiResponse.data.choices[0],
-            usage: aiResponse.data.usage,
-            traceId,
-            ...(policyCheck.dlpReport ? { dlp: policyCheck.dlpReport } : {})
-        };
-        const { sanitized: logContent } = dlpEngine.sanitizeObject(rawLogContent);
-        const signature = IntegrityService.signPayload(logContent, process.env.SIGNING_SECRET!);
-
-        // 6. Persist Audit Log (contains ONLY masked data)
-        await auditQueue.add('persist-log', {
-            org_id: orgId,
-            assistant_id: assistantId,
-            action: 'EXECUTION_SUCCESS' satisfies ActionType,
-            metadata: logContent,
-            signature,
-            traceId
-        }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
-
-        // 7. Fire-and-forget Delegated Observability (Langfuse)
-        const tokensPrompt = aiResponse.data.usage?.prompt_tokens || 0;
-        const tokensCompletion = aiResponse.data.usage?.completion_tokens || 0;
-        const aiModel = process.env.AI_MODEL || "gemini-1.5-flash";
-        const costUsd = (aiResponse.data.usage?.total_tokens || 0) * getCostPerToken(aiModel);
-        const latencyMs = Date.now() - execStart;
-
-
-        // Incrementar métricas exatas no ledger financeiro (Assíncrono tolerante a falhas)
-        await recordTokenUsage(pgPool, orgId, assistantId, tokensPrompt, tokensCompletion, costUsd, traceId as string).catch((e: Error) => fastify.log.error(e, 'Failed to update FinOps ledger'));
-
-        await telemetryQueue.add('export-metrics', {
-            org_id: orgId,
-            assistant_id: assistantId,
-            traceId: traceId as string,
-            tokens: aiResponse.data.usage,
-            cost: costUsd,
-            latency_ms: latencyMs,
-            model: aiModel,
-            prompt: safeMessage,
-            completion: aiResponse.data.choices[0].message?.content
-        }, { removeOnComplete: true });
-
-        fastify.log.info({ orgId, assistantId, tokens: aiResponse.data.usage?.total_tokens }, "Execution Success");
-
-        recordRequest('success', Date.now() - execStart);
-
-        return reply.status(200).send({
-            ...aiResponse.data,
-            _govai: { traceId, signature }
-        });
-
-    } catch (error) {
-        fastify.log.error(error, "Unexpected server error");
-        reply.status(500).send({ error: "Erro interno do servidor" });
-    } finally {
-        client.release();
-    }
-});
-
-// --- SSO OIDC ROUTES ---
-registerOidcRoutes(fastify, pgPool);
-
-// --- ADMIN ROUTES (Plugin) ---
-import { adminRoutes } from './routes/admin.routes';
-fastify.register(adminRoutes, { pgPool, requireAdminAuth, requireRole });
-
-// --- SRE OBSERVABILITY: Prometheus Metrics (Pilar 3) ---
-import { renderPrometheusMetrics } from './lib/sre-metrics';
-fastify.get('/metrics', async (_request, reply) => {
-    reply.header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
-    return reply.send(renderPrometheusMetrics());
-});
-
-// --- DEVELOPER PORTAL: Sandbox Endpoint (Pilar 2) ---
-fastify.post('/v1/sandbox/execute', async (request, reply) => {
     const parseResult = GovernanceRequestSchema.safeParse(request.body);
     if (!parseResult.success) {
         return reply.status(400).send({ error: 'Input inválido', details: parseResult.error.format() });
     }
-    // Dry-run: OPA + DLP validation WITHOUT calling LLM
+    const result = await executeAssistant({
+        assistantId,
+        orgId,
+        message: parseResult.data.message,
+        traceId: request.auditContext!.traceId,
+        log: request.log,
+    });
+    return reply.status(result.statusCode).send(result.body);
+});
+
+// Sandbox: rate limit dedicado (20 req/min/IP) — mais restritivo que o global (50/min).
+// Evita enumeração automatizada das regras de política OPA e DLP.
+const sandboxRateLimit = async (request: FastifyRequest, reply: FastifyReply) => {
+    const ip = request.ip;
+    const key = `sandbox_rl:${ip}`;
+    const WINDOW_SEC = 60;
+    const MAX_REQUESTS = 20;
+
+    if (redisCache.status === 'ready') {
+        try {
+            const count = await redisCache.incr(key);
+            if (count === 1) await redisCache.expire(key, WINDOW_SEC);
+            if (count > MAX_REQUESTS) {
+                return reply.status(429).send({
+                    error: 'Too Many Requests',
+                    message: `Sandbox: limite de ${MAX_REQUESTS} requisições por minuto excedido.`,
+                });
+            }
+            return;
+        } catch { /* Redis indisponível — cair no fallback in-memory */ }
+    }
+
+    // Fallback in-memory simples (single-process)
+    const now = Date.now();
+    const sandboxStore = (global as any).__sandboxRlStore ||= new Map<string, { count: number; resetAt: number }>();
+    const entry = sandboxStore.get(ip);
+    if (!entry || now > entry.resetAt) {
+        sandboxStore.set(ip, { count: 1, resetAt: now + WINDOW_SEC * 1000 });
+        return;
+    }
+    entry.count++;
+    if (entry.count > MAX_REQUESTS) {
+        return reply.status(429).send({
+            error: 'Too Many Requests',
+            message: `Sandbox: limite de ${MAX_REQUESTS} requisições por minuto excedido.`,
+        });
+    }
+};
+
+fastify.post('/v1/sandbox/execute', { preHandler: sandboxRateLimit }, async (request, reply) => {
+    const parseResult = GovernanceRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+        return reply.status(400).send({ error: 'Input inválido', details: parseResult.error.format() });
+    }
     const policyCheck = await opaEngine.evaluate(
         { message: parseResult.data.message },
         { rules: { pii_filter: true, forbidden_topics: ['hack', 'bypass'] } }
@@ -525,78 +315,20 @@ fastify.post('/v1/sandbox/execute', async (request, reply) => {
         _sandbox: true,
         message: parseResult.data.message,
         policy_result: policyCheck,
-        note: 'Sandbox mode — no LLM call was made. Use /v1/execute/:assistantId for production.'
+        note: 'Sandbox mode — no LLM call was made.',
     });
 });
-
-// --- DEVELOPER PORTAL: OpenAPI Spec (Pilar 2) ---
-// Note: Explicit OpenAPI JSON output deactivated in favor of @fastify/swagger auto-generation.
-/*
-fastify.get('/v1/docs/openapi.json', async (_request, reply) => {
-    return reply.send({
-        openapi: '3.0.3',
-        info: {
-            title: 'GOVERN.AI Platform API',
-            version: '1.0.0',
-            description: 'Enterprise AI Governance Gateway — Compliance, Security & Observability'
-        },
-        servers: [{ url: process.env.APP_BASE_URL || 'http://localhost:3000' }],
-        paths: {
-            '/v1/execute/{assistantId}': {
-                post: {
-                    summary: 'Execute an AI assistant with full governance pipeline',
-                    security: [{ BearerAuth: [] }],
-                    parameters: [{ name: 'assistantId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
-                    requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { message: { type: 'string', maxLength: 10000 } }, required: ['message'] } } } },
-                    responses: { '200': { description: 'Execution result with trace ID' }, '401': { description: 'Unauthorized' }, '429': { description: 'Quota exceeded' } }
-                }
-            },
-            '/v1/sandbox/execute': {
-                post: {
-                    summary: 'Sandbox: test OPA/DLP policies without calling LLM',
-                    requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] } } } },
-                    responses: { '200': { description: 'Policy evaluation result (dry-run)' } }
-                }
-            },
-            '/v1/assistants': {
-                get: { summary: 'List all assistants for the authorized tenant', security: [{ BearerAuth: [] }], responses: { '200': { description: 'Array of assistants' } } }
-            },
-            '/v1/approvals': {
-                get: { summary: 'List pending Human-in-the-Loop approvals', security: [{ BearerAuth: [] }], responses: { '200': { description: 'Array of approvals' } } }
-            },
-            '/v1/admin/login': {
-                post: { summary: 'Admin login (returns JWT)', requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { username: { type: 'string' }, password: { type: 'string' } } } } } }, responses: { '200': { description: 'JWT Token' } } }
-            },
-            '/v1/admin/export/tenant': {
-                get: { summary: 'Export Tenant Data (JSON/CSV)', security: [{ BearerAuth: [] }], parameters: [{ name: 'format', in: 'query', schema: { type: 'string', enum: ['json', 'csv'] } }], responses: { '200': { description: 'Tenant Data Export' } } }
-            },
-            '/v1/admin/export/due-diligence': {
-                get: { summary: 'Generate Due Diligence & Compliance PDF Report', security: [{ BearerAuth: [] }], responses: { '200': { description: 'PDF Buffer' } } }
-            },
-            '/health': { get: { summary: 'Health check', responses: { '200': { description: 'Service status' } } } },
-            '/metrics': { get: { summary: 'Prometheus metrics', responses: { '200': { description: 'Text exposition format' } } } }
-        },
-        components: { securitySchemes: { BearerAuth: { type: 'http', scheme: 'bearer', description: 'API Key (sk-govai-...)' } } }
-    });
-});
-*/
-
-// --- OFFBOARDING: Tenant Data Export (Pilar 4) ---
-import { exportTenantData, exportToCSV, generateDueDiligencePDF } from './lib/offboarding';
 
 fastify.get('/v1/admin/export/tenant', { preHandler: requireRole(['admin', 'dpo']) }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
     if (!orgId) return reply.status(401).send({ error: 'x-org-id required' });
-
     const format = (request.query as any).format || 'json';
     const exportData = await exportTenantData(pgPool, orgId);
-
     if (format === 'csv') {
         reply.header('Content-Type', 'text/csv; charset=utf-8');
         reply.header('Content-Disposition', `attachment; filename="govai-tenant-export-${orgId}.csv"`);
         return reply.send(exportToCSV(exportData));
     }
-
     return reply.send({ org_id: orgId, exported_at: new Date().toISOString(), tables: exportData });
 });
 
@@ -607,23 +339,80 @@ fastify.get('/v1/admin/export/due-diligence', { preHandler: requireRole(['admin'
     return reply.send(pdfBuffer);
 });
 
-// Health check endpoint
-fastify.get('/health', async () => {
+// Metrics endpoint — requires METRICS_API_KEY bearer token.
+// Prometheus telemetry can contain sensitive operational data (queue depths,
+// PG connections, DLP detection rates). Never expose it unauthenticated.
+const metricsApiKey = process.env.METRICS_API_KEY;
+if (!metricsApiKey && isProduction) {
+    fastify.log.warn(
+        'METRICS_API_KEY not set — /metrics endpoint will be disabled in production. ' +
+        'Set METRICS_API_KEY to a strong random value: openssl rand -hex 32'
+    );
+}
+
+fastify.get('/metrics', async (request, reply) => {
+    if (!metricsApiKey) {
+        if (isProduction) {
+            return reply.status(503).send({ error: 'Metrics endpoint disabled: METRICS_API_KEY not configured.' });
+        }
+        // Non-production without key: allow access for local dev/test convenience
+    } else {
+        const authHeader = request.headers.authorization;
+        const provided = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+        if (!provided || provided !== metricsApiKey) {
+            return reply.status(401).send({ error: 'Unauthorized: valid METRICS_API_KEY bearer token required.' });
+        }
+    }
+    reply.header('Content-Type', getMetricsContentType());
+    return reply.send(await renderPrometheusMetrics());
+});
+
+fastify.get('/health', async (_request, reply) => {
     try {
         await pgPool.query('SELECT 1');
         const redisStatus = await redisCache.ping();
         return {
             status: 'ok',
             db: 'connected',
-            redis: redisStatus === 'PONG' ? 'connected' : 'disconnected'
+            redis: redisStatus === 'PONG' ? 'connected' : 'disconnected',
         };
     } catch (e) {
-        fastify.log.error(e, "Health check failed");
-        return { status: 'error', db: 'disconnected', redis: 'disconnected' };
+        fastify.log.error(e, 'Health check failed');
+        return reply.status(503).send({ status: 'error', db: 'disconnected', redis: 'disconnected' });
     }
 });
 
+// ---------------------------------------------------------------------------
+// Route plugins
+// ---------------------------------------------------------------------------
+registerOidcRoutes(fastify, pgPool);
+
+import { adminRoutes } from './routes/admin.routes';
+import { assistantsRoutes } from './routes/assistants.routes';
+import { approvalsRoutes } from './routes/approvals.routes';
+import { reportsRoutes } from './routes/reports.routes';
+
+fastify.register(adminRoutes,      { pgPool, requireAdminAuth, requireRole });
+fastify.register(assistantsRoutes, { pgPool, requireAdminAuth, requireRole });
+fastify.register(approvalsRoutes,  { pgPool, requireAdminAuth, requireRole });
+fastify.register(reportsRoutes,    { pgPool, requireAdminAuth, requireRole });
+
+// ---------------------------------------------------------------------------
+// Server startup — OPA WASM initialized here so first request is not penalized
+// ---------------------------------------------------------------------------
 const start = async () => {
+    // Initialize OPA WASM at startup (not lazily on first request)
+    const wasmPathProd = path.join(__dirname, 'lib/opa/policy.wasm');
+    const wasmPathDev = path.join(process.cwd(), 'src/lib/opa/policy.wasm');
+    const wasmPath = fs.existsSync(wasmPathProd) ? wasmPathProd : wasmPathDev;
+    if (fs.existsSync(wasmPath)) {
+        const wasmBuffer = fs.readFileSync(wasmPath);
+        await opaEngine.initialize(wasmBuffer, pgPool);
+        fastify.log.info({ wasmPath }, 'OPA WASM policy loaded');
+    } else {
+        fastify.log.warn('OPA WASM policy not found — using native fallback rules only');
+    }
+
     try {
         const port = parseInt(process.env.PORT || '3000', 10);
         await fastify.listen({ port, host: '0.0.0.0' });
@@ -632,5 +421,26 @@ const start = async () => {
         fastify.log.error(err);
         process.exit(1);
     }
+
+    // ── Compliance gauge refresh ──────────────────────────────────────────────
+    // Atualiza a gauge govai_compliance_consented_orgs a cada 5 min para que o
+    // Grafana mostre o número de organizações com consentimento LGPD ativo.
+    const refreshComplianceMetrics = async () => {
+        try {
+            const res = await pgPool.query(
+                `SELECT COUNT(*)::int AS count FROM organizations WHERE telemetry_consent = TRUE`
+            );
+            updateComplianceConsentedOrgs(res.rows[0].count ?? 0);
+        } catch (err) {
+            fastify.log.warn(err, 'Failed to refresh govai_compliance_consented_orgs gauge');
+        }
+    };
+    // Execute imediatamente ao iniciar e depois periodicamente
+    await refreshComplianceMetrics();
+    const COMPLIANCE_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
+    setInterval(refreshComplianceMetrics, COMPLIANCE_REFRESH_MS).unref();
 };
+
 start();
+
+export { fastify };

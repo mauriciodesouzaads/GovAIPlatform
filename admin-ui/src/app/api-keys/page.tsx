@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import axios from 'axios';
+import api, { ENDPOINTS } from '@/lib/api';
 import { Key, Copy, Trash2, Plus, ShieldCheck, CheckCircle2 } from 'lucide-react';
-import { API_BASE } from '@/lib/api';
 
 interface ApiKey {
     id: string;
@@ -23,7 +22,7 @@ export default function ApiKeysPage() {
 
     const fetchKeys = async () => {
         try {
-            const res = await axios.get(`${API_BASE}/v1/admin/api-keys`);
+            const res = await api.get(ENDPOINTS.API_KEYS);
             setKeys(res.data);
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
@@ -36,7 +35,7 @@ export default function ApiKeysPage() {
         setCreating(true);
         setCopied(false);
         try {
-            const res = await axios.post(`${API_BASE}/v1/admin/api-keys`, { name: newKeyName });
+            const res = await api.post(ENDPOINTS.API_KEYS, { name: newKeyName });
             setCreatedKey(res.data.key);
             setNewKeyName('');
             fetchKeys();
@@ -45,8 +44,11 @@ export default function ApiKeysPage() {
     };
 
     const revokeKey = async (keyId: string) => {
+        if (!window.confirm('Tem certeza que deseja revogar esta chave? Esta ação não pode ser desfeita.')) {
+            return;
+        }
         try {
-            await axios.delete(`${API_BASE}/v1/admin/api-keys/${keyId}`);
+            await api.delete(`${ENDPOINTS.API_KEYS}/${keyId}`);
             fetchKeys();
         } catch (e) { console.error(e); }
     };

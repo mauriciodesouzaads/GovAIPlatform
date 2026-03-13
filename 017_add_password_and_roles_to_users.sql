@@ -19,6 +19,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'operator';
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'sre', 'dpo', 'operator', 'auditor'));
 
+-- Coluna status: presente em init.sql mas ausente em 013_add_sso_and_federation.sql.
+-- Necessária no caminho de migration sem init.sql (bare migrate.sh em ambiente limpo).
+-- admin.routes.ts faz SELECT status FROM users, portanto a ausência causa erro em runtime.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+
 -- 2. Injeção Idempotente do Administrador Primordial
 -- Definido com requires_password_change = TRUE para conformidade com a política de segurança
 DO $$ 

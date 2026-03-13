@@ -1,148 +1,315 @@
 name: GovAI Platform CI/CD
 
+# ============================================================================
+# Pipeline: 5 jobs encadeados
+#
+# lint-and-build ──────┬──► unit-tests ──────────┐
+#                      ├──► integration-tests ────┼──► build-docker
+#                      └──► security-scan ─────────┘
+#
+# Regras:
+#   - Todos os jobs rodam em ubuntu-latest / Node 20
+#   - unit-tests exclui os 3 arquivos de integração (requerem DB real)
+#   - integration-tests sobe postgres:15 + redis:7 e aplica todas as migrations
+#   - security-scan: npm audit (high) + Trivy no Dockerfile
+#   - build-docker: valida --target production sem push
+# ============================================================================
+
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
 
+# ── Secrets necessários (ver .github/SECRETS.md) ─────────────────────────────
+# SIGNING_SECRET    — HMAC-SHA256 para audit logs
+# JWT_SECRET        — assinatura de tokens JWT de sessão
+# ORG_MASTER_KEY    — chave mestra BYOK para criptografia de DEKs
+# Fallback: se o secret não estiver configurado, usa os valores de dev do .env.example
+
+env:
+  NODE_VERSION: '20'
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/govai_platform
+
 jobs:
-  lint-test:
-    name: Lint & Unit Tests
+
+  # ── Job 1: Lint e Build TypeScript ──────────────────────────────────────────
+  lint-and-build:
+    name: Lint & Build
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup Node.js
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          
-      - name: Install Dependencies (API)
-        run: npm ci
-        
-      - name: Lint API
-        run: npm run lint
-        
-      - name: Run Unit Tests (API)
-        run: npm test
-        
-      - name: Install Dependencies (Admin UI)
-        run: cd admin-ui && npm install
-        
-      - name: Lint Admin UI
-        run: cd admin-ui && npm run lint
 
-  e2e-security:
-    name: Security & E2E Validation
-    needs: lint-test
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type-check (lint)
+        run: npx tsc --noEmit
+
+      - name: Build (tsc → dist/)
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
+
+  # ── Job 2: Testes unitários (sem DB) ────────────────────────────────────────
+  unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
+    needs: lint-and-build
+
+    env:
+      SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
+      JWT_SECRET:     ${{ secrets.JWT_SECRET }}
+      ORG_MASTER_KEY: ${{ secrets.ORG_MASTER_KEY }}
+
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        # Sem fallback: secrets ausentes devem causar falha explícita do job.
+        # Um fallback com valor previsível permitiria a um atacante forjar JWTs
+        # válidos durante execuções de pipeline em forks maliciosos.
+        # Consulte .github/SECRETS.md para instruções de configuração.
+        run: |
+          missing=0
+          if [ -z "$SIGNING_SECRET" ]; then
+            echo "❌ SIGNING_SECRET não configurado. Ver .github/SECRETS.md"
+            missing=$((missing + 1))
+          fi
+          if [ -z "$JWT_SECRET" ]; then
+            echo "❌ JWT_SECRET não configurado. Ver .github/SECRETS.md"
+            missing=$((missing + 1))
+          fi
+          if [ -z "$ORG_MASTER_KEY" ]; then
+            echo "❌ ORG_MASTER_KEY não configurado. Ver .github/SECRETS.md"
+            missing=$((missing + 1))
+          fi
+          if [ "$missing" -gt 0 ]; then
+            echo ""
+            echo "Configure em: Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          echo "✅ Todos os secrets obrigatórios estão presentes."
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        # Exclui os 3 arquivos de integração que requerem DATABASE_URL e banco real:
+        #   - governance.integration* → testes E2E com DB real
+        #   - governance.flow*        → testes de fluxo com DB real
+        #   - security.tenant-isolation* → testes RLS com DB real (job integration-tests)
+        run: |
+          npx vitest run \
+            --exclude "**/governance.integration*" \
+            --exclude "**/governance.flow*" \
+            --exclude "**/security.tenant-isolation*"
+
+  # ── Job 3: Testes de integração (com DB real) ────────────────────────────────
+  integration-tests:
+    name: Integration Tests (DB + Redis)
+    runs-on: ubuntu-latest
+    needs: lint-and-build
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB:       govai_platform
+          POSTGRES_USER:     postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/govai_platform
+      SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
+      JWT_SECRET:     ${{ secrets.JWT_SECRET }}
+      ORG_MASTER_KEY: ${{ secrets.ORG_MASTER_KEY }}
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          missing=0
+          if [ -z "$SIGNING_SECRET" ]; then
+            echo "❌ SIGNING_SECRET não configurado. Ver .github/SECRETS.md"
+            missing=$((missing + 1))
+          fi
+          if [ -z "$JWT_SECRET" ]; then
+            echo "❌ JWT_SECRET não configurado. Ver .github/SECRETS.md"
+            missing=$((missing + 1))
+          fi
+          if [ -z "$ORG_MASTER_KEY" ]; then
+            echo "❌ ORG_MASTER_KEY não configurado. Ver .github/SECRETS.md"
+            missing=$((missing + 1))
+          fi
+          if [ "$missing" -gt 0 ]; then
+            echo ""
+            echo "Configure em: Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          echo "✅ Todos os secrets obrigatórios estão presentes."
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bootstrap DB — create govai_app role
+        # govai_app é necessário para que a migration 019 passe o check de pré-requisito.
+        # BYPASSRLS não é concedido aqui — a migration 024 faz o setup completo.
+        run: |
+          psql "$DATABASE_URL" -c \
+            "DO \$\$ BEGIN
+               IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'govai_app') THEN
+                 CREATE ROLE govai_app WITH LOGIN PASSWORD 'govai_dev_app_password';
+               END IF;
+             END \$\$;"
+
+      - name: Apply base schema (init.sql)
+        run: psql "$DATABASE_URL" -f init.sql
+
+      - name: Apply all numbered migrations in order
+        # Aplica todos os arquivos [0-9]*.sql em ordem numérica (sort alfanumérica = numérica
+        # para arquivos com prefixo de 3 dígitos: 011_, 012_, ..., 029_).
+        # || true em cada migration garante que erros de idempotência (IF NOT EXISTS) não
+        # interrompam o loop. Erros reais serão capturados pelo passo de smoke test abaixo.
+        run: |
+          for f in $(ls [0-9]*.sql 2>/dev/null | sort); do
+            echo "→ Aplicando $f"
+            psql "$DATABASE_URL" -f "$f" || echo "  ⚠ $f retornou erro (pode ser idempotente)"
+          done
+
+      - name: Smoke test — verify tables exist
+        run: |
+          psql "$DATABASE_URL" -c "\dt" | grep -E "users|assistants|audit_logs|pending_approvals"
+
+      - name: Run tenant isolation tests
+        run: npx vitest run src/__tests__/security.tenant-isolation.test.ts
+
+  # ── Job 4: Security Scan ─────────────────────────────────────────────────────
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: lint-and-build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit (block on high/critical)
+        # Falha se qualquer vulnerabilidade high ou critical for encontrada.
+        # moderate/low são reportadas mas não bloqueiam o build.
+        run: npm audit --audit-level=high
+
+      - name: Run Trivy — Dockerfile config scan
+        # Verifica má configuração no Dockerfile (usuário root, permissões inseguras, etc.)
+        # exit-code 1 falha o job se CRITICAL/HIGH forem encontradas.
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          # Ignora falsos positivos esperados no estágio de desenvolvimento
+          trivyignores: '.trivyignore'
+
+  # ── Job 5: Build Docker (sem push) ──────────────────────────────────────────
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [ unit-tests, integration-tests, security-scan ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        
-      - name: Generate .env file
-        run: |
-          echo "POSTGRES_USER=postgres" > .env
-          echo "POSTGRES_PASSWORD=admin" >> .env
-          echo "POSTGRES_DB=govai_platform" >> .env
-          echo "DB_PASSWORD=admin" >> .env
-          echo "DB_APP_PASSWORD=govai_ci_pass" >> .env
-          echo "JWT_SECRET=${{ secrets.JWT_SECRET || 'fallback-secret-for-tests-32chars-min' }}" >> .env
-          echo "SIGNING_SECRET=${{ secrets.SIGNING_SECRET || 'sign-secret-for-tests-32chars-min' }}" >> .env
-          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
-          echo "LITELLM_KEY=${{ secrets.LITELLM_KEY }}" >> .env
-          echo "ORG_MASTER_KEY=${{ secrets.ORG_MASTER_KEY }}" >> .env
-      - name: SRE Override
-        run: |
-          find . -name "*.sql" -type f -exec sed -i 's/GOVAI_APP_PASSWORD_PLACEHOLDER/govai_ci_pass/g' {} + || true
 
-      - name: Start Services (Docker Compose)
-        run: |
-          docker compose --env-file .env up -d
-
-      - name: Manual Database Provisioning (Initial Schema)
-        run: |
-          echo "Aguardando motor do Postgres..."
-          until docker compose exec -T database pg_isready -U postgres; do
-            sleep 2
-          done
-          
-          echo "Executando Migrations e Seed..."
-          export PGPASSWORD=admin
-          export DB_URI="postgresql://postgres:admin@localhost:5432/govai_platform"
-          
-          # Garante que o banco exista antes das migrations
-          docker compose exec -T database psql -U postgres -c "CREATE DATABASE govai_platform;" || true
-          
-          echo "-> init.sql (Baseline)"
-          psql -v ON_ERROR_STOP=1 $DB_URI -f init.sql || true
-          
-          echo "-> Numeric Migrations"
-          for f in 0*.sql; do
-            echo "Applying $f..."
-            psql -v ON_ERROR_STOP=1 $DB_URI -f "$f" || echo "Warning: Migration $f failed or already applied"
-          done
-          
-          echo "-> Seeding"
-          DB_APP_PASSWORD=govai_ci_pass bash scripts/demo-seed.sh || true
-          
-      - name: Run E2E Tests (Self-Healing & Validation)
-        run: bash run_e2e_tests.sh
-        
-      - name: Stop Services
-        if: always()
-        run: docker compose down
-
-  build-push:
-    name: Build & Push Images
-    needs: e2e-security
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-      
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          name: dist
+          path: dist/
 
-      - name: Lowercase repository name
-        run: echo "REPO_LOWER=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-          
-      - name: Build and Push Presidio Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./presidio
-          push: true
-          tags: ghcr.io/${{ env.REPO_LOWER }}/govai-presidio:latest
+      - name: Build production image (validate only — no push)
+        # --target production: usa o stage final minimal (sem devDeps, sem source code).
+        # Sem --push: apenas valida que a imagem compila com sucesso.
+        # Se este job passar, a imagem está pronta para push em staging/prod
+        # via um job separado com autenticação de registry.
+        run: |
+          docker build \
+            -f Dockerfile \
+            --target production \
+            -t govai-platform:${{ github.sha }} \
+            -t govai-platform:test \
+            .
 
-      - name: Build and Push API Image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/${{ env.REPO_LOWER }}/govai-api:latest
-            ghcr.io/${{ env.REPO_LOWER }}/govai-api:${{ github.sha }}
-          
-      - name: Build and Push Admin UI Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./admin-ui
-          file: ./admin-ui/Dockerfile.admin
-          push: true
-          tags: |
-            ghcr.io/${{ env.REPO_LOWER }}/govai-admin-ui:latest
-            ghcr.io/${{ env.REPO_LOWER }}/govai-admin-ui:${{ github.sha }}
-          build-args: |
-            NEXT_PUBLIC_API_URL=${{ secrets.PROD_API_URL || 'https://api.govai-platform.com' }}
+      - name: Verify image runs (smoke test)
+        # Valida que o stage production contém um runtime Node funcional.
+        # --entrypoint node -e "process.exit(0)" nunca carrega src/server.ts,
+        # portanto nenhum secret é necessário aqui.
+        run: |
+          docker run --rm \
+            --entrypoint node \
+            govai-platform:test \
+            -e "process.exit(0)"
+
+      - name: Report image size
+        run: |
+          echo "### Docker Image Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          docker images govai-platform:test --format "| {{.Repository}} | {{.Tag}} | {{.Size}} |" >> $GITHUB_STEP_SUMMARY

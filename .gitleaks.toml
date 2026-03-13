@@ -1,0 +1,51 @@
+# GovAI Platform — Gitleaks configuration
+# Docs: https://github.com/gitleaks/gitleaks#configuration
+
+title = "GovAI Platform Secret Scanning"
+
+[extend]
+# Inherit all default Gitleaks rules (generic secrets, AWS, GCP, etc.)
+useDefault = true
+
+# ── Custom rule: GovAI API key ────────────────────────────────────────────────
+# Flags any hardcoded sk-govai- key that has high entropy (real key material).
+# Pattern: sk-govai- followed by 16+ hex/alphanumeric characters.
+[[rules]]
+id          = "govai-api-key"
+description = "GovAI Platform API Key (sk-govai- prefix with real key material)"
+regex       = '''sk-govai-[0-9a-f]{16,}'''
+entropy     = 3.5
+tags        = ["govai", "api-key"]
+
+# ── Allowlist: legitimate non-secret occurrences ──────────────────────────────
+[allowlist]
+description = "Known safe patterns — format strings, test fixtures, swagger docs"
+
+# Files that may reference the key FORMAT as part of code logic (not actual keys)
+paths = [
+    # Key generation code in production routes — sk-govai-${uuid} is a TEMPLATE
+    '''src/routes/assistants\.routes\.ts''',
+    # Swagger API documentation — placeholder format description
+    '''src/server\.ts''',
+    # Compiled output — gitignored but may exist on disk during scanning
+    '''dist/.*''',
+]
+
+# Low-entropy patterns that are clearly not real credentials
+regexes = [
+    # Key format placeholder (e.g. in docs/comments: sk-govai-...)
+    '''sk-govai-\.\.\.''',
+    # Local dev placeholder (no entropy)
+    '''sk-govai-local''',
+    # Test fixture tokens (clearly fake, predictable values)
+    '''sk-govai-test''',
+    '''sk-govai-test-key''',
+    # Variable expansion syntax (shell/k6 env vars)
+    '''\$\{.*GOVAI.*\}''',
+    '''__ENV\.GOVAI''',
+]
+
+# Commits known to contain the accidentally exposed key (document + skip)
+# These commits are in history and cannot be rewritten without affecting the team.
+# The key HAS BEEN REVOKED via scripts/revoke-exposed-key.sh.
+commits = []

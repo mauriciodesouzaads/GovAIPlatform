@@ -5,6 +5,18 @@ import { dlpEngine } from '../lib/dlp-engine';
 import crypto from 'crypto';
 import { generateComplianceReport } from '../lib/compliance-report';
 
+/**
+ * SEC-CSV-01: Sanitiza campos para evitar formula injection (CSV Injection / Excel Injection).
+ * Caracteres de abertura de fórmula (=, +, -, @, TAB, CR/LF) são prefixados com
+ * uma aspa simples, que faz o Excel/Google Sheets tratar o valor como texto literal.
+ */
+function sanitizeCsvField(value: string): string {
+    if (/^[=+\-@\t\r\n]/.test(value)) {
+        return `'${value}`;
+    }
+    return value;
+}
+
 export async function reportsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any }) {
     const { pgPool, requireAdminAuth, requireRole } = opts;
 
@@ -145,9 +157,11 @@ export async function reportsRoutes(app: FastifyInstance, opts: { pgPool: Pool; 
                     if (row.signature === recomputed) sigValid = 'VÁLIDA';
                 } catch { /* sig check failed */ }
 
-                const metaStr = JSON.stringify(row.metadata || {}).replace(/"/g, '""');
+                const metaStr = sanitizeCsvField(
+                    JSON.stringify(row.metadata || {}).replace(/"/g, '""')
+                );
                 csvLines.push(
-                    `"${row.id}","${row.action}","${new Date(row.created_at).toISOString()}","${row.signature}","${sigValid}","${metaStr}"`
+                    `"${sanitizeCsvField(row.id)}","${sanitizeCsvField(row.action)}","${new Date(row.created_at).toISOString()}","${sanitizeCsvField(row.signature)}","${sigValid}","${metaStr}"`
                 );
             }
 

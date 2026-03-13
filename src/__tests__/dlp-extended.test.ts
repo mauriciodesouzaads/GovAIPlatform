@@ -32,11 +32,16 @@ describe('DLP Engine — Extended Coverage', () => {
     // PIX Key Detection
     // -----------------------------------------------------------------
     describe('PIX Key Detection', () => {
-        it('should detect PII in PIX key with email format (EMAIL detector wins dedup)', () => {
+        it('should detect PIX_KEY when email is used as PIX key (PIX context wins dedup)', () => {
+            // PIX_KEY has HIGH confidence and runs first in the detector array.
+            // When "Chave PIX: email@domain.com" is scanned, PIX_KEY matches the full
+            // contextual span and wins over the narrower EMAIL detection in deduplication.
             const result = dlpEngine.sanitize('Chave PIX: joao@banco.com');
             expect(result.hasPII).toBe(true);
-            // The EMAIL detector (HIGH confidence) wins over PIX_KEY (MEDIUM) in dedup
-            expect(result.detections.some(d => d.type === 'EMAIL')).toBe(true);
+            expect(result.detections.some(d => d.type === 'PIX_KEY')).toBe(true);
+            // EMAIL is deduplicated out because PIX_KEY spans the same range with equal confidence
+            // and runs first in the detector array.
+            expect(result.detections.some(d => d.type === 'EMAIL')).toBe(false);
         });
 
         it('should detect PIX key with UUID format', () => {
@@ -45,11 +50,15 @@ describe('DLP Engine — Extended Coverage', () => {
             expect(result.detections.some(d => d.type === 'PIX_KEY')).toBe(true);
         });
 
-        it('should detect PII in PIX key with CPF digits (CPF detector wins dedup)', () => {
+        it('should detect PIX_KEY when CPF digits are used as PIX key (PIX context wins dedup)', () => {
+            // PIX_KEY has HIGH confidence and runs first — so it wins over CPF in dedup
+            // when a valid CPF number appears after "Chave pix:" context.
             const result = dlpEngine.sanitize('Chave pix: 52998224725');
             expect(result.hasPII).toBe(true);
-            // The CPF detector (HIGH confidence) wins over PIX_KEY (MEDIUM) in dedup
-            expect(result.detections.some(d => d.type === 'CPF')).toBe(true);
+            expect(result.detections.some(d => d.type === 'PIX_KEY')).toBe(true);
+            // CPF is deduplicated away because PIX_KEY spans the same range with equal
+            // confidence and appears first in the detector priority order.
+            expect(result.detections.some(d => d.type === 'CPF')).toBe(false);
         });
     });
 
@@ -88,20 +97,14 @@ describe('DLP Engine — Extended Coverage', () => {
             expect(cpfDetections).toHaveLength(1);
         });
 
-        it('should keep HIGH confidence detection and discard MEDIUM for same range', () => {
-            // "Chave pix: 52998224725" — CPF (HIGH) overlaps with PIX_KEY (MEDIUM)
+        it('should produce exactly one detection when PIX_KEY and CPF overlap in PIX context', () => {
+            // Both PIX_KEY and CPF are HIGH confidence. PIX_KEY runs first (priority order),
+            // so the overlapping CPF detection is deduplicated out.
+            // Result: exactly one detection (PIX_KEY), no duplicate for the same numeric value.
             const result = dlpEngine.sanitize('Chave pix: 52998224725');
-            const highConf = result.detections.filter(d => d.confidence === 'HIGH');
-            const medConf = result.detections.filter(d => d.confidence === 'MEDIUM');
-            // The HIGH confidence detection (CPF) should survive
-            expect(highConf.length).toBeGreaterThanOrEqual(1);
-            // MEDIUM detections for the same overlapping range should be removed
-            const pixForSameRange = medConf.filter(d =>
-                d.type === 'PIX_KEY' && highConf.some(h =>
-                    d.startIndex < h.endIndex && d.endIndex > h.startIndex
-                )
-            );
-            expect(pixForSameRange).toHaveLength(0);
+            expect(result.detections).toHaveLength(1);
+            expect(result.detections[0].type).toBe('PIX_KEY');
+            expect(result.detections[0].confidence).toBe('HIGH');
         });
 
         it('should keep all detections when there is no overlap', () => {
@@ -118,7 +121,7 @@ describe('DLP Engine — Extended Coverage', () => {
     // sanitizeObject — Edge Cases
     // -----------------------------------------------------------------
     describe('sanitizeObject Edge Cases', () => {
-        it('should handle arrays inside objects', () => {
+        it('should handle arrays inside objects', async () => {
             const obj = {
                 items: [
                     'Email: joao@test.com',
@@ -126,31 +129,31 @@ describe('DLP Engine — Extended Coverage', () => {
                     'CPF: 529.982.247-25'
                 ]
             };
-            const { sanitized, totalDetections } = dlpEngine.sanitizeObject(obj);
+            const { sanitized, totalDetections } = await dlpEngine.sanitizeObject(obj);
             expect(totalDetections).toBeGreaterThanOrEqual(2);
             expect(sanitized.items[0]).toContain('[EMAIL_REDACTED]');
             expect(sanitized.items[1]).toBe('Texto limpo');
             expect(sanitized.items[2]).toContain('[CPF_REDACTED]');
         });
 
-        it('should handle null values without error', () => {
+        it('should handle null values without error', async () => {
             const obj = { a: null, b: 'CPF: 529.982.247-25', c: undefined };
-            const { sanitized, totalDetections } = dlpEngine.sanitizeObject(obj);
+            const { sanitized, totalDetections } = await dlpEngine.sanitizeObject(obj);
             expect(totalDetections).toBeGreaterThanOrEqual(1);
             expect(sanitized.a).toBeNull();
             expect(sanitized.b).toContain('[CPF_REDACTED]');
         });
 
-        it('should preserve numeric and boolean values', () => {
+        it('should preserve numeric and boolean values', async () => {
             const obj = { count: 42, active: true, name: 'test' };
-            const { sanitized, totalDetections } = dlpEngine.sanitizeObject(obj);
+            const { sanitized, totalDetections } = await dlpEngine.sanitizeObject(obj);
             expect(totalDetections).toBe(0);
             expect(sanitized.count).toBe(42);
             expect(sanitized.active).toBe(true);
             expect(sanitized.name).toBe('test');
         });
 
-        it('should handle deeply nested objects', () => {
+        it('should handle deeply nested objects', async () => {
             const obj = {
                 level1: {
                     level2: {
@@ -160,7 +163,7 @@ describe('DLP Engine — Extended Coverage', () => {
                     }
                 }
             };
-            const { sanitized, totalDetections } = dlpEngine.sanitizeObject(obj);
+            const { sanitized, totalDetections } = await dlpEngine.sanitizeObject(obj);
             expect(totalDetections).toBe(1);
             expect(sanitized.level1.level2.level3.secret).toContain('[EMAIL_REDACTED]');
         });

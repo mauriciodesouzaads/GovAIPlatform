@@ -1,17 +1,30 @@
 import { Queue, Worker } from 'bullmq';
-import { Pool } from 'pg';
 import crypto from 'crypto';
 import { CryptoService } from '../lib/crypto-service';
 import { getKmsAdapter } from '../lib/kms';
 import IORedis from 'ioredis';
-
-const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
+import { pgPool } from '../lib/db';
+import { redisQueueDepth } from '../lib/sre-metrics';
 
 const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
     maxRetriesPerRequest: null,
 });
 
+connection.on('error', (err) => {
+    console.error('[Audit Worker] Redis connection error:', err.message);
+});
+
 export const auditQueue = new Queue('audit-logs', { connection: connection as any });
+
+// Atualiza a gauge de profundidade com o backlog real (waiting + delayed).
+async function refreshAuditDepth(): Promise<void> {
+    try {
+        const counts = await auditQueue.getJobCounts('waiting', 'delayed');
+        redisQueueDepth.set((counts.waiting ?? 0) + (counts.delayed ?? 0));
+    } catch {
+        // Falha silenciosa — a gauge permanece com o último valor conhecido
+    }
+}
 
 export const initAuditWorker = () => {
     const worker = new Worker('audit-logs', async job => {
@@ -81,9 +94,14 @@ export const initAuditWorker = () => {
         }
     }, { connection: connection as any });
 
+    worker.on('completed', () => { void refreshAuditDepth(); });
     worker.on('failed', (job: any, err: any) => {
         console.error(`[Worker] Job ${job.id} failed with error:`, err);
+        void refreshAuditDepth();
     });
+
+    // Popula a gauge imediatamente ao iniciar o worker
+    void refreshAuditDepth();
 
     return worker;
 };

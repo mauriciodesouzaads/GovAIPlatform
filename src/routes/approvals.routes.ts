@@ -6,7 +6,8 @@ import { auditQueue } from '../workers/audit.worker';
 import axios from 'axios';
 import crypto from 'crypto';
 import { checkQuota, recordTokenUsage, getCostPerToken } from '../lib/finops';
-import { telemetryQueue } from '../server';
+import { telemetryQueue } from '../workers/telemetry.worker';
+import { ApprovalActionSchema, zodErrors } from '../lib/schemas';
 
 export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any }) {
     const { pgPool, requireAdminAuth, requireRole } = opts;
@@ -59,6 +60,11 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
 
     // Approve a pending request (executes the AI call)
     app.post('/v1/admin/approvals/:approvalId/approve', { preHandler: requireRole(['sre', 'admin']) }, async (request, reply) => {
+        const approveParsed = ApprovalActionSchema.safeParse(request.body);
+        if (!approveParsed.success) {
+            return reply.status(400).send({ error: 'Validation failed', details: zodErrors(approveParsed.error) });
+        }
+
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -102,13 +108,18 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
             }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
 
             // 4. Execute the original AI call (now approved)
+            // Defense-in-depth: re-sanitize approval.message before RAG and LLM.
+            // The message was sanitized at PENDING_APPROVAL insertion, but we apply
+            // a second pass to guard against any legacy unsanitized rows in the DB.
+            const safeApprovalMessage = dlpEngine.sanitize(approval.message).sanitizedText;
+
             let ragContext = '';
             try {
                 const kbRes = await client.query('SELECT id FROM knowledge_bases WHERE assistant_id = $1 LIMIT 1', [approval.assistant_id]);
                 if (kbRes.rows.length > 0) {
                     const { searchWithTokenLimit } = await import('../lib/rag');
                     const aiModel = process.env.AI_MODEL || 'gemini/gemini-1.5-flash';
-                    const ragResult = await searchWithTokenLimit(pgPool, kbRes.rows[0].id, approval.message, aiModel, 10);
+                    const ragResult = await searchWithTokenLimit(pgPool, kbRes.rows[0].id, safeApprovalMessage, aiModel, 10);
                     if (ragResult.chunksUsed > 0) ragContext = ragResult.context;
                 }
             } catch { /* RAG optional */ }
@@ -123,7 +134,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
             if (ragContext) {
                 messages.push({ role: 'system', content: `Use the following proprietary knowledge base context to answer the user's question.\n\n---\n${ragContext}\n---` });
             }
-            messages.push({ role: 'user', content: approval.message });
+            messages.push({ role: 'user', content: safeApprovalMessage });
 
             let aiResponse;
             const execStart = Date.now();
@@ -143,7 +154,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
             }
 
             // 5. Audit log for execution (after approval)
-            const { sanitized: logContent } = dlpEngine.sanitizeObject({
+            const { sanitized: logContent } = await dlpEngine.sanitizeObject({
                 input: approval.message,
                 output: aiResponse.data.choices[0],
                 usage: aiResponse.data.usage,
@@ -202,11 +213,16 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
 
     // Reject a pending request
     app.post('/v1/admin/approvals/:approvalId/reject', { preHandler: requireRole(['sre', 'admin']) }, async (request, reply) => {
+        const rejectParsed = ApprovalActionSchema.safeParse(request.body);
+        if (!rejectParsed.success) {
+            return reply.status(400).send({ error: 'Validation failed', details: zodErrors(rejectParsed.error) });
+        }
+        const { reviewNote: note } = rejectParsed.data;
+
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
         const { approvalId } = request.params as { approvalId: string };
-        const { note } = request.body as { note?: string };
         const user = request.user as { email?: string };
 
         const client = await pgPool.connect();
@@ -219,7 +235,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
              SET status = 'rejected', reviewer_email = $1, review_note = $2, reviewed_at = NOW() 
              WHERE id = $3 AND status = 'pending' AND expires_at > NOW()
              RETURNING *`,
-                [user?.email || 'admin', note || 'Rejeitado pelo administrador', approvalId]
+                [user?.email || 'admin', note, approvalId]
             );
             if (approvalRes.rows.length === 0) {
                 return reply.status(409).send({

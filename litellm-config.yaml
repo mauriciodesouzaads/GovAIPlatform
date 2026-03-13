@@ -1,5 +1,7 @@
 model_list:
   - model_name: govai-llm
     litellm_params:
-      model: gemini/gemini-flash-latest
+      # Versão pinada — evitar floating alias 'gemini-flash-latest' que quebra reprodutibilidade.
+      # Para atualizar: teste a nova versão em staging antes de alterar aqui.
+      model: gemini/gemini-1.5-flash-001
       api_key: os.environ/GEMINI_API_KEY

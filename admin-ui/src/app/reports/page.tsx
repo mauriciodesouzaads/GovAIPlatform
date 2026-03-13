@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-import { API_BASE } from '@/lib/api';
+import api, { ENDPOINTS } from '@/lib/api';
 import { FileDown, ShieldCheck, AlertTriangle, Activity, Bot, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -44,7 +43,7 @@ export default function ReportsPage() {
         setLoading(true);
         setError('');
         try {
-            const res = await axios.get(`${API_BASE}/v1/admin/reports/compliance`, {
+            const res = await api.get(ENDPOINTS.REPORTS_COMPLIANCE, {
                 params: { startDate, endDate },
             });
             setData(res.data);
@@ -61,7 +60,7 @@ export default function ReportsPage() {
     const downloadPDF = async () => {
         setDownloading(true);
         try {
-            const res = await axios.get(`${API_BASE}/v1/admin/reports/compliance`, {
+            const res = await api.get(ENDPOINTS.REPORTS_COMPLIANCE, {
                 params: { startDate, endDate, format: 'pdf' },
                 responseType: 'blob',
             });

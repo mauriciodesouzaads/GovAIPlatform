@@ -1,15 +1,10 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- 0. Provisionamento de Usuário da Aplicação (Idempotente)
-DO $$ 
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'govai_app') THEN
-        CREATE ROLE govai_app WITH LOGIN PASSWORD 'govai_ci_pass';
-    ELSE
-        ALTER ROLE govai_app WITH PASSWORD 'govai_ci_pass';
-    END IF;
-END $$;
+-- 0. Provisionamento de Usuário da Aplicação
+-- A role govai_app é criada pelo script 00_init_roles.sh (Docker entrypoint) ou
+-- pelo scripts/bootstrap-db.sh, ambos lendo DB_APP_PASSWORD do ambiente.
+-- Este bloco apenas garante os privilégios de acesso ao banco.
 GRANT ALL PRIVILEGES ON DATABASE govai_platform TO govai_app;
 ALTER DATABASE govai_platform OWNER TO govai_app;
 

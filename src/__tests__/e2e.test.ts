@@ -65,7 +65,7 @@ beforeAll(async () => {
     // Mock execution route (requires Bearer API key)
     app.post('/v1/execute/:assistantId', async (request, reply) => {
         const authHeader = request.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer sk-govai-')) {
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
             return reply.status(401).send({ error: 'Unauthorized: Missing API Key' });
         }
         return reply.send({ response: 'mocked LLM response', _govai: { traceId: 'test-trace' } });
@@ -162,7 +162,7 @@ describe('[E2E] API Key Middleware', () => {
         const res = await app.inject({
             method: 'POST',
             url: '/v1/execute/some-assistant-id',
-            headers: { authorization: 'Bearer sk-govai-test-key-12345' },
+            headers: { authorization: 'Bearer test-api-key-12345' },
             payload: { message: 'test prompt' }
         });
         expect(res.statusCode).toBe(200);

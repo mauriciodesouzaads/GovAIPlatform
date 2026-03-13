@@ -33,8 +33,14 @@ export class LocalKmsAdapter implements KmsAdapter {
         if (!masterKeyHex || masterKeyHex.length < 32) {
             throw new Error("LocalKmsAdapter requer ORG_MASTER_KEY com pelo menos 32 caracteres (256-bit).");
         }
-        // Ensure strictly 32 bytes for AES-256
-        this.key = Buffer.from(masterKeyHex.substring(0, 32), 'utf8');
+        // Se a chave for 64 hex chars (gerada com `openssl rand -hex 32`),
+        // parseia como hex para obter 32 bytes com 256 bits de entropia real.
+        // Caso contrário, usa UTF-8 (compatibilidade com chaves de texto).
+        if (/^[0-9a-fA-F]{64}$/.test(masterKeyHex)) {
+            this.key = Buffer.from(masterKeyHex, 'hex');
+        } else {
+            this.key = Buffer.from(masterKeyHex.substring(0, 32), 'utf8');
+        }
     }
 
     async encrypt(plaintext: string): Promise<string> {
@@ -143,7 +149,32 @@ export function getKmsAdapter(): KmsAdapter {
         return new AwsKmsAdapter(region, keyId);
     }
 
-    // Fallback Local
-    const masterKey = process.env.ORG_MASTER_KEY || 'default-secret-key-for-local-dev-only-32b';
+    // Adaptador local: ORG_MASTER_KEY é obrigatória em produção.
+    // Em produção, exige explicitamente uma chave hex de 64 chars (gerada com
+    // `openssl rand -hex 32`). Qualquer outro formato indica configuração
+    // incorreta ou uso acidental de uma chave de desenvolvimento.
+    const masterKey = process.env.ORG_MASTER_KEY;
+    const isProductionEnv = process.env.NODE_ENV === 'production';
+
+    if (isProductionEnv) {
+        if (!masterKey || !/^[0-9a-fA-F]{64}$/.test(masterKey)) {
+            throw new Error(
+                '[SECURITY] ORG_MASTER_KEY inválida ou ausente em PRODUÇÃO. ' +
+                'Gere uma chave segura com: openssl rand -hex 32'
+            );
+        }
+        return new LocalKmsAdapter(masterKey);
+    }
+
+    if (!masterKey) {
+        // Ambiente de desenvolvimento/teste: avisa e usa chave fixa de dev.
+        // NUNCA use esta chave fora do ambiente local.
+        console.warn(
+            '[KMS] AVISO: ORG_MASTER_KEY não definida. ' +
+            'Usando chave temporária de desenvolvimento. ' +
+            'NUNCA use em staging ou produção.'
+        );
+        return new LocalKmsAdapter('govai-dev-only-kms-key-not-for-prod!!');
+    }
     return new LocalKmsAdapter(masterKey);
 }

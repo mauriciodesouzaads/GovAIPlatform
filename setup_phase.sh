@@ -10,7 +10,7 @@ cat > .env << EOF
 # GovAI Platform — Ambiente Local
 GEMINI_API_KEY=mock-gemini-key-for-e2e
 AI_MODEL=gemini/gemini-1.5-flash
-LITELLM_KEY=sk-govai-local
+LITELLM_KEY=local-dev-litellm-key
 
 # Database
 DB_PASSWORD=$(openssl rand -hex 16)

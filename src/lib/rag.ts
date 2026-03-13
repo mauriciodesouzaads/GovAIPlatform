@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { Pool } from 'pg';
 import { encode } from 'gpt-tokenizer';
+import { EMBEDDING_DIMENSION } from './embedding-config';
 
 /**
  * RAG Engine - Retrieval-Augmented Generation
@@ -97,6 +98,27 @@ export function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_
 }
 
 // ---------------------------------------------------------------------------
+// Embedding Dimension Validation (P-10)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validates embedding dimension before INSERT or vector search.
+ * Throws if dimension mismatch — prevents silent pgvector errors.
+ */
+export function validateEmbeddingDimension(embedding: number[]): void {
+    if (embedding.length === 0) {
+        throw new Error(
+            `Embedding dimension mismatch: expected ${EMBEDDING_DIMENSION}, got 0. Empty embedding invalid.`
+        );
+    }
+    if (embedding.length !== EMBEDDING_DIMENSION) {
+        throw new Error(
+            `Embedding dimension mismatch: expected ${EMBEDDING_DIMENSION}, got ${embedding.length}. Check EMBEDDING_MODEL config.`
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Embedding Generation
 // ---------------------------------------------------------------------------
 
@@ -107,13 +129,18 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
+    // SEC-RAG-01: API key no header x-goog-api-key — nunca na URL
+    // (URLs aparecem em logs de servidor, proxies, CDN e histório de browser)
     const response = await axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`,
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent',
         {
             content: { parts: [{ text }] },
             outputDimensionality: 768,
         },
-        { timeout: 15000 }
+        {
+            timeout: 15000,
+            headers: { 'x-goog-api-key': apiKey },
+        }
     );
 
     return response.data.embedding.values;
@@ -138,6 +165,7 @@ export async function ingestDocument(
     for (const chunk of chunks) {
         try {
             const embedding = await generateEmbedding(chunk);
+            validateEmbeddingDimension(embedding);
             const vectorStr = `[${embedding.join(',')}]`;
 
             await pool.query(
@@ -169,6 +197,7 @@ export async function searchSimilarChunks(
     topK: number = 3
 ): Promise<{ content: string; similarity: number }[]> {
     const queryEmbedding = await generateEmbedding(queryText);
+    validateEmbeddingDimension(queryEmbedding);
     const vectorStr = `[${queryEmbedding.join(',')}]`;
 
     const result = await pool.query(

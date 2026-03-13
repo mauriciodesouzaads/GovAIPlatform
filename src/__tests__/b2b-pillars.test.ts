@@ -11,7 +11,11 @@ import Fastify, { FastifyInstance } from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import cookie from '@fastify/cookie';
 import { registerOidcRoutes } from '../lib/auth-oidc';
-import { renderPrometheusMetrics, metrics, recordRequest, recordDlpDetection, recordQuotaExceeded } from '../lib/sre-metrics';
+import {
+    httpRequestsTotal, dlpDetectionsTotal, quotaExceededTotal,
+    resetMetricsForTesting,
+    renderPrometheusMetrics, recordRequest, recordDlpDetection, recordQuotaExceeded,
+} from '../lib/sre-metrics';
 import { checkQuota, recordTokenUsage } from '../lib/finops';
 import { exportToCSV, generateDueDiligencePDF } from '../lib/offboarding';
 import { GovernanceRequestSchema } from '../lib/governance';
@@ -175,47 +179,48 @@ describe('[DX] Developer Portal', () => {
 // PILAR 3: SRE Observability
 // ═════════════════════════════════════════
 describe('[SRE] Prometheus Metrics', () => {
-    it('renderPrometheusMetrics should return valid Prometheus text format', () => {
-        const output = renderPrometheusMetrics();
+    it('renderPrometheusMetrics should return valid Prometheus text format', async () => {
+        const output = await renderPrometheusMetrics();
         expect(output).toContain('# HELP govai_http_requests_total');
         expect(output).toContain('# TYPE govai_http_requests_total counter');
         expect(output).toContain('govai_http_requests_total');
-        expect(output).toContain('govai_gateway_latency_ms_avg');
+        expect(output).toContain('govai_gateway_latency_ms');
         expect(output).toContain('govai_dlp_detections_total');
         expect(output).toContain('govai_active_pg_connections');
     });
 
-    it('recordRequest should increment counters and compute avg latency', () => {
-        // Reset
-        metrics.http_requests_total = 0;
-        metrics.gateway_latency_ms_sum = 0;
-        metrics.gateway_latency_ms_count = 0;
+    it('recordRequest should increment counters and observe latency histogram', async () => {
+        resetMetricsForTesting();
 
         recordRequest('success', 50);
         recordRequest('success', 150);
         recordRequest('blocked', 10);
 
-        expect(metrics.http_requests_total).toBe(3);
-        expect(metrics.http_requests_blocked).toBe(1);
-        expect(metrics.gateway_latency_ms_count).toBe(3);
+        const result = await httpRequestsTotal.get();
+        const byLabel = (label: string) =>
+            result.values.find(v => v.labels.status === label)?.value ?? 0;
 
-        const output = renderPrometheusMetrics();
-        // Avg should be (50+150+10)/3 = 70
-        expect(output).toContain('govai_gateway_latency_ms_avg 70');
+        expect(byLabel('success')).toBe(2);
+        expect(byLabel('blocked')).toBe(1);
+
+        const output = await renderPrometheusMetrics();
+        expect(output).toContain('govai_gateway_latency_ms_count 3');
     });
 
-    it('recordDlpDetection should accumulate DLP counter', () => {
-        metrics.dlp_detections_total = 0;
+    it('recordDlpDetection should accumulate DLP counter', async () => {
+        resetMetricsForTesting();
         recordDlpDetection(5);
         recordDlpDetection(3);
-        expect(metrics.dlp_detections_total).toBe(8);
+        const result = await dlpDetectionsTotal.get();
+        expect(result.values[0]?.value).toBe(8);
     });
 
-    it('recordQuotaExceeded should increment quota counter', () => {
-        metrics.quota_exceeded_total = 0;
+    it('recordQuotaExceeded should increment quota counter', async () => {
+        resetMetricsForTesting();
         recordQuotaExceeded();
         recordQuotaExceeded();
-        expect(metrics.quota_exceeded_total).toBe(2);
+        const result = await quotaExceededTotal.get();
+        expect(result.values[0]?.value).toBe(2);
     });
 });
 

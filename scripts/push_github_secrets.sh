@@ -1,7 +1,10 @@
 #!/bin/bash
+# GovAI Platform — GitHub Secrets Sync Script
+# Sincroniza variáveis de .env para GitHub Secrets.
+# Apenas variáveis listadas em SECRETS_ALLOWLIST são enviadas — nunca variáveis
+# de configuração não-sensível como PRESIDIO_URL, AI_MODEL, etc.
 
-# GovAI Platform - GitHub Secrets Sync Script
-# Este script automatiza a injeção de variáveis de ambiente do .env para o GitHub Secrets.
+set -e
 
 ENV_FILE=".env"
 
@@ -15,25 +18,66 @@ if ! command -v gh &> /dev/null; then
     exit 1
 fi
 
+# Allowlist de variáveis que devem ir para GitHub Secrets.
+# Não adicione variáveis de configuração não-sensível aqui.
+SECRETS_ALLOWLIST=(
+    "SIGNING_SECRET"
+    "JWT_SECRET"
+    "DB_PASSWORD"
+    "DB_APP_PASSWORD"
+    "REDIS_PASSWORD"
+    "ORG_MASTER_KEY"
+    "GEMINI_API_KEY"
+    "LITELLM_KEY"
+    "OIDC_CLIENT_SECRET"
+    "LANGFUSE_SECRET_KEY"
+    "LANGFUSE_PUBLIC_KEY"
+    "SENDGRID_API_KEY"
+    "SLACK_WEBHOOK_URL"
+)
+
 echo "🚀 Iniciando sincronização de segredos com o GitHub..."
 
-# Lê o arquivo .env linha por linha, ignora comentários e envia para o GitHub Secrets
 while IFS= read -r line || [ -n "$line" ]; do
-    # Ignora linhas vazias ou que começam com #
-    [[ "$line" =~ ^#.*$ ]] && continue
-    [[ -z "$line" ]] && continue
+    # Ignora linhas vazias ou comentários
+    [[ "$line" =~ ^[[:space:]]*#.*$ ]] && continue
+    [[ -z "${line// }" ]] && continue
 
-    # Extrai chave e valor (suporta valores com espaços se estiverem entre aspas no .env)
-    KEY=$(echo "$line" | cut -d '=' -f 1)
-    VALUE=$(echo "$line" | cut -d '=' -f 2-)
+    # Parsing robusto: captura KEY e o restante como VALUE
+    # IFS= preserva espaços; '=' separa apenas no primeiro delimitador
+    if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
+        KEY="${BASH_REMATCH[1]}"
+        VALUE="${BASH_REMATCH[2]}"
+    else
+        continue
+    fi
 
-    # Remove aspas se existirem no valor
+    # Remove aspas externas do valor (se existirem)
     VALUE="${VALUE%\"}"
     VALUE="${VALUE#\"}"
+    VALUE="${VALUE%\'}"
+    VALUE="${VALUE#\'}"
 
-    if [ -n "$KEY" ]; then
+    # Verifica se está na allowlist
+    IS_ALLOWED=0
+    for ALLOWED_KEY in "${SECRETS_ALLOWLIST[@]}"; do
+        if [ "$KEY" = "$ALLOWED_KEY" ]; then
+            IS_ALLOWED=1
+            break
+        fi
+    done
+
+    if [ "$IS_ALLOWED" -eq 0 ]; then
+        echo "⏭  SKIP (não está na allowlist): $KEY"
+        continue
+    fi
+
+    if [ -n "$KEY" ] && [ -n "$VALUE" ]; then
         echo "📤 Injetando Secret: $KEY..."
-        echo "$VALUE" | gh secret set "$KEY"
+        # printf evita que valores com newlines causem problemas no pipe
+        printf '%s' "$VALUE" | gh secret set "$KEY"
+    else
+        echo "⚠️  SKIP (valor vazio): $KEY"
     fi
 done < "$ENV_FILE"
 

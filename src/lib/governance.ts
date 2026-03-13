@@ -2,7 +2,17 @@ import { z } from 'zod';
 import { FastifyRequest } from 'fastify';
 import crypto from 'crypto';
 
-export const ActionType = z.enum(['EXECUTION', 'POLICY_VIOLATION', 'EXECUTION_SUCCESS', 'EXECUTION_ERROR', 'PENDING_APPROVAL', 'APPROVAL_GRANTED', 'APPROVAL_REJECTED']);
+export const ActionType = z.enum([
+    'EXECUTION',
+    'POLICY_VIOLATION',
+    'EXECUTION_SUCCESS',
+    'EXECUTION_ERROR',
+    'PENDING_APPROVAL',
+    'APPROVAL_GRANTED',
+    'APPROVAL_REJECTED',
+    'TELEMETRY_CONSENT_GRANTED',
+    'TELEMETRY_CONSENT_REVOKED',
+]);
 export type ActionType = z.infer<typeof ActionType>;
 
 export const GovernanceRequestSchema = z.object({

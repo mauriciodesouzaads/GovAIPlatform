@@ -1,91 +1,132 @@
 /**
- * SRE Observability — Prometheus Metrics Endpoint
- * 
- * Exposes /metrics in Prometheus text format for Grafana/Datadog scraping.
- * Tracks: gateway latency, request counts, Redis queue depth, PG pool stats.
+ * SRE Observability — Prometheus Metrics with prom-client.
+ *
+ * Replaces the previous in-memory counter store with proper prom-client primitives:
+ * - Histograms for latency (correct p50/p95/p99 quantiles instead of simple averages)
+ * - collectDefaultMetrics for Node.js runtime telemetry (GC, event-loop lag, memory)
+ * - Registry-scoped metrics to avoid conflicts in multi-tenant tests
+ *
+ * For multi-replica aggregation, configure Prometheus to scrape all pod /metrics
+ * endpoints (standard pull model) or use a Pushgateway for batch workers.
  */
 
-export interface MetricsBucket {
-    http_requests_total: number;
-    http_requests_blocked: number;
-    http_requests_approved: number;
-    gateway_latency_ms_sum: number;
-    gateway_latency_ms_count: number;
-    dlp_detections_total: number;
-    quota_exceeded_total: number;
-    active_pg_connections: number;
-    redis_queue_depth: number;
+import { Registry, Counter, Histogram, Gauge, collectDefaultMetrics } from 'prom-client';
+
+// ── Per-assistant latency (labeled histogram) ─────────────────────────────────
+// NOTA DE CARDINALIDADE: o label assistant_id é um UUID. Em clusters com centenas
+// de assistentes, cada série ocupa ~1KB de memória no Prometheus. Para plataformas
+// com >500 assistentes, considere agregar por tenant em vez de por assistente.
+
+export const metricsRegistry = new Registry();
+
+collectDefaultMetrics({ register: metricsRegistry, prefix: 'govai_node_' });
+
+export const httpRequestsTotal = new Counter({
+    name: 'govai_http_requests_total',
+    help: 'Total HTTP requests processed by the governance gateway',
+    labelNames: ['status'] as const,
+    registers: [metricsRegistry],
+});
+
+export const dlpDetectionsTotal = new Counter({
+    name: 'govai_dlp_detections_total',
+    help: 'Total PII detections flagged by the DLP engine',
+    registers: [metricsRegistry],
+});
+
+export const quotaExceededTotal = new Counter({
+    name: 'govai_quota_exceeded_total',
+    help: 'Total quota exceeded events (hard-cap enforcement)',
+    registers: [metricsRegistry],
+});
+
+export const gatewayLatencyHistogram = new Histogram({
+    name: 'govai_gateway_latency_ms',
+    help: 'End-to-end gateway latency in milliseconds (p50/p95/p99)',
+    buckets: [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000],
+    registers: [metricsRegistry],
+});
+
+export const activePgConnections = new Gauge({
+    name: 'govai_active_pg_connections',
+    help: 'Active PostgreSQL client connections from the shared pool',
+    registers: [metricsRegistry],
+});
+
+export const redisQueueDepth = new Gauge({
+    name: 'govai_redis_queue_depth',
+    help: 'Current BullMQ audit-log queue depth',
+    registers: [metricsRegistry],
+});
+
+export const telemetryQueueDepth = new Gauge({
+    name: 'govai_telemetry_queue_depth',
+    help: 'Current BullMQ telemetry queue depth (Langfuse export backlog)',
+    registers: [metricsRegistry],
+});
+
+// LGPD compliance tracking — updated every 5 minutes by server.ts
+export const complianceConsentedOrgs = new Gauge({
+    name: 'govai_compliance_consented_orgs',
+    help: 'Number of organizations with telemetry_consent = TRUE (LGPD Art. 7, I)',
+    registers: [metricsRegistry],
+});
+
+// Per-assistant latency histogram — labeled by assistant_id for P95/P99 drill-down
+export const assistantLatencyHistogram = new Histogram({
+    name: 'govai_assistant_latency_ms',
+    help: 'End-to-end execution latency per assistant (ms) — enables P95/P99 per-assistant drill-down',
+    labelNames: ['assistant_id'] as const,
+    buckets: [50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000],
+    registers: [metricsRegistry],
+});
+
+// Key rotation metrics — tracked by the key rotation scheduler
+export const dekRotationsTotal = new Counter({
+    name: 'govai_dek_rotations_total',
+    help: 'Total number of DEKs successfully rotated by the key rotation scheduler',
+    registers: [metricsRegistry],
+});
+
+export const dekRotationErrorsTotal = new Counter({
+    name: 'govai_dek_rotation_errors_total',
+    help: 'Total DEK rotation failures (row skipped, will be retried next cycle)',
+    registers: [metricsRegistry],
+});
+
+// ---------------------------------------------------------------------------
+// Compatibility helpers — same call-sites as the previous implementation
+// ---------------------------------------------------------------------------
+
+export function recordRequest(type: 'success' | 'blocked' | 'approved', latencyMs: number): void {
+    httpRequestsTotal.inc({ status: type });
+    gatewayLatencyHistogram.observe(latencyMs);
 }
 
-// Global in-memory metrics store (production would use prom-client)
-export const metrics: MetricsBucket = {
-    http_requests_total: 0,
-    http_requests_blocked: 0,
-    http_requests_approved: 0,
-    gateway_latency_ms_sum: 0,
-    gateway_latency_ms_count: 0,
-    dlp_detections_total: 0,
-    quota_exceeded_total: 0,
-    active_pg_connections: 0,
-    redis_queue_depth: 0,
-};
-
-export function recordRequest(type: 'success' | 'blocked' | 'approved', latencyMs: number) {
-    metrics.http_requests_total++;
-    metrics.gateway_latency_ms_sum += latencyMs;
-    metrics.gateway_latency_ms_count++;
-    if (type === 'blocked') metrics.http_requests_blocked++;
-    if (type === 'approved') metrics.http_requests_approved++;
+export function recordDlpDetection(count: number): void {
+    dlpDetectionsTotal.inc(count);
 }
 
-export function recordDlpDetection(count: number) {
-    metrics.dlp_detections_total += count;
+export function recordQuotaExceeded(): void {
+    quotaExceededTotal.inc();
 }
 
-export function recordQuotaExceeded() {
-    metrics.quota_exceeded_total++;
+export function updateComplianceConsentedOrgs(count: number): void {
+    complianceConsentedOrgs.set(count);
+}
+
+export async function renderPrometheusMetrics(): Promise<string> {
+    return metricsRegistry.metrics();
+}
+
+export function getMetricsContentType(): string {
+    return metricsRegistry.contentType;
 }
 
 /**
- * Renders metrics in Prometheus text exposition format.
+ * Resets all metric values to zero.
+ * Intended for use in test suites only — do not call in production code.
  */
-export function renderPrometheusMetrics(): string {
-    const avgLatency = metrics.gateway_latency_ms_count > 0
-        ? (metrics.gateway_latency_ms_sum / metrics.gateway_latency_ms_count).toFixed(2)
-        : '0';
-
-    return [
-        '# HELP govai_http_requests_total Total HTTP requests processed',
-        '# TYPE govai_http_requests_total counter',
-        `govai_http_requests_total ${metrics.http_requests_total}`,
-        '',
-        '# HELP govai_http_requests_blocked Total requests blocked by OPA/DLP',
-        '# TYPE govai_http_requests_blocked counter',
-        `govai_http_requests_blocked ${metrics.http_requests_blocked}`,
-        '',
-        '# HELP govai_http_requests_approved Total HITL approvals granted',
-        '# TYPE govai_http_requests_approved counter',
-        `govai_http_requests_approved ${metrics.http_requests_approved}`,
-        '',
-        '# HELP govai_gateway_latency_ms_avg Average gateway response latency in ms',
-        '# TYPE govai_gateway_latency_ms_avg gauge',
-        `govai_gateway_latency_ms_avg ${avgLatency}`,
-        '',
-        '# HELP govai_dlp_detections_total Total PII detections by DLP engine',
-        '# TYPE govai_dlp_detections_total counter',
-        `govai_dlp_detections_total ${metrics.dlp_detections_total}`,
-        '',
-        '# HELP govai_quota_exceeded_total Total quota exceeded events',
-        '# TYPE govai_quota_exceeded_total counter',
-        `govai_quota_exceeded_total ${metrics.quota_exceeded_total}`,
-        '',
-        '# HELP govai_active_pg_connections Active PostgreSQL connections',
-        '# TYPE govai_active_pg_connections gauge',
-        `govai_active_pg_connections ${metrics.active_pg_connections}`,
-        '',
-        '# HELP govai_redis_queue_depth Current BullMQ/Redis queue depth',
-        '# TYPE govai_redis_queue_depth gauge',
-        `govai_redis_queue_depth ${metrics.redis_queue_depth}`,
-        '',
-    ].join('\n');
+export function resetMetricsForTesting(): void {
+    metricsRegistry.resetMetrics();
 }

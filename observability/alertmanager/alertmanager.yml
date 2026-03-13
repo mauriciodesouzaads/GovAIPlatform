@@ -1,0 +1,130 @@
+# ============================================================================
+# GovAI Platform — AlertManager Configuration
+# ============================================================================
+# Variáveis obrigatórias (injetadas via docker-compose.prod.yml):
+#   ALERTMANAGER_SMTP_FROM       — endereço de envio (ex: alerts@govai-platform.com)
+#   ALERTMANAGER_SMTP_HOST       — servidor SMTP com porta (ex: smtp.mailgun.org:587)
+#   ALERTMANAGER_SMTP_USER       — usuário SMTP
+#   ALERTMANAGER_SMTP_PASSWORD   — senha SMTP
+#   ALERTMANAGER_EMAIL_TO_CRITICAL — destinatário alertas críticos (ex: sre-oncall@empresa.com)
+#   ALERTMANAGER_EMAIL_TO_WARN   — destinatário alertas warning (ex: sre-team@empresa.com)
+#   ALERTMANAGER_SLACK_URL       — Slack Incoming Webhook URL (opcional)
+# ============================================================================
+
+global:
+  resolve_timeout: 5m
+  smtp_from: '${ALERTMANAGER_SMTP_FROM}'
+  smtp_smarthost: '${ALERTMANAGER_SMTP_HOST}'
+  smtp_auth_username: '${ALERTMANAGER_SMTP_USER}'
+  smtp_auth_password: '${ALERTMANAGER_SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+route:
+  # Agrupamento base: por alerta + job para reduzir ruído
+  group_by: ['alertname', 'job', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default-receiver'
+
+  routes:
+    # ── Alertas CRÍTICOS: notificação imediata + Slack ──────────────────────
+    - matchers:
+        - severity="critical"
+      receiver: 'critical-receiver'
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: false
+
+    # ── Alertas WARNING: apenas e-mail para a equipe ─────────────────────────
+    - matchers:
+        - severity="warning"
+      receiver: 'warning-receiver'
+      group_wait: 1m
+      repeat_interval: 6h
+      continue: false
+
+    # ── Alertas INFO: silenciados por padrão, apenas log ─────────────────────
+    - matchers:
+        - severity="info"
+      receiver: 'null-receiver'
+      continue: false
+
+receivers:
+  - name: 'default-receiver'
+    email_configs:
+      - to: '${ALERTMANAGER_EMAIL_TO_WARN}'
+        send_resolved: true
+        headers:
+          Subject: '[GovAI] {{ .Status | toUpper }} — {{ .CommonLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          Alerta: {{ .Labels.alertname }}
+          Severidade: {{ .Labels.severity }}
+          Job: {{ .Labels.job }}
+          Descrição: {{ .Annotations.description }}
+          Valor atual: {{ .Annotations.value }}
+          Início: {{ .StartsAt }}
+          {{ end }}
+
+  - name: 'critical-receiver'
+    email_configs:
+      - to: '${ALERTMANAGER_EMAIL_TO_CRITICAL}'
+        send_resolved: true
+        headers:
+          Subject: '[GovAI CRITICO] {{ .Status | toUpper }} — {{ .CommonLabels.alertname }}'
+        body: |
+          ⚠️ ALERTA CRÍTICO — GovAI Platform
+
+          {{ range .Alerts }}
+          Alerta:     {{ .Labels.alertname }}
+          Severidade: {{ .Labels.severity }}
+          Job:        {{ .Labels.job }}
+          Descrição:  {{ .Annotations.description }}
+          Valor:      {{ .Annotations.value }}
+          Runbook:    {{ .Annotations.runbook_url }}
+          Início:     {{ .StartsAt }}
+          {{ end }}
+    slack_configs:
+      - api_url: '${ALERTMANAGER_SLACK_URL}'
+        send_resolved: true
+        channel: '#sre-alerts'
+        title: ':rotating_light: [GovAI CRÍTICO] {{ .CommonLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Alerta:* {{ .Labels.alertname }}
+          *Severidade:* {{ .Labels.severity }}
+          *Descrição:* {{ .Annotations.description }}
+          *Valor:* {{ .Annotations.value }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          {{ end }}
+        http_config:
+          follow_redirects: true
+
+  - name: 'warning-receiver'
+    email_configs:
+      - to: '${ALERTMANAGER_EMAIL_TO_WARN}'
+        send_resolved: true
+        headers:
+          Subject: '[GovAI WARNING] {{ .Status | toUpper }} — {{ .CommonLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          Alerta: {{ .Labels.alertname }}
+          Severidade: {{ .Labels.severity }}
+          Descrição: {{ .Annotations.description }}
+          Valor: {{ .Annotations.value }}
+          Início: {{ .StartsAt }}
+          {{ end }}
+
+  - name: 'null-receiver'
+
+inhibit_rules:
+  # Se há alerta crítico para o mesmo job, silencia os warnings correspondentes
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ['alertname', 'job']

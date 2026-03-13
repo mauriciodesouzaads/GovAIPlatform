@@ -4,7 +4,8 @@ import { IntegrityService, ActionType } from '../lib/governance';
 import { dlpEngine } from '../lib/dlp-engine';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
-import { redisCache } from '../server';
+import { redisCache } from '../lib/redis';
+import { CreateAssistantSchema, CreateApiKeySchema, zodErrors } from '../lib/schemas';
 
 
 export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any }) {
@@ -58,13 +59,16 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
     // Create API Key
     app.post('/v1/admin/api-keys', { preHandler: requireAdminAuth }, async (request, reply) => {
+        const apiKeyParsed = CreateApiKeySchema.safeParse(request.body);
+        if (!apiKeyParsed.success) {
+            return reply.status(400).send({ error: 'Validation failed', details: zodErrors(apiKeyParsed.error) });
+        }
+        const { name, expiresAt } = apiKeyParsed.data;
+
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
-        const { name } = request.body as { name: string };
-        if (!name) return reply.status(400).send({ error: "Campo 'name' obrigatório." });
-
-        const rawKey = `sk-govai-${uuidv4().replace(/-/g, '').substring(0, 24)}`;
+        const rawKey = `sk-govai-${uuidv4().replace(/-/g, '').substring(0, 24)}`; // gitleaks:allow — key format string, not a credential
         const prefix = rawKey.substring(0, 12);
         const keyHash = IntegrityService.signPayload({ key: rawKey }, process.env.SIGNING_SECRET!);
 
@@ -72,8 +76,10 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         try {
             await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
             const res = await client.query(
-                'INSERT INTO api_keys (org_id, name, key_hash, prefix) VALUES ($1, $2, $3, $4) RETURNING id, prefix, created_at',
-                [orgId, name, keyHash, prefix]
+                `INSERT INTO api_keys (org_id, name, key_hash, prefix, expires_at)
+                 VALUES ($1, $2, $3, $4, $5)
+                 RETURNING id, prefix, created_at, expires_at`,
+                [orgId, name, keyHash, prefix, expiresAt ?? null]
             );
             // Return the full key ONLY at creation (it's never shown again)
             return reply.status(201).send({ ...res.rows[0], key: rawKey, warning: 'Guarde esta chave! Ela não será exibida novamente.' });
@@ -129,11 +135,14 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
     // Create Assistant
     app.post('/v1/admin/assistants', { preHandler: requireRole(['admin', 'sre']) }, async (request, reply) => {
+        const assistantParsed = CreateAssistantSchema.safeParse(request.body);
+        if (!assistantParsed.success) {
+            return reply.status(400).send({ error: 'Validation failed', details: zodErrors(assistantParsed.error) });
+        }
+        const { name } = assistantParsed.data;
+
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
-
-        const { name } = request.body as { name: string };
-        if (!name) return reply.status(400).send({ error: "Campo 'name' obrigatório." });
 
         const client = await pgPool.connect();
         try {
@@ -177,6 +186,57 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             await client.query('ROLLBACK');
             app.log.error(error, "Error creating assistant (transaction rolled back)");
             reply.status(500).send({ error: "Erro ao publicar assistente. Rollback executado." });
+        } finally {
+            client.release();
+        }
+    });
+
+    // Create new assistant version (Draft)
+    app.post('/v1/admin/assistants/:assistantId/versions', { preHandler: requireRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { assistantId } = request.params as { assistantId: string };
+        const { policy_json } = request.body as any;
+
+        if (!policy_json) return reply.status(400).send({ error: "Campo 'policy_json' obrigatório." });
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            await client.query('BEGIN');
+
+            const astRes = await client.query('SELECT name FROM assistants WHERE id = $1 AND org_id = $2', [assistantId, orgId]);
+            if (astRes.rowCount === 0) {
+                await client.query('ROLLBACK');
+                return reply.status(404).send({ error: "Assistente não encontrado." });
+            }
+
+            const polRes = await client.query(
+                `INSERT INTO policy_versions (org_id, name, rules_jsonb, version) 
+                 VALUES ($1, $2, $3, 1) RETURNING id`,
+                [orgId, `Policy Custom - ${astRes.rows[0].name}`, JSON.stringify(policy_json)]
+            );
+            const policyVersionId = polRes.rows[0].id;
+
+            const verRes = await client.query(
+                'SELECT COALESCE(MAX(version), 0) as max_v FROM assistant_versions WHERE assistant_id = $1 AND org_id = $2',
+                [assistantId, orgId]
+            );
+            const nextVersion = verRes.rows[0].max_v + 1;
+
+            const newVerRes = await client.query(
+                `INSERT INTO assistant_versions (org_id, assistant_id, policy_version_id, prompt, version, status) 
+                 VALUES ($1, $2, $3, 'Você é um assistente da GovAI.', $4, 'draft') RETURNING id`,
+                [orgId, assistantId, policyVersionId, nextVersion]
+            );
+
+            await client.query('COMMIT');
+            return reply.status(201).send({ id: newVerRes.rows[0].id, status: 'draft', version: nextVersion });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            app.log.error(error, "Error creating assistant version");
+            reply.status(500).send({ error: "Erro ao criar nova versão do assistente." });
         } finally {
             client.release();
         }
