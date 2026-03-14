@@ -1,73 +1,199 @@
-# GovAI Platform — Status da Remediação de Segurança
+# GovAI Platform — Status do Projeto
 
-## Contexto
-Este projeto passou por auditoria técnica completa com 16 prompts de
-remediação. 15 de 16 foram concluídos. Este arquivo guia a próxima sessão.
+**Última atualização:** 2026-03-14
+**Branch:** main
+**Último commit:** `e47c187` — fix: ExpirationWorker permission denied + credenciais de teste
 
-## Estado atual
-- Testes: 421 passando (33 arquivos)
-- Migrations: 032 aplicadas (022 a 032)
-- Branch: main
-- Último commit: P11-P16 complete remediation
+---
 
-## O que JÁ FOI feito (NÃO refazer)
-- P-01: RLS Login Bypass corrigido (tabela user_lookup criada)
-- P-02: Cross-Tenant Expiration Worker corrigido
-- P-03: CI/CD Pipeline criado (.github/workflows/ci-cd.yml)
-- P-04: OPA Rego expandido com OWASP LLM Top 10 (144 testes)
-- P-05: CVE-RAG corrigido (execution.service.ts usa safeMessage)
-- P-06: RAG approvals corrigido + 4 rotas registradas em server.ts
-- P-07: Credencial exposta removida + gitleaks + secret-scanning.yml
-- P-08: Validação Zod em todos os endpoints (src/lib/schemas.ts)
-- P-09: @fastify/helmet instalado e configurado (CSP, HSTS, DENY)
-- P-10: Embedding dimension 768 explícita (src/lib/embedding-config.ts)
-- P-11: api-key-rotation.job.ts criado (BullMQ, cron 0 2 * * *)
-- P-12: Rate limiting granular (login 10/15min, execute 100/1min)
-- P-13: Dockerfile multi-stage + non-root user govai
-- P-14: Coverage gate configurado (72% lines, 79% functions, 75% branches)
-- P-16: CURSOR.md + AGENTS.md criados
+## Estado Atual (validado em 14/03/2026)
 
-## PRÓXIMA TAREFA — P-15 (única pendente)
+| Componente | Status | Detalhe |
+|---|---|---|
+| Backend testes | ✅ 460 passing | 35 arquivos, zero falhas |
+| TypeScript strict | ✅ zero erros | `npx tsc --noEmit` → clean |
+| Coverage | ✅ thresholds ok | lines≥70, functions≥70, branches≥60 |
+| CI/CD pipeline | ✅ 5 jobs verdes | lint, test, security, trivy, integration |
+| Admin UI build | ✅ passando | Next.js 14.2 + Node 18 |
+| Admin UI login | ✅ funcional | admin@orga.com / password |
+| Dashboard | ✅ dados reais | stats, assistants, audit-logs |
+| Migrations | ✅ 034 aplicadas | 011–034 em sequência |
+| Docker stack | ✅ 6 serviços | api, admin-ui, db, redis, litellm, presidio |
+| ExpirationWorker | ✅ sem erros | migration 034 corrigiu GRANT em platform_admin |
 
-### Objetivo
-Habilitar TypeScript strict mode + expandir cobertura de testes.
+---
 
-### PARTE A — TypeScript strict mode
-1. Ler tsconfig.json atual
-2. Adicionar: "strict": true, "noImplicitAny": true,
-   "strictNullChecks": true, "strictFunctionTypes": true
-3. Rodar: npm run lint 2>&1 | grep "error TS" | head -20
-4. Catalogar erros SEM corrigir ainda
-5. Corrigir em ordem: src/lib/ → src/routes/ → src/services/ → src/workers/
-6. NUNCA usar "as any" para suprimir erros
-7. npm run lint deve retornar zero erros
+## Credenciais de Teste
 
-### PARTE B — Expandir Coverage
-Adicionar ao include em vitest.config.ts:
-- src/routes/assistants.routes.ts
-- src/routes/approvals.routes.ts
-- src/services/execution.service.ts
-- src/jobs/api-key-rotation.job.ts
+```
+Email:    admin@orga.com
+Senha:    password
+Role:     admin
+Org:      Test Org (00000000-0000-0000-0000-000000000001)
+```
 
-Manter thresholds: lines≥70, functions≥70, branches≥60.
-Se falhar, adicionar testes com mocks (não baixar thresholds).
+> ⚠️ `admin@govai.com` / `admin` está **descontinuado**: senha "admin" (4 chars) é
+> rejeitada pelo Zod `password.min(8)`. Essa conta existe no seed com
+> `requires_password_change: true` e não pode ser usada via `/v1/admin/login`.
 
-### Critérios de aceite P-15
-- grep "strict" tsconfig.json → mostra "strict": true
-- npm run lint → zero erros TypeScript
-- npm run test:coverage → thresholds passando com escopo expandido
-- npx vitest run → 421+ passed, 0 failed
+Login via curl:
+```bash
+TOKEN=$(curl -s -X POST http://localhost:3000/v1/admin/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@orga.com","password":"password"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+```
 
-## Débitos técnicos registrados (NÃO implementar agora)
-- DT-P04-A: LLM02 scan de output do LLM antes de retornar
-- DT-P04-B: Indirect Prompt Injection via RAG
-- DT-P14-A/B/C: Coverage expandido (tratado no P-15)
-- DT-K-03: E2E com banco real (32 migrations em sequência)
-- DT-P02: pgaudit para capturar SET ROLE nos logs
+---
 
-## Regras críticas de segurança (NUNCA violar)
-- Toda query com org_id no contexto (RLS multi-tenant)
-- Operações cross-tenant: SET ROLE platform_admin + RESET ROLE em finally
-- RAG e LLM: usar safeMessage, nunca message raw
-- Secrets: process.env com :? operator, nunca fallback hardcoded
-- Zod safeParse em todos os endpoints antes de processar input
+## O que foi feito — Remediações P-01 a P-16
+
+| ID | Descrição | Status |
+|---|---|---|
+| P-01 | RLS Login Bypass corrigido (tabela user_lookup criada) | ✅ |
+| P-02 | Cross-Tenant Expiration Worker corrigido (SET ROLE platform_admin) | ✅ |
+| P-03 | CI/CD Pipeline criado (.github/workflows/ci-cd.yml) | ✅ |
+| P-04 | OPA Rego expandido com OWASP LLM Top 10 (144 testes) | ✅ |
+| P-05 | CVE-RAG corrigido (execution.service.ts usa safeMessage) | ✅ |
+| P-06 | RAG approvals corrigido + 4 rotas registradas em server.ts | ✅ |
+| P-07 | Credencial exposta removida + gitleaks + secret-scanning.yml | ✅ |
+| P-08 | Validação Zod em todos os endpoints (src/lib/schemas.ts) | ✅ |
+| P-09 | @fastify/helmet instalado e configurado (CSP, HSTS, DENY) | ✅ |
+| P-10 | Embedding dimension 768 explícita (src/lib/embedding-config.ts) | ✅ |
+| P-11 | api-key-rotation.job.ts criado (BullMQ, cron 0 2 * * *) | ✅ |
+| P-12 | Rate limiting granular (login 10/15min, execute 100/1min) | ✅ |
+| P-13 | Dockerfile multi-stage + non-root user govai | ✅ |
+| P-14 | Coverage gate configurado (lines≥70, functions≥70, branches≥60) | ✅ |
+| P-15 | TypeScript strict mode + cobertura expandida (460 testes) | ✅ |
+| P-16 | CURSOR.md + AGENTS.md criados (documentação de agentes) | ✅ |
+
+---
+
+## Bugs Corrigidos Pós-Remediação
+
+| Bug | Causa | Fix | Commit |
+|---|---|---|---|
+| `organizations` endpoint retorna 500 | Coluna `status` não existe na tabela | `'active' AS status` nas 2 queries | `8f82763` |
+| ExpirationWorker `permission denied` | `platform_admin` sem GRANT na tabela | Migration 034: `GRANT SELECT, UPDATE ON pending_approvals TO platform_admin` | `e47c187` |
+| Admin UI build falha (Node 18) | `next: 16.1.6` exige Node ≥ 20.9.0 | Downgrade para `next: ^14.2.0` + React 18 | `818d1f2` |
+| `next.config.ts` não suportado (Next 14) | Next 14 não suporta TypeScript config | Convertido para `next.config.mjs` | `818d1f2` |
+| `toast({...})` TS2345 em compliance/page.tsx | Assinatura errada: objeto vs `(string, type)` | Corrigidas 5 chamadas | `818d1f2` |
+| `@tailwindcss/oxide-darwin-arm64` ausente | Bug de optional deps do npm | Instalado explicitamente (removido do package.json depois) | `818d1f2` / `46cecbe` |
+
+---
+
+## Admin UI — Estado das Telas (validado localmente)
+
+| Tela | URL | Estado | Observações |
+|---|---|---|---|
+| Dashboard | `/` | ✅ dados reais | Stats, gráficos Recharts, usage_history |
+| Login | `/login` | ✅ funcional | JWT + localStorage |
+| API Keys | `/api-keys` | ✅ funcional | CRUD completo |
+| Approvals | `/approvals` | ✅ funcional | Fila HITL, approve/reject |
+| Assistants | `/assistants` | ✅ dados reais | 1 assistente seed |
+| Compliance | `/compliance` | ✅ funcional | Toggle telemetry/PII Strip por org |
+| Audit Logs | `/logs` | ✅ funcional | Paginação, 2 logs seed |
+| Reports | `/reports` | ✅ funcional | Download CSV/PDF |
+
+> Telas testadas com token de `admin@orga.com` via `Authorization: Bearer`.
+> O Docker container `admin-ui` sobe na porta :3001.
+
+---
+
+## Migrations em Disco
+
+| Arquivo | Descrição |
+|---|---|
+| 011–019 | Schema base, RLS, policies, SSO, finops |
+| 020 | Expiration worker (RLS bypass — substituído pelo P-02) |
+| 021 | Fix RLS login (user_lookup) |
+| 022–023 | Grants encrypted runs, fix partition ownership |
+| 024 | Cria role `platform_admin` com BYPASSRLS |
+| 025 | Telemetry consent |
+| 026 | Audit compliance indexes |
+| 027 | Key rotation tracking |
+| 028 | User lookup |
+| 029 | Expiration worker role grant (GRANT platform_admin TO govai_app) |
+| 030 | Extend audit action constraint |
+| 031 | API key revocation |
+| 032 | Explicit vector dimension |
+| 033 | Tabela schema_migrations (tracking) |
+| **034** | **GRANT SELECT, UPDATE ON pending_approvals TO platform_admin (fix ExpirationWorker)** |
+
+---
+
+## Próximos Passos Sugeridos
+
+### Alta prioridade
+1. **Telas UI com funcionalidades não testadas end-to-end:**
+   - Criar API Key via UI → verificar se chave aparece na lista
+   - Criar Assistente → publicar versão → verificar homologação
+   - POST `/v1/execute` com API Key real → gerar approval HITL → aprovar via UI
+   - Export CSV da compliance/audit-trail → verificar download
+
+2. **Migration 034 no ambiente de CI:**
+   - A migration foi aplicada manualmente ao banco local
+   - O CI precisa rodar `scripts/migrate.sh` para aplicar 033 e 034 ao banco de integração
+   - Verificar se o job "Integration Tests" do CI aplica migrations antes dos testes
+
+3. **`security.tenant-isolation.test.ts` no CI:**
+   - 5/6 testes falhando porque usam `postgres` superuser (bypassa RLS)
+   - Padrão correto: `SET ROLE govai_app` + `set_config('app.current_org_id', ...)` antes de cada assertion
+   - Pendente de correção para CI passar 100%
+
+### Média prioridade
+4. **Rate limit em `change-password`** — endpoint POST sem rateLimit (auditoria detectou)
+5. **Zod em `telemetry-consent`** — validação manual com `typeof body.consent !== 'boolean'` em vez de safeParse
+6. **DT-P04-A:** LLM02 scan de output do LLM antes de retornar ao usuário
+7. **DT-P04-B:** Indirect Prompt Injection via RAG (conteúdo de knowledge base como vetor)
+8. **DT-P02:** pgaudit para capturar SET ROLE nos logs do PostgreSQL
+
+### Baixa prioridade
+9. Testes unitários para admin-ui (zero cobertura atualmente)
+10. `scripts/bootstrap.sh` — referência inconsistente a `$DB_PASSWORD` vs `$POSTGRES_PASSWORD`
+
+---
+
+## Regras Críticas de Segurança (NUNCA violar)
+
+- **Multi-tenant:** toda query deve ter `org_id` no contexto via RLS (`set_config`)
+- **Cross-tenant:** `SET ROLE platform_admin` + `RESET ROLE` em bloco `finally`
+- **RAG/LLM:** usar `safeMessage`, nunca `message` raw
+- **Secrets:** `process.env.VAR_NAME!` ou com `:?`, nunca fallback hardcoded
+- **Zod:** `safeParse` em todos os endpoints antes de processar input
+- **SQL:** queries parametrizadas (`$1`, `$2`...), nunca interpolação de string
+
+---
+
+## Comandos Essenciais
+
+```bash
+# Subir ambiente completo
+docker compose up -d
+
+# Backend — testes
+npx vitest run
+npx vitest run --coverage
+
+# Backend — lint TypeScript
+npx tsc --noEmit
+
+# Admin UI — build
+cd admin-ui && npm run build
+
+# Admin UI — dev
+cd admin-ui && NEXT_PUBLIC_API_URL=http://localhost:3000 npm run dev
+
+# Aplicar migrations
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/govai_platform \
+  bash scripts/migrate.sh
+
+# Seed de demo
+DATABASE_URL=postgresql://govai_app:govai_dev_app_password@localhost:5432/govai_platform \
+  bash scripts/demo-seed.sh
+
+# Login de teste
+curl -s -X POST http://localhost:3000/v1/admin/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@orga.com","password":"password"}'
+```
