@@ -71,3 +71,8 @@ TECHNICAL_REPORT.pdf
 codigo_completo.txt
 validador_ui.js
 migration_error.log
+
+# Backups de arquivos binários compilados
+*.bak
+*.wasm.bak
+migrations/

@@ -5,7 +5,7 @@ import { dlpEngine } from '../lib/dlp-engine';
 import { mailer } from '../lib/mailer';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
-import { LoginSchema, ChangePasswordSchema, zodErrors } from '../lib/schemas';
+import { LoginSchema, ChangePasswordSchema, TelemetryConsentSchema, zodErrors } from '../lib/schemas';
 
 
 /**
@@ -123,7 +123,21 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
     });
 
     // 0.1 Change Password endpoint for Force Reset
-    app.post('/v1/admin/change-password', async (request, reply) => {
+    app.post('/v1/admin/change-password', {
+        config: {
+            rateLimit: {
+                max: 5,
+                timeWindow: '15 minutes',
+                keyGenerator: (request: FastifyRequest) => request.ip + ':change-password',
+                errorResponseBuilder: (_request: FastifyRequest, context: any) => ({
+                    statusCode: 429,
+                    error: 'Too many password change attempts',
+                    message: 'Muitas tentativas de redefinição de senha. Tente novamente em 15 minutos.',
+                    retryAfter: Math.ceil(context.ttl / 1000),
+                }),
+            }
+        }
+    }, async (request, reply) => {
         // Validate body structure first — returns 400 before touching auth logic
         const cpParsed = ChangePasswordSchema.safeParse(request.body);
         if (!cpParsed.success) {
@@ -364,13 +378,11 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         preHandler: requireRole(['admin', 'dpo']),
     }, async (request, reply) => {
         const { id } = request.params as { id: string };
-        const body = request.body as { consent?: boolean; pii_strip?: boolean };
-
-        if (typeof body.consent !== 'boolean') {
-            return reply.status(400).send({
-                error: 'O campo "consent" (boolean) é obrigatório.',
-            });
+        const bodyParsed = TelemetryConsentSchema.safeParse(request.body);
+        if (!bodyParsed.success) {
+            return reply.status(400).send({ error: 'Validation failed', details: zodErrors(bodyParsed.error) });
         }
+        const body = bodyParsed.data;
 
         const callerUser = (request as any).user as { userId?: string; orgId?: string };
         const signingSecret = process.env.SIGNING_SECRET;

@@ -61,6 +61,22 @@ beforeAll(async () => {
         }
     }, async (_req, reply) => reply.send({ ok: true }));
 
+    // Change Password — 5/15min, key :change-password (x-test-ip for test isolation)
+    app.post('/v1/admin/change-password', {
+        config: {
+            rateLimit: {
+                max: 5,
+                timeWindow: '15 minutes',
+                keyGenerator: (req) => ((req.headers['x-test-ip'] as string) || req.ip || '127.0.0.1') + ':change-password',
+                errorResponseBuilder: (_req, context) => ({
+                    statusCode: 429,
+                    error: 'Too many password change attempts',
+                    retryAfter: Math.ceil(context.ttl / 1000),
+                }),
+            }
+        }
+    }, async (_req, reply) => reply.send({ ok: true }));
+
     app.get('/health', async () => ({ status: 'ok' }));
 
     await app.ready();
@@ -157,5 +173,26 @@ describe('P-12: Rate Limiting Granular', () => {
 
         const execRes = await executeRequest(ip);
         expect(execRes.statusCode).not.toBe(429);
+    });
+
+    it('Caso 7: POST /v1/admin/change-password — 6ª tentativa retorna 429', async () => {
+        const ip = 'ip-caso7';
+        for (let i = 0; i < 5; i++) {
+            const r = await app.inject({
+                method: 'POST',
+                url: '/v1/admin/change-password',
+                headers: { 'Content-Type': 'application/json', 'x-test-ip': ip },
+                payload: JSON.stringify({ resetToken: 'tok', newPassword: 'NewPass123!' }),
+            });
+            expect(r.statusCode).not.toBe(429);
+        }
+        const sixth = await app.inject({
+            method: 'POST',
+            url: '/v1/admin/change-password',
+            headers: { 'Content-Type': 'application/json', 'x-test-ip': ip },
+            payload: JSON.stringify({ resetToken: 'tok', newPassword: 'NewPass123!' }),
+        });
+        expect(sixth.statusCode).toBe(429);
+        expect(sixth.json().retryAfter).toBeDefined();
     });
 });

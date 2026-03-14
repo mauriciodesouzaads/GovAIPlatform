@@ -45,6 +45,13 @@ export const ApprovalActionSchema = z.object({
     reviewNote: z.string().min(1).max(2000),
 });
 
+// ── Organizations ─────────────────────────────────────────────────────────────
+
+export const TelemetryConsentSchema = z.object({
+    consent: z.boolean(),
+    pii_strip: z.boolean().optional(),
+});
+
 // ── Users ─────────────────────────────────────────────────────────────────────
 
 export const UpdateUserRoleSchema = z.object({

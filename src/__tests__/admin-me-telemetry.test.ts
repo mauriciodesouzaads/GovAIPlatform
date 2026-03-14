@@ -300,7 +300,10 @@ describe('PUT /v1/admin/organizations/:id/telemetry-consent', () => {
             payload: { pii_strip: true },
         });
         expect(res.statusCode).toBe(400);
-        expect(JSON.parse(res.body).error).toMatch(/consent/i);
+        const body400 = JSON.parse(res.body);
+        // Zod validation: error='Validation failed', details contains the 'consent' field
+        expect(body400.error).toBe('Validation failed');
+        expect(body400.details.some((d: { field: string }) => d.field === 'consent')).toBe(true);
     });
 
     it('returns 404 when organization does not exist', async () => {
