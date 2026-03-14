@@ -178,8 +178,12 @@ docker exec govai-platform-api-1 bash scripts/migrate.sh
 ```
 
 ### 3. Acesso Padrão
-- **Admin UI**: `http://localhost:3001` (User: `admin@govai.com` / Pass: `admin`)
+- **Admin UI**: `http://localhost:3001` (User: `admin@orga.com` / Pass: `password`)
 - **API Spec**: `http://localhost:3000/v1/docs/openapi.json`
+- **Login de teste via curl**: `admin@orga.com` / `password` (senha ≥ 8 chars, válida para Zod)
+  > ⚠️ `admin@govai.com` / `admin` foi descontinuado: senha "admin" (4 chars) é rejeitada
+  > pelo Zod `password.min(8)`. Essa conta existe no seed apenas para setup inicial
+  > com `requires_password_change: true`.
 
 ---
 

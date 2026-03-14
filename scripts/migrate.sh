@@ -57,6 +57,8 @@ MIGRATIONS=(
     "030_extend_audit_action_constraint.sql"
     "031_add_api_key_revocation.sql"
     "032_explicit_vector_dimension.sql"
+    "033_create_schema_migrations.sql"
+    "034_grant_platform_admin_table_access.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

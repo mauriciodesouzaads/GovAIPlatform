@@ -1,0 +1,25 @@
+-- Migration 034: Grant table-level access to platform_admin role
+-- ===========================================================================
+-- BUG FIX: ExpirationWorker falha com "permission denied for table pending_approvals"
+--
+-- CAUSA:
+--   Migration 024 criou a role platform_admin com BYPASSRLS mas sem grants.
+--   Migration 029 concedeu platform_admin TO govai_app (habilita SET ROLE)
+--   mas também sem grants de tabela para platform_admin.
+--
+--   BYPASSRLS bypassa políticas de RLS mas NÃO bypassa ACLs de tabela
+--   (table-level privilege checks). A role precisa de GRANT explícito mesmo
+--   sendo BYPASSRLS.
+--
+-- CORREÇÃO:
+--   Conceder SELECT + UPDATE em pending_approvals à role platform_admin.
+--   O expiration.worker.ts usa SET ROLE platform_admin apenas para o UPDATE
+--   cross-tenant — SELECT é necessário para o RETURNING clause.
+--
+-- SEGURANÇA:
+--   platform_admin continua sem LOGIN — não pode conectar diretamente.
+--   Só é acessível via SET ROLE por roles que tenham sido GRANTed
+--   (atualmente apenas govai_app e postgres — vide migration 024).
+-- ===========================================================================
+
+GRANT SELECT, UPDATE ON pending_approvals TO platform_admin;

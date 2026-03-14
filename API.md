@@ -13,8 +13,10 @@ Content-Type: application/json
 ```
 **Body:**
 ```json
-{ "email": "admin@govai.com", "password": "admin" }
+{ "email": "admin@orga.com", "password": "password" }
 ```
+> ⚠️ `admin@govai.com` / `admin` foi descontinuado. A senha "admin" (4 chars) é rejeitada
+> pelo Zod `password.min(8)`. Use `admin@orga.com` / `password` para testes.
 **Response 200:**
 ```json
 { "token": "eyJhbGciOiJIUzI1...", "message": "Login successful" }
