@@ -80,10 +80,12 @@ describe('Multi-Tenant RLS Isolation Audit', () => {
     it('Assistants Isolation: Org A should NOT see Org B data', async () => {
         const client = await pool.connect();
         try {
+            await client.query("SET ROLE govai_app");
             await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgAId]);
             const res = await client.query('SELECT * FROM assistants');
             expect(res.rows.some(r => r.org_id === orgBId)).toBe(false);
         } finally {
+            await client.query("RESET ROLE");
             client.release();
         }
     });
@@ -91,10 +93,12 @@ describe('Multi-Tenant RLS Isolation Audit', () => {
     it('Audit Logs Isolation: Org A should NOT see Org B logs', async () => {
         const client = await pool.connect();
         try {
+            await client.query("SET ROLE govai_app");
             await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgAId]);
             const res = await client.query('SELECT * FROM audit_logs_partitioned');
             expect(res.rows.some(r => r.org_id === orgBId)).toBe(false);
         } finally {
+            await client.query("RESET ROLE");
             client.release();
         }
     });
@@ -102,10 +106,12 @@ describe('Multi-Tenant RLS Isolation Audit', () => {
     it('Pending Approvals Isolation: Org A should NOT see Org B approvals', async () => {
         const client = await pool.connect();
         try {
+            await client.query("SET ROLE govai_app");
             await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgAId]);
             const res = await client.query('SELECT * FROM pending_approvals');
             expect(res.rows.some(r => r.org_id === orgBId)).toBe(false);
         } finally {
+            await client.query("RESET ROLE");
             client.release();
         }
     });
@@ -113,10 +119,12 @@ describe('Multi-Tenant RLS Isolation Audit', () => {
     it('Knowledge Base Isolation: Org A should NOT see Org B KB', async () => {
         const client = await pool.connect();
         try {
+            await client.query("SET ROLE govai_app");
             await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgAId]);
             const res = await client.query('SELECT * FROM knowledge_bases');
             expect(res.rows.some(r => r.org_id === orgBId)).toBe(false);
         } finally {
+            await client.query("RESET ROLE");
             client.release();
         }
     });
@@ -124,12 +132,14 @@ describe('Multi-Tenant RLS Isolation Audit', () => {
     it('Cross-Tenant Writing: Org A should be BLOCKED from inserting for Org B', async () => {
         const client = await pool.connect();
         try {
+            await client.query("SET ROLE govai_app");
             await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgAId]);
             await expect(client.query(
                 "INSERT INTO assistants (id, org_id, name) VALUES ($1, $2, 'Malicious')",
                 [uuidv4(), orgBId]
             )).rejects.toThrow();
         } finally {
+            await client.query("RESET ROLE");
             client.release();
         }
     });
