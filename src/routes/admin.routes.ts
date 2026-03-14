@@ -302,7 +302,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         const client = await pgPool.connect();
         try {
             const res = await client.query(`
-                SELECT id, name, status, created_at,
+                SELECT id, name, 'active' AS status, created_at,
                        telemetry_consent, telemetry_consent_at, telemetry_pii_strip
                 FROM organizations
                 ORDER BY created_at DESC
@@ -322,7 +322,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         const client = await pgPool.connect();
         try {
             const res = await client.query(`
-                SELECT o.id, o.name, o.status,
+                SELECT o.id, o.name, 'active' AS status,
                        o.telemetry_consent, o.telemetry_consent_at, o.telemetry_pii_strip,
                        u.email AS consented_by_email
                 FROM organizations o
