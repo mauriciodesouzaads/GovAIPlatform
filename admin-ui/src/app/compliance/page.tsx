@@ -48,11 +48,7 @@ export default function CompliancePage() {
             const res = await api.get<OrgConsent[]>(ENDPOINTS.ORGANIZATIONS);
             setOrgs(res.data);
         } catch (err: any) {
-            toast({
-                title: 'Erro ao carregar organizações',
-                description: err?.response?.data?.error ?? 'Verifique sua conexão.',
-                variant: 'destructive',
-            });
+            toast(err?.response?.data?.error ?? 'Erro ao carregar organizações. Verifique sua conexão.', 'error');
         } finally {
             setLoading(false);
         }
@@ -86,10 +82,10 @@ export default function CompliancePage() {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(objectUrl);
-            toast({ title: 'Exportação concluída', description: filename, variant: 'default' });
+            toast(`Exportação concluída: ${filename}`, 'success');
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Tente novamente.';
-            toast({ title: 'Erro ao exportar', description: msg, variant: 'destructive' });
+            toast(`Erro ao exportar: ${msg}`, 'error');
         } finally {
             setExporting(false);
         }
@@ -121,20 +117,13 @@ export default function CompliancePage() {
 
             setUpdateState(s => ({ ...s, [org.id]: 'idle' }));
 
-            toast({
-                title: field === 'telemetry_consent'
-                    ? (value ? 'Consentimento concedido' : 'Consentimento revogado')
-                    : (value ? 'Modo PII Strip ativado' : 'Modo PII Strip desativado'),
-                description: `${org.name} — log de auditoria registrado.`,
-                variant: 'default',
-            });
+            const action = field === 'telemetry_consent'
+                ? (value ? 'Consentimento concedido' : 'Consentimento revogado')
+                : (value ? 'Modo PII Strip ativado' : 'Modo PII Strip desativado');
+            toast(`${action} — ${org.name} — log de auditoria registrado.`, 'success');
         } catch (err: any) {
             setUpdateState(s => ({ ...s, [org.id]: 'error' }));
-            toast({
-                title: 'Erro ao atualizar consentimento',
-                description: err?.response?.data?.error ?? 'Tente novamente.',
-                variant: 'destructive',
-            });
+            toast(err?.response?.data?.error ?? 'Erro ao atualizar consentimento. Tente novamente.', 'error');
         }
     };
 

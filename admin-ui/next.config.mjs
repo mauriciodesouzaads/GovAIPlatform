@@ -1,4 +1,4 @@
-import type { NextConfig } from "next";
+/** @type {import('next').NextConfig} */
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -30,7 +30,7 @@ const securityHeaders = [
     },
 ];
 
-const nextConfig: NextConfig = {
+const nextConfig = {
     // Gera saída standalone para Docker otimizado (sem node_modules nem source no container final)
     output: 'standalone',
 
