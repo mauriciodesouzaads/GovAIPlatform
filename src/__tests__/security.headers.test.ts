@@ -87,9 +87,10 @@ afterAll(async () => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function header(res: { headers: Record<string, string | string[] | undefined> }, name: string): string | undefined {
-    const key = Object.keys(res.headers).find(k => k.toLowerCase() === name.toLowerCase());
-    return key ? String(res.headers[key]) : undefined;
+function header(res: { headers: Record<string, string | number | string[] | undefined> }, name: string): string | undefined {
+    const headers = res.headers as Record<string, string | string[] | undefined>;
+    const key = Object.keys(headers).find(k => k.toLowerCase() === name.toLowerCase());
+    return key ? String(headers[key]) : undefined;
 }
 
 // ---------------------------------------------------------------------------

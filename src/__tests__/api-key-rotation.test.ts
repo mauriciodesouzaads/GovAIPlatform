@@ -54,8 +54,8 @@ describe('P-11: API Key Rotation Job', () => {
 
         await runApiKeyRotationCycle(pool);
 
-        const updateCalls = mockClient.query.mock.calls.filter(
-            (c: [string]) => c[0].includes('expired_ttl') && c[0].includes('expires_at < NOW()')
+        const updateCalls = (mockClient.query.mock.calls as [string, ...unknown[]][]).filter(
+            (c) => c[0].includes('expired_ttl') && c[0].includes('expires_at < NOW()')
         );
         expect(updateCalls.length).toBeGreaterThanOrEqual(1);
         expect(updateCalls[0][0]).toContain("revoke_reason = 'expired_ttl'");
@@ -70,11 +70,11 @@ describe('P-11: API Key Rotation Job', () => {
 
         await runApiKeyRotationCycle(pool);
 
-        const updateCall = mockClient.query.mock.calls.find(
-            (c: [string]) => c[0].includes('expired_ttl')
+        const updateCall = (mockClient.query.mock.calls as [string, ...unknown[]][]).find(
+            (c) => c[0].includes('expired_ttl')
         );
         expect(updateCall).toBeDefined();
-        expect(updateCall[0]).toContain('expires_at < NOW()');
+        expect(updateCall![0]).toContain('expires_at < NOW()');
         // No rows returned = no keys expired = keys with future expires_at stay active
     });
 
@@ -112,12 +112,12 @@ describe('P-11: API Key Rotation Job', () => {
 
         await runApiKeyRotationCycle(pool, logger);
 
-        const ttlCall = mockClient.query.mock.calls.find(
-            (c: [string]) => c[0].includes('expires_at IS NULL') && c[0].includes('created_at +')
+        const ttlCall = (mockClient.query.mock.calls as [string, ...unknown[]][]).find(
+            (c) => c[0].includes('expires_at IS NULL') && c[0].includes('created_at +')
         );
         expect(ttlCall).toBeDefined();
-        expect(ttlCall[0]).toContain("' days')::INTERVAL");
-        expect(ttlCall[1]).toEqual([90]);
+        expect(ttlCall![0]).toContain("' days')::INTERVAL");
+        expect(ttlCall![1]).toEqual([90]);
         expect(logger.warn).toHaveBeenCalledWith(
             '[ApiKeyRotation] Applied default TTL (90 days) to keys without expiration',
             expect.any(Object)
@@ -132,10 +132,10 @@ describe('P-11: API Key Rotation Job', () => {
 
         await runApiKeyRotationCycle(pool);
 
-        const updateCall = mockClient.query.mock.calls.find(
-            (c: [string]) => c[0].includes('expired_ttl')
+        const updateCall = (mockClient.query.mock.calls as [string, ...unknown[]][]).find(
+            (c) => c[0].includes('expired_ttl')
         );
-        expect(updateCall[0]).toContain('is_active = true');
+        expect(updateCall![0]).toContain('is_active = true');
         // Keys with is_active=false are excluded by WHERE — mock returns [] as if none matched
     });
 
@@ -147,10 +147,10 @@ describe('P-11: API Key Rotation Job', () => {
 
         await runApiKeyRotationCycle(pool);
 
-        const updateCall = mockClient.query.mock.calls.find(
-            (c: [string]) => c[0].includes('expired_ttl')
+        const updateCall = (mockClient.query.mock.calls as [string, ...unknown[]][]).find(
+            (c) => c[0].includes('expired_ttl')
         );
-        expect(updateCall[0]).toContain('revoke_reason IS NULL');
+        expect(updateCall![0]).toContain('revoke_reason IS NULL');
         // Keys with revoke_reason set are excluded by WHERE — never overwritten
     });
 });
