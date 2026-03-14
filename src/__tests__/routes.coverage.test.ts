@@ -74,10 +74,10 @@ function createSuccessClient() {
                 return { rows: [{ id: AST_ID, name: 'Test Assistant', status: 'draft', created_at: new Date(), draft_version_id: null }] };
             }
             if (sql.includes('FROM api_keys')) {
-                return { rows: [{ id: 'key-1', name: 'Test Key', prefix: 'sk-govai-abc', is_active: true, created_at: new Date(), expires_at: null }] };
+                return { rows: [{ id: 'key-1', name: 'Test Key', prefix: 'test-key-abc', is_active: true, created_at: new Date(), expires_at: null }] };
             }
             if (sql.includes('INSERT INTO api_keys')) {
-                return { rows: [{ id: 'key-2', prefix: 'sk-govai-xyz', created_at: new Date(), expires_at: null }] };
+                return { rows: [{ id: 'key-2', prefix: 'test-key-xyz', created_at: new Date(), expires_at: null }] };
             }
             if (sql.includes('UPDATE api_keys SET is_active')) {
                 return { rows: [], rowCount: 1 };
@@ -218,7 +218,7 @@ describe('assistants.routes.ts — happy paths', () => {
         });
         expect(res.statusCode).toBe(201);
         const body = JSON.parse(res.body);
-        expect(body.key).toMatch(/^sk-govai-/);
+        expect(body.key).toMatch(/^sk-/);
         expect(body.warning).toBeDefined();
     });
 

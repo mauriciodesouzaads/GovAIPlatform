@@ -48,4 +48,6 @@ regexes = [
 # Commits known to contain the accidentally exposed key (document + skip)
 # These commits are in history and cannot be rewritten without affecting the team.
 # The key HAS BEEN REVOKED via scripts/revoke-exposed-key.sh.
-commits = []
+# 5fb0210 — introduced sk-govai-19b8f4ac0bda484f9af97be3 in stress_test.js (now revoked)
+# a3ab76f — removed the same key (deletion line still appears in the diff)
+commits = ["5fb0210", "a3ab76f"]
