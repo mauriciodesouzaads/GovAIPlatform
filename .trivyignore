@@ -1,0 +1,3 @@
+# Ignorar Dockerfiles de dependências em node_modules
+# O Trivy não deve escanear código de terceiros
+node_modules/
