@@ -17,18 +17,18 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
 
     // --- ADMIN ROUTES ---
 
-    // 0. Login — with robust DB check & Force Password Reset (Sprint 8)
+    // 0. Login — P-12: brute-force protection (10/15min, key :login)
     app.post('/v1/admin/login', {
         config: {
             rateLimit: {
                 max: 10,
-                timeWindow: '1 minute',
-                keyGenerator: (request: FastifyRequest) => request.ip,
+                timeWindow: '15 minutes',
+                keyGenerator: (request: FastifyRequest) => request.ip + ':login',
                 errorResponseBuilder: (_request: FastifyRequest, context: any) => ({
                     statusCode: 429,
-                    error: 'Too Many Requests',
-                    message: 'Muitas tentativas de login. Tente novamente em 1 minuto.',
-                    retryAfter: context.ttl,
+                    error: 'Too many login attempts',
+                    message: 'Muitas tentativas de login. Tente novamente em 15 minutos.',
+                    retryAfter: Math.ceil(context.ttl / 1000),
                 }),
             }
         }

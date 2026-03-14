@@ -9,3 +9,9 @@ dist
 *.pdf
 *.csv
 /tmp
+
+# P-13: Test artifacts — não devem entrar na imagem de produção
+src/__tests__
+*.test.ts
+vitest.config.*
+coverage/

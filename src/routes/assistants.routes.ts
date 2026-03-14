@@ -57,8 +57,23 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         }
     });
 
-    // Create API Key
-    app.post('/v1/admin/api-keys', { preHandler: requireAdminAuth }, async (request, reply) => {
+    // Create API Key — P-12: 20/hr, key :api-keys
+    app.post('/v1/admin/api-keys', {
+        config: {
+            rateLimit: {
+                max: 20,
+                timeWindow: '1 hour',
+                keyGenerator: (request: FastifyRequest) => request.ip + ':api-keys',
+                errorResponseBuilder: (_request, context: any) => ({
+                    statusCode: 429,
+                    error: 'Rate limit exceeded',
+                    message: 'Limite de criação de chaves por hora excedido.',
+                    retryAfter: Math.ceil(context.ttl / 1000),
+                }),
+            }
+        },
+        preHandler: requireAdminAuth
+    }, async (request, reply) => {
         const apiKeyParsed = CreateApiKeySchema.safeParse(request.body);
         if (!apiKeyParsed.success) {
             return reply.status(400).send({ error: 'Validation failed', details: zodErrors(apiKeyParsed.error) });

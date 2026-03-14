@@ -29,6 +29,15 @@ VALUES ('00000000-0000-0000-0000-000000000001', 'operator@test.com', 'Operador',
 ON CONFLICT (sso_provider, sso_user_id) DO UPDATE SET 
   password_hash = EXCLUDED.password_hash,
   role = EXCLUDED.role;
+
+-- Admin Orga (password: password) — para curl admin@orga.com / password
+INSERT INTO users (org_id, email, name, sso_provider, sso_user_id, password_hash, requires_password_change, role)
+VALUES ('00000000-0000-0000-0000-000000000001', 'admin@orga.com', 'Admin Orga', 'local', 'admin@orga.com',
+  '$2b$10$xWtdHDgYIWsGXCBqmik9dewFZFxyOsJX7akXSnzE1lnWbc6yOyEV6', false, 'admin')
+ON CONFLICT (sso_provider, sso_user_id) DO UPDATE SET 
+  password_hash = EXCLUDED.password_hash,
+  requires_password_change = EXCLUDED.requires_password_change,
+  role = EXCLUDED.role;
 EOF
 
 echo "Demo Seed executed successfully!"

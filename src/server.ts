@@ -26,6 +26,7 @@ import { initTelemetryWorker } from './workers/telemetry.worker';
 import { initExpirationWorker } from './workers/expiration.worker';
 import { exportTenantData, exportToCSV, generateDueDiligencePDF } from './lib/offboarding';
 import { initKeyRotationJob } from './jobs/key-rotation.job';
+import { initApiKeyRotationJob } from './jobs/api-key-rotation.job';
 
 // ---------------------------------------------------------------------------
 // Fail-fast guards — must run before anything else
@@ -55,6 +56,7 @@ initTelemetryWorker();
 // Jobs — scheduled tasks (run after server startup via internal delay)
 // ---------------------------------------------------------------------------
 initKeyRotationJob();
+initApiKeyRotationJob();
 
 // ---------------------------------------------------------------------------
 // Fastify instance — pino-pretty only in non-production environments
@@ -149,17 +151,19 @@ fastify.register(cors, {
     credentials: true,
 });
 
+// P-12: Global rate limit + Retry-After header in seconds
 fastify.register(rateLimit, {
     max: (request: FastifyRequest) => (request.headers.authorization ? 1000 : 50),
     timeWindow: '1 minute',
     redis: redisCache,
     skipOnError: true,
     keyGenerator: (request: FastifyRequest) => request.headers.authorization as string || request.ip,
+    addHeaders: { 'retry-after': true },
     errorResponseBuilder: (_request, context) => ({
         statusCode: 429,
-        error: 'Too Many Requests',
+        error: 'Rate limit exceeded',
         message: 'Limite de requisições excedido.',
-        retryAfter: context.ttl,
+        retryAfter: Math.ceil(context.ttl / 1000),
     }),
 });
 
@@ -246,7 +250,23 @@ setInterval(() => {
 // Routes
 // ---------------------------------------------------------------------------
 
-fastify.post('/v1/execute/:assistantId', { preHandler: requireApiKey }, async (request, reply) => {
+// P-12: Execute rate limit (100/min, key :execute) — independente do login
+fastify.post('/v1/execute/:assistantId', {
+    config: {
+        rateLimit: {
+            max: 100,
+            timeWindow: '1 minute',
+            keyGenerator: (request: FastifyRequest) => request.ip + ':execute',
+            errorResponseBuilder: (_request, context) => ({
+                statusCode: 429,
+                error: 'Rate limit exceeded',
+                message: 'Limite de execuções por minuto excedido.',
+                retryAfter: Math.ceil(context.ttl / 1000),
+            }),
+        }
+    },
+    preHandler: requireApiKey
+}, async (request, reply) => {
     const { assistantId } = request.params as { assistantId: string };
     const orgId = request.headers['x-org-id'] as string;
     const parseResult = GovernanceRequestSchema.safeParse(request.body);
@@ -388,14 +408,9 @@ fastify.get('/health', async (_request, reply) => {
 registerOidcRoutes(fastify, pgPool);
 
 import { adminRoutes } from './routes/admin.routes';
-import { assistantsRoutes } from './routes/assistants.routes';
-import { approvalsRoutes } from './routes/approvals.routes';
-import { reportsRoutes } from './routes/reports.routes';
 
-fastify.register(adminRoutes,      { pgPool, requireAdminAuth, requireRole });
-fastify.register(assistantsRoutes, { pgPool, requireAdminAuth, requireRole });
-fastify.register(approvalsRoutes,  { pgPool, requireAdminAuth, requireRole });
-fastify.register(reportsRoutes,    { pgPool, requireAdminAuth, requireRole });
+fastify.register(adminRoutes, { pgPool, requireAdminAuth, requireRole });
+// assistantsRoutes, approvalsRoutes, reportsRoutes registered internally by adminRoutes
 
 // ---------------------------------------------------------------------------
 // Server startup — OPA WASM initialized here so first request is not penalized
