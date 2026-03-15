@@ -1,12 +1,12 @@
 # GovAI Platform — Status do Projeto
 
-**Última atualização:** 2026-03-14
+**Última atualização:** 2026-03-15
 **Branch:** main
 **Último commit:** `e47c187` — fix: ExpirationWorker permission denied + credenciais de teste
 
 ---
 
-## Estado Atual (validado em 14/03/2026)
+## Estado Atual (validado em 15/03/2026)
 
 | Componente | Status | Detalhe |
 |---|---|---|
@@ -20,6 +20,10 @@
 | Migrations | ✅ 034 aplicadas | 011–034 em sequência |
 | Docker stack | ✅ 6 serviços | api, admin-ui, db, redis, litellm, presidio |
 | ExpirationWorker | ✅ sem erros | migration 034 corrigiu GRANT em platform_admin |
+| Sidebar links | ✅ todos corretos | 7 hrefs batem com pages existentes |
+| Criar API Key | ✅ funcional | POST /v1/admin/api-keys → key retornada |
+| Pipeline governança | ✅ validado | BLOCK 403 + HITL 202 + audit logs com HMAC |
+| Fila HITL | ✅ funcional | pending_approvals com reject funcionando |
 
 ---
 
@@ -122,24 +126,51 @@ TOKEN=$(curl -s -X POST http://localhost:3000/v1/admin/login \
 
 ---
 
+## Sprint 2 — Resultados (15/03/2026)
+
+### Fluxo testado end-to-end via API
+
+| Teste | Endpoint | Resultado | HTTP |
+|---|---|---|---|
+| Criar assistente | `POST /v1/admin/assistants` | ✅ ID retornado, status `draft` | 201 |
+| Criar versão com policy | `POST /v1/admin/assistants/:id/versions` | ✅ `draft_version_id` gerado | 201 |
+| Criar API Key | `POST /v1/admin/api-keys` | ✅ chave `sk-govai-*` retornada | 201 |
+| Execução BLOQUEADA | `POST /v1/execute/:id` + prompt injection | ✅ LLM01 detectado antes do LLM | 403 |
+| Execução HITL | `POST /v1/execute/:id` + "transferencia bancaria" | ✅ `PENDING_APPROVAL` criado | 202 |
+| Reject HITL | `POST /v1/admin/approvals/:id/reject` | ✅ status atualizado para `rejected` | 200 |
+| Audit logs | `GET /v1/admin/audit-logs` | ✅ POLICY_VIOLATION + PENDING_APPROVAL com HMAC | 200 |
+| Dashboard stats | `GET /v1/admin/stats` | ✅ `total_violations: 2` reflete execuções | 200 |
+
+### Limitações Conhecidas (ambiente sem LLM real)
+
+1. **Immutable version trigger** — `prevent_version_mutation()` bloqueia UPDATE em `assistant_versions`.
+   A rota `POST /v1/admin/assistants/:id/versions/:vId/approve` falha com erro P0001 (trigger).
+   **Causa:** design "Cartório" (imutabilidade de auditoria) conflita com o fluxo de publicação via UPDATE.
+   **Workaround:** inserir version com `status = 'published'` diretamente no seed/migration para publicar.
+
+2. **HITL approve re-executa LLM** — `POST /v1/admin/approvals/:id/approve` tenta re-executar o
+   assistente após aprovação. Sem LiteLLM configurado com chave real, a aprovação é revertida.
+   O fluxo `reject` funciona normalmente.
+
+3. **Mensagens ALLOWED falham no LLM** — OPA/DLP passa, mas LiteLLM retorna 400 (sem modelo real).
+   O pipeline de governança (pré-LLM) está 100% funcional.
+
+---
+
 ## Próximos Passos Sugeridos
 
 ### Alta prioridade
-1. **Telas UI com funcionalidades não testadas end-to-end:**
-   - Criar API Key via UI → verificar se chave aparece na lista
-   - Criar Assistente → publicar versão → verificar homologação
-   - POST `/v1/execute` com API Key real → gerar approval HITL → aprovar via UI
-   - Export CSV da compliance/audit-trail → verificar download
+1. **Conflito immutable trigger vs approve route:**
+   - Migration que cria `prevent_version_mutation()` precisa de exceção para `status = 'published'`
+   - OU a rota de aprovação deve ser reimplementada sem UPDATE (INSERT novo estado + referência)
 
 2. **Migration 034 no ambiente de CI:**
    - A migration foi aplicada manualmente ao banco local
    - O CI precisa rodar `scripts/migrate.sh` para aplicar 033 e 034 ao banco de integração
-   - Verificar se o job "Integration Tests" do CI aplica migrations antes dos testes
 
 3. **`security.tenant-isolation.test.ts` no CI:**
    - 5/6 testes falhando porque usam `postgres` superuser (bypassa RLS)
    - Padrão correto: `SET ROLE govai_app` + `set_config('app.current_org_id', ...)` antes de cada assertion
-   - Pendente de correção para CI passar 100%
 
 ### Média prioridade
 4. **Rate limit em `change-password`** — endpoint POST sem rateLimit (auditoria detectou)
