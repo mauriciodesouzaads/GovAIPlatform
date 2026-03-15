@@ -5,14 +5,22 @@ services:
       POSTGRES_DB: govai_platform
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       DB_APP_PASSWORD: ${DB_APP_PASSWORD}
-    # Produção: sem port mapping — DB acessível apenas via rede interna govai-net
+    # Produção: sem port mapping — DB acessível apenas via rede interna govai-prod-net
     volumes:
       - ./scripts/init-roles.sh:/docker-entrypoint-initdb.d/00_init_roles.sh
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-      - pgdata:/var/lib/postgresql/data
+      - pgdata-prod:/var/lib/postgresql/data
     networks:
-      - govai-net
+      - govai-prod-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1g
+        reservations:
+          cpus: '0.5'
+          memory: 512m
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres -d govai_platform" ]
       interval: 10s
@@ -28,11 +36,11 @@ services:
       --maxmemory 512mb
       --maxmemory-policy allkeys-lru
       --appendonly yes
-    # Produção: sem port mapping — Redis acessível apenas via rede interna govai-net
+    # Produção: sem port mapping — Redis acessível apenas via rede interna govai-prod-net
     volumes:
-      - redisdata:/data
+      - redisdata-prod:/data
     networks:
-      - govai-net
+      - govai-prod-net
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping" ]
@@ -47,12 +55,21 @@ services:
     image: ghcr.io/berriai/litellm@sha256:690bcb7a5dd11dffc24d7444a35b28723652443a9ab0608a46c05beba91a2193
     command: --config /app/config.yaml
     volumes:
-      - ./litellm-config.yaml:/app/config.yaml
+      - ./litellm-config.yaml:/app/config.yaml:ro
     environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-    # Sem port mapping — LiteLLM acessível apenas internamente via govai-net
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      LITELLM_KEY: ${LITELLM_KEY}
+    # Sem port mapping — LiteLLM acessível apenas internamente via govai-prod-net
     networks:
-      - govai-net
+      - govai-prod-net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512m
+        reservations:
+          cpus: '0.2'
+          memory: 256m
     restart: unless-stopped
     healthcheck:
       test: [ "CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:4000/health\")'" ]
@@ -72,7 +89,7 @@ services:
           cpus: '0.2'
           memory: 512M
     networks:
-      - govai-net
+      - govai-prod-net
     restart: unless-stopped
     healthcheck:
       test: [ "CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:5001/health\")'" ]
@@ -121,8 +138,16 @@ services:
       presidio:
         condition: service_healthy
     networks:
-      - govai-net
+      - govai-prod-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512m
+        reservations:
+          cpus: '0.25'
+          memory: 256m
     healthcheck:
       test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/health" ]
       interval: 30s
@@ -139,7 +164,7 @@ services:
       api:
         condition: service_healthy
     networks:
-      - govai-net
+      - govai-prod-net
     restart: unless-stopped
     healthcheck:
       test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3001/ || exit 1" ]
@@ -171,7 +196,7 @@ services:
       admin-ui:
         condition: service_healthy
     networks:
-      - govai-net
+      - govai-prod-net
     restart: unless-stopped
     healthcheck:
       test: [ "CMD-SHELL", "nginx -t 2>/dev/null && wget --no-verbose --tries=1 --spider http://127.0.0.1:80/ || exit 1" ]
@@ -200,7 +225,7 @@ services:
       prometheus:
         condition: service_healthy
     networks:
-      - govai-net
+      - govai-prod-net
     restart: unless-stopped
     healthcheck:
       test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1" ]
@@ -222,7 +247,7 @@ services:
       # Prometheus UI — bind ao loopback. Acesse via SSH tunnel ou reverse proxy.
       - "127.0.0.1:9090:9090"
     networks:
-      - govai-net
+      - govai-prod-net
     restart: unless-stopped
     depends_on:
       api:
@@ -267,7 +292,7 @@ services:
       # AlertManager UI — bind ao loopback. Acesse via SSH tunnel.
       - "127.0.0.1:9093:9093"
     networks:
-      - govai-net
+      - govai-prod-net
     restart: unless-stopped
     depends_on:
       prometheus:
@@ -280,13 +305,20 @@ services:
       start_period: 15s
 
 volumes:
-  pgdata:
-  redisdata:
+  pgdata-prod:
+    name: govai_pgdata_prod
+  redisdata-prod:
+    name: govai_redisdata_prod
   prometheusdata:
+    name: govai_prometheusdata_prod
   prometheus_secrets:
+    name: govai_prometheus_secrets_prod
   grafanadata:
+    name: govai_grafanadata_prod
   alertmanagerdata:
+    name: govai_alertmanagerdata_prod
 
 networks:
-  govai-net:
+  govai-prod-net:
     driver: bridge
+    name: govai_prod_net

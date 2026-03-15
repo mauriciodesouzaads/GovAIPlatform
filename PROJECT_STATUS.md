@@ -2,7 +2,7 @@
 
 **Última atualização:** 2026-03-15
 **Branch:** main
-**Último commit:** `8f7c65f` — feat(llm): switch LiteLLM from mock to Gemini 2.5 Flash real
+**Último commit:** `sprint6` — feat(deploy): production deployment artifacts
 
 ---
 
@@ -27,6 +27,8 @@
 | LiteLLM real | ✅ Gemini 2.5 Flash | mock removido, respostas reais funcionando |
 | Playground UI | ✅ funcional | /playground na sidebar, 3 cenários validados |
 | Execução real | ✅ resposta da IA | total_executions=4, total_tokens=967 |
+| E2E Playwright | ✅ 5 testes | T01-T05: login, dashboard, assistants, playground, HITL |
+| Deploy artifacts | ✅ Sprint 6 | docker-compose.prod.yml, .env.prod.example, deploy/ |
 
 ---
 
@@ -158,6 +160,19 @@ TOKEN=$(curl -s -X POST http://localhost:3000/v1/admin/login \
 **Nota de modelo:** `gemini-1.5-flash` descontinuado. `gemini-2.0-flash` sem free tier neste
 projeto (limit: 0). `gemini-2.5-flash` é o modelo funcional com a GEMINI_API_KEY atual.
 O `model_name` no LiteLLM mantém `gemini/gemini-1.5-flash` para compatibilidade com AI_MODEL no .env.
+
+---
+
+## Sprint 6 — Deploy de Produção (15/03/2026)
+
+| Arquivo | Descrição |
+|---|---|
+| `docker-compose.prod.yml` | Stack completo sem port bindings de DB/Redis, rede `govai-prod-net`, resource limits, volumes nomeados prod |
+| `.env.prod.example` | Template com todos os secrets de produção documentados e instruções de geração |
+| `deploy/vps.sh` | Script de deploy Ubuntu 22.04: deps check, git update, migrations, up, health check |
+| `deploy/README.md` | Guia para 4 plataformas: VPS, AWS ECS+RDS, Google Cloud Run, Render.com |
+| `deploy/nginx.conf` | Reverse proxy com HSTS, CSP, rate limiting por zona, SSL TLS 1.2/1.3, gzip |
+| `.github/workflows/ci-cd.yml` | +Job 6 deploy: SSH para VPS em push main, guardado por `secrets.DEPLOY_SSH_KEY != ''` |
 
 ---
 

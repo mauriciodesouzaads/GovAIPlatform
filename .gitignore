@@ -76,3 +76,4 @@ migration_error.log
 *.bak
 *.wasm.bak
 migrations/
+admin-ui/test-results/
