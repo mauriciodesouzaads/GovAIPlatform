@@ -32,6 +32,8 @@ const defaultExcludes = [
     '**/dist/**',
     '**/.{idea,git,cache,output,temp}/**',
     '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*',
+    // Playwright E2E tests — run via `cd admin-ui && npx playwright test`, not vitest
+    'admin-ui/e2e/**',
 ];
 
 export default defineConfig({
