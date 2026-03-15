@@ -2,7 +2,7 @@
 
 **Última atualização:** 2026-03-15
 **Branch:** main
-**Último commit:** `e47c187` — fix: ExpirationWorker permission denied + credenciais de teste
+**Último commit:** `8f7c65f` — feat(llm): switch LiteLLM from mock to Gemini 2.5 Flash real
 
 ---
 
@@ -24,6 +24,9 @@
 | Criar API Key | ✅ funcional | POST /v1/admin/api-keys → key retornada |
 | Pipeline governança | ✅ validado | BLOCK 403 + HITL 202 + audit logs com HMAC |
 | Fila HITL | ✅ funcional | pending_approvals com reject funcionando |
+| LiteLLM real | ✅ Gemini 2.5 Flash | mock removido, respostas reais funcionando |
+| Playground UI | ✅ funcional | /playground na sidebar, 3 cenários validados |
+| Execução real | ✅ resposta da IA | total_executions=4, total_tokens=967 |
 
 ---
 
@@ -141,19 +144,20 @@ TOKEN=$(curl -s -X POST http://localhost:3000/v1/admin/login \
 | Audit logs | `GET /v1/admin/audit-logs` | ✅ POLICY_VIOLATION + PENDING_APPROVAL com HMAC | 200 |
 | Dashboard stats | `GET /v1/admin/stats` | ✅ `total_violations: 2` reflete execuções | 200 |
 
-### Limitações Conhecidas (ambiente sem LLM real)
+### Sprint 4 — LiteLLM com Gemini Real (15/03/2026)
 
-1. **Immutable version trigger** — `prevent_version_mutation()` bloqueia UPDATE em `assistant_versions`.
-   A rota `POST /v1/admin/assistants/:id/versions/:vId/approve` falha com erro P0001 (trigger).
-   **Causa:** design "Cartório" (imutabilidade de auditoria) conflita com o fluxo de publicação via UPDATE.
-   **Workaround:** inserir version com `status = 'published'` diretamente no seed/migration para publicar.
+| Teste | Resultado |
+|---|---|
+| LiteLLM direto (`POST /chat/completions`) | ✅ Gemini 2.5 Flash responde |
+| Execução via GovAI (`POST /v1/execute/:id`) | ✅ Resposta real da IA retornada |
+| Resposta normal — "o que é governança de IA?" | ✅ HTTP 200 + texto em PT-BR |
+| Bloqueio OPA — prompt injection | ✅ HTTP 403 + violation POLICY_VIOLATION |
+| HITL — "transferência bancária" | ✅ HTTP 202 + PENDING_APPROVAL criado |
+| Stats após execuções | ✅ total_executions=4, total_tokens=967 |
 
-2. **HITL approve re-executa LLM** — `POST /v1/admin/approvals/:id/approve` tenta re-executar o
-   assistente após aprovação. Sem LiteLLM configurado com chave real, a aprovação é revertida.
-   O fluxo `reject` funciona normalmente.
-
-3. **Mensagens ALLOWED falham no LLM** — OPA/DLP passa, mas LiteLLM retorna 400 (sem modelo real).
-   O pipeline de governança (pré-LLM) está 100% funcional.
+**Nota de modelo:** `gemini-1.5-flash` descontinuado. `gemini-2.0-flash` sem free tier neste
+projeto (limit: 0). `gemini-2.5-flash` é o modelo funcional com a GEMINI_API_KEY atual.
+O `model_name` no LiteLLM mantém `gemini/gemini-1.5-flash` para compatibilidade com AI_MODEL no .env.
 
 ---
 
@@ -171,6 +175,10 @@ TOKEN=$(curl -s -X POST http://localhost:3000/v1/admin/login \
 3. **`security.tenant-isolation.test.ts` no CI:**
    - 5/6 testes falhando porque usam `postgres` superuser (bypassa RLS)
    - Padrão correto: `SET ROLE govai_app` + `set_config('app.current_org_id', ...)` antes de cada assertion
+
+4. **HITL approve com LLM real:**
+   - `POST /v1/admin/approvals/:id/approve` re-executa o assistente via LiteLLM
+   - Com Gemini real configurado, testar fluxo completo de aprovação HITL
 
 ### Média prioridade
 4. **Rate limit em `change-password`** — endpoint POST sem rateLimit (auditoria detectou)
