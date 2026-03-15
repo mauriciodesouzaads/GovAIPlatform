@@ -1,4 +1,7 @@
 import 'dotenv/config';
+import { initMonitoring, captureError } from './lib/monitoring';
+// initMonitoring must be called before any route, worker, or plugin registration
+initMonitoring();
 import fs from 'fs';
 import path from 'path';
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -388,18 +391,49 @@ fastify.get('/metrics', async (request, reply) => {
 });
 
 fastify.get('/health', async (_request, reply) => {
+    let dbStatus: 'connected' | 'disconnected' = 'disconnected';
+    let redisStatus: 'connected' | 'disconnected' = 'disconnected';
+    let litellmStatus: 'connected' | 'disconnected' = 'disconnected';
+
+    // --- DB ---
     try {
         await pgPool.query('SELECT 1');
-        const redisStatus = await redisCache.ping();
-        return {
-            status: 'ok',
-            db: 'connected',
-            redis: redisStatus === 'PONG' ? 'connected' : 'disconnected',
-        };
-    } catch (e) {
-        fastify.log.error(e, 'Health check failed');
-        return reply.status(503).send({ status: 'error', db: 'disconnected', redis: 'disconnected' });
-    }
+        dbStatus = 'connected';
+    } catch (_e) { /* already disconnected */ }
+
+    // --- Redis ---
+    try {
+        const pong = await redisCache.ping();
+        redisStatus = pong === 'PONG' ? 'connected' : 'disconnected';
+    } catch (_e) { /* already disconnected */ }
+
+    // --- LiteLLM (non-blocking, 2 s timeout) ---
+    try {
+        const litellmUrl = process.env.LITELLM_URL || 'http://litellm:4000';
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 2000);
+        const res = await fetch(`${litellmUrl}/health`, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+        litellmStatus = res.ok ? 'connected' : 'disconnected';
+    } catch (_e) { /* timeout or unreachable */ }
+
+    const overallStatus =
+        dbStatus === 'connected' && redisStatus === 'connected'
+            ? 'ok'
+            : dbStatus === 'disconnected'
+            ? 'error'
+            : 'degraded';
+
+    const httpCode = overallStatus === 'error' ? 503 : 200;
+
+    return reply.status(httpCode).send({
+        status: overallStatus,
+        db: dbStatus,
+        redis: redisStatus,
+        litellm: litellmStatus,
+        uptime: Math.floor(process.uptime()),
+        version: process.env.npm_package_version || '1.0.0',
+        environment: process.env.NODE_ENV || 'development',
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -411,6 +445,21 @@ import { adminRoutes } from './routes/admin.routes';
 
 fastify.register(adminRoutes, { pgPool, requireAdminAuth, requireRole });
 // assistantsRoutes, approvalsRoutes, reportsRoutes registered internally by adminRoutes
+
+// ---------------------------------------------------------------------------
+// Global error handler — captures unhandled 500s to Sentry
+// ---------------------------------------------------------------------------
+fastify.setErrorHandler((error, request, reply) => {
+    fastify.log.error(error, 'Unhandled request error');
+    captureError(error instanceof Error ? error : new Error(String(error)), {
+        url: request.url,
+        method: request.method,
+        orgId: (request.headers as Record<string, unknown>)['x-org-id'],
+    });
+    if (!reply.sent) {
+        reply.status(500).send({ error: 'Internal server error' });
+    }
+});
 
 // ---------------------------------------------------------------------------
 // Server startup — OPA WASM initialized here so first request is not penalized

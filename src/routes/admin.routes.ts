@@ -237,6 +237,12 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
                 total_assistants: parseInt(assistantsRes.rows[0].count, 10),
                 total_executions: parseInt(totalExecsRes.rows[0].count, 10),
                 total_violations: parseInt(violationsRes.rows[0].count, 10),
+                violation_rate: (() => {
+                    const execs = parseInt(totalExecsRes.rows[0].count, 10);
+                    const viols = parseInt(violationsRes.rows[0].count, 10);
+                    if (execs === 0) return 0;
+                    return parseFloat(((viols / execs) * 100).toFixed(2));
+                })(),
                 total_tokens: totalTokens,
                 estimated_cost_usd: estimatedCost.toFixed(4),
                 usage_history

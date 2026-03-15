@@ -17,6 +17,7 @@ import IORedis from 'ioredis';
 import { Pool } from 'pg';
 import { notificationQueue } from './notification.worker';
 import { pgPool } from '../lib/db';
+import { captureError } from '../lib/monitoring';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -129,6 +130,11 @@ export const initExpirationWorker = () => {
 
     worker.on('failed', (job: any, err: any) => {
         console.error(`[ExpirationWorker] Job ${job?.id} failed:`, err);
+        captureError(err instanceof Error ? err : new Error(String(err)), {
+            job: 'expiration-worker',
+            jobId: job?.id,
+            orgId: 'cross-tenant',
+        });
     });
 
     expirationQueue.add('sweep-expired', {}, {

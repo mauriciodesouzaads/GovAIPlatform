@@ -16,6 +16,7 @@ import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { Pool } from 'pg';
 import { pgPool } from '../lib/db';
+import { captureError } from '../lib/monitoring';
 
 const CRON = '0 2 * * *'; // Todo dia às 2h
 const TTL_DAYS = 90;
@@ -141,6 +142,10 @@ export function initApiKeyRotationJob(): Worker {
 
     worker.on('failed', (job: any, err: any) => {
         console.error('[ApiKeyRotation] Job failed:', job?.id, err);
+        captureError(err instanceof Error ? err : new Error(String(err)), {
+            job: 'api-key-rotation',
+            jobId: job?.id,
+        });
     });
 
     apiKeyRotationQueue.add('rotate-keys', {}, {
