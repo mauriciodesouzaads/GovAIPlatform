@@ -2,24 +2,18 @@ model_list:
   # ── Modelo principal: nome deve coincidir com AI_MODEL no .env ──────────────
   # A app envia model: "gemini/gemini-1.5-flash" para o proxy LiteLLM.
   # O model_name aqui DEVE bater com esse valor para o roteamento funcionar.
-  #
-  # DEV (sem GEMINI_API_KEY real): usa mock_response para retornar resposta
-  # estática sem chamar nenhuma API externa. Perfeito para testes locais.
-  #
-  # PRODUÇÃO: remover mock_response e garantir GEMINI_API_KEY no .env.
   - model_name: gemini/gemini-1.5-flash
     litellm_params:
-      # Versão pinada — evitar floating alias que quebra reprodutibilidade.
-      # Para atualizar: teste a nova versão em staging antes de alterar aqui.
-      model: gemini/gemini-1.5-flash-001
+      # gemini-1.5-flash foi descontinuado; gemini-2.0-flash sem free tier neste projeto.
+      # gemini-2.5-flash é o modelo disponível com a GEMINI_API_KEY atual.
+      model: gemini/gemini-2.5-flash
       api_key: os.environ/GEMINI_API_KEY
-      # DEV MOCK: retorna resposta estática sem chamar Gemini.
-      # Remover esta linha em produção ou quando GEMINI_API_KEY real for configurada.
-      mock_response: "MOCK DEV — GovAI Platform: Esta é uma resposta simulada para desenvolvimento local. Configure GEMINI_API_KEY com uma chave real do Google AI Studio (https://aistudio.google.com/app/apikey) para respostas reais."
 
   # ── Alias de compatibilidade: govai-llm (mantido para CI e testes) ───────────
   - model_name: govai-llm
     litellm_params:
-      model: gemini/gemini-1.5-flash-001
+      model: gemini/gemini-2.5-flash
       api_key: os.environ/GEMINI_API_KEY
-      mock_response: "MOCK DEV — GovAI Platform (govai-llm alias): Resposta simulada para testes."
+
+general_settings:
+  master_key: os.environ/LITELLM_KEY
