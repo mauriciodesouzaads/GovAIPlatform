@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, ToggleRight } from 'lucide-react';
+import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, ToggleRight, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -12,6 +12,7 @@ export function Sidebar() {
 
     const navItems = [
         { label: 'Dashboard', href: '/', icon: LayoutDashboard, allowed: ['admin', 'sre', 'dpo', 'auditor', 'operator'] },
+        { label: 'Playground', href: '/playground', icon: Play, allowed: ['admin', 'sre', 'operator'] },
         { label: 'Audit Logs', href: '/logs', icon: ShieldAlert, allowed: ['admin', 'sre', 'dpo', 'auditor', 'operator'] },
         { label: 'Assistants & RAG', href: '/assistants', icon: MessageSquareText, allowed: ['admin', 'sre', 'operator'] },
         { label: 'API Keys', href: '/api-keys', icon: Key, allowed: ['admin'] },

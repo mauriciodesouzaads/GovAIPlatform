@@ -212,9 +212,13 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
         const { assistantId } = request.params as { assistantId: string };
-        const { policy_json } = request.body as any;
+        const { policy_json, publish } = request.body as any;
 
         if (!policy_json) return reply.status(400).send({ error: "Campo 'policy_json' obrigatório." });
+
+        // publish: true → INSERT com status = 'published' diretamente (evita trigger de imutabilidade)
+        const shouldPublish = publish === true;
+        const versionStatus = shouldPublish ? 'published' : 'draft';
 
         const client = await pgPool.connect();
         try {
@@ -228,7 +232,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             }
 
             const polRes = await client.query(
-                `INSERT INTO policy_versions (org_id, name, rules_jsonb, version) 
+                `INSERT INTO policy_versions (org_id, name, rules_jsonb, version)
                  VALUES ($1, $2, $3, 1) RETURNING id`,
                 [orgId, `Policy Custom - ${astRes.rows[0].name}`, JSON.stringify(policy_json)]
             );
@@ -241,13 +245,24 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             const nextVersion = verRes.rows[0].max_v + 1;
 
             const newVerRes = await client.query(
-                `INSERT INTO assistant_versions (org_id, assistant_id, policy_version_id, prompt, version, status) 
-                 VALUES ($1, $2, $3, 'Você é um assistente da GovAI.', $4, 'draft') RETURNING id`,
-                [orgId, assistantId, policyVersionId, nextVersion]
+                `INSERT INTO assistant_versions (org_id, assistant_id, policy_version_id, prompt, version, status)
+                 VALUES ($1, $2, $3, 'Você é um assistente da GovAI.', $4, $5) RETURNING id`,
+                [orgId, assistantId, policyVersionId, nextVersion, versionStatus]
             );
+            const newVersionId = newVerRes.rows[0].id;
+
+            // Se publicando: atualizar ponteiro do assistente e seu status
+            if (shouldPublish) {
+                await client.query(
+                    `UPDATE assistants SET current_version_id = $1, status = 'published' WHERE id = $2 AND org_id = $3`,
+                    [newVersionId, assistantId, orgId]
+                );
+                // Invalidar cache Redis para forçar reload das regras na próxima execução
+                await redisCache.del(`assistant:${assistantId}:rules`);
+            }
 
             await client.query('COMMIT');
-            return reply.status(201).send({ id: newVerRes.rows[0].id, status: 'draft', version: nextVersion });
+            return reply.status(201).send({ id: newVersionId, status: versionStatus, version: nextVersion });
         } catch (error) {
             await client.query('ROLLBACK');
             app.log.error(error, "Error creating assistant version");

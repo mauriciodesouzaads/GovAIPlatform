@@ -114,11 +114,14 @@ export default function AssistantsPage() {
     };
 
     const handlePublish = async () => {
-        if (!publishModalAst || !publishModalAst.draft_version_id) return;
+        if (!publishModalAst) return;
         setPublishing(true);
         try {
-            await api.post(`${ENDPOINTS.ASSISTANTS}/${publishModalAst.id}/versions/${publishModalAst.draft_version_id}/approve`, {
-                checklist
+            // Usar o novo fluxo: criar versão com publish: true diretamente no INSERT
+            // (evita o trigger de imutabilidade que bloqueia UPDATE em assistant_versions)
+            await api.post(`${ENDPOINTS.ASSISTANTS}/${publishModalAst.id}/versions`, {
+                policy_json: { rules: [], checklist },
+                publish: true,
             });
             toast('Assistente homologado e publicado com sucesso!', 'success');
             setPublishModalAst(null);
@@ -137,10 +140,12 @@ export default function AssistantsPage() {
         setPublishing(true);
         try {
             const policy = JSON.parse(versionData.policyJson);
+            // publish: true → status 'published' no INSERT (sem UPDATE posterior)
             await api.post(`${ENDPOINTS.ASSISTANTS}/${versionData.assistantId}/versions`, {
-                policy_json: policy
+                policy_json: policy,
+                publish: true,
             });
-            toast('Nova versão criada em rascunho! Siga para homologação.', 'success');
+            toast('Versão criada e publicada com sucesso!', 'success');
             setShowNewVersionModal(false);
             fetchAssistants();
         } catch (e: unknown) {
@@ -216,10 +221,10 @@ export default function AssistantsPage() {
                                         className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-white/5 text-white hover:bg-white/10 border border-white/5 transition-all">
                                         <Database className="w-3.5 h-3.5" /> Vetorizar Conhecimento
                                     </button>
-                                    {ast.status === 'draft' && ast.draft_version_id && (
+                                    {ast.status === 'draft' && (
                                         <button onClick={() => setPublishModalAst(ast)}
                                             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-emerald-500 text-black hover:bg-emerald-400 transition-all">
-                                            <CheckCircle2 className="w-3.5 h-3.5" /> Homologar Versão
+                                            <CheckCircle2 className="w-3.5 h-3.5" /> Homologar e Publicar
                                         </button>
                                     )}
                                 </div>
