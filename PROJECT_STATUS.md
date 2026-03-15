@@ -2,7 +2,7 @@
 
 **Última atualização:** 2026-03-15
 **Branch:** main
-**Último commit:** `sprint6` — feat(deploy): production deployment artifacts
+**Último commit:** `sprint9` — feat(s9): persistent seed + stable demo data
 
 ---
 
@@ -29,6 +29,8 @@
 | Execução real | ✅ resposta da IA | total_executions=4, total_tokens=967 |
 | E2E Playwright | ✅ 5 testes | T01-T05: login, dashboard, assistants, playground, HITL |
 | Deploy artifacts | ✅ Sprint 6 | docker-compose.prod.yml, .env.prod.example, deploy/ |
+| Demo seed persistente | ✅ Sprint 9 | scripts/seed.sql + seed.sh, idempotente, banco estável entre rebuilds |
+| Entrypoint automático | ✅ Sprint 9 | scripts/entrypoint.sh: migrate → seed → npm start (docker-compose) |
 
 ---
 
@@ -242,9 +244,8 @@ cd admin-ui && NEXT_PUBLIC_API_URL=http://localhost:3000 npm run dev
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/govai_platform \
   bash scripts/migrate.sh
 
-# Seed de demo
-DATABASE_URL=postgresql://govai_app:govai_dev_app_password@localhost:5432/govai_platform \
-  bash scripts/demo-seed.sh
+# Seed de demo (idempotente — seguro rodar múltiplas vezes)
+bash scripts/seed.sh
 
 # Login de teste
 curl -s -X POST http://localhost:3000/v1/admin/login \

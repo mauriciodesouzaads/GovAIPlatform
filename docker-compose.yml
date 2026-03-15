@@ -90,6 +90,7 @@ services:
 
   api:
     build: .
+    command: ["/bin/bash", "/app/scripts/entrypoint.sh"]
     environment:
       DATABASE_URL: postgresql://govai_app:${DB_APP_PASSWORD}@database:5432/govai_platform
       DB_APP_PASSWORD: ${DB_APP_PASSWORD}
@@ -132,8 +133,8 @@ services:
       test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/health" ]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 15s
+      retries: 5
+      start_period: 60s
 
   admin-ui:
     build:
