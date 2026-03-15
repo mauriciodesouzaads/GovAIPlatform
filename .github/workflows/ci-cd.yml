@@ -323,10 +323,7 @@ jobs:
     # Só roda em push para main E somente se DEPLOY_SSH_KEY estiver configurado.
     # Pull Requests nunca disparam o deploy.
     # Para desabilitar o deploy sem remover o job: basta não configurar o secret.
-    if: |
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      secrets.DEPLOY_SSH_KEY != ''
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     environment:
       name: production
