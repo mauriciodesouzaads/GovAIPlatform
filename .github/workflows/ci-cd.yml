@@ -342,7 +342,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Skip deploy if no VPS configured
+        id: check_vps
+        run: |
+          if [ -z "${{ secrets.DEPLOY_HOST }}" ]; then
+            echo "No DEPLOY_HOST secret — skipping deploy gracefully"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Configure SSH
+        if: steps.check_vps.outputs.skip == 'false'
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
@@ -351,6 +362,7 @@ jobs:
             "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Deploy via SSH
+        if: steps.check_vps.outputs.skip == 'false'
         run: |
           ssh -i ~/.ssh/deploy_key \
             -p "${{ secrets.DEPLOY_PORT || '22' }}" \
@@ -394,6 +406,7 @@ jobs:
           REMOTE_SCRIPT
 
       - name: Health check pós-deploy
+        if: steps.check_vps.outputs.skip == 'false'
         run: |
           echo "Aguardando API inicializar (30s)..."
           sleep 30
