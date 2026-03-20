@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import axios from 'axios';
 import { ShieldAlert, Loader2 } from 'lucide-react';
 
@@ -13,11 +13,26 @@ export default function LoginPage() {
     const [error, setError] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
     const [loading, setLoading] = useState(false);
+    const [ssoLoading, setSsoLoading] = useState<'microsoft' | 'okta' | null>(null);
 
     // Reset Flow State
     const [isResetting, setIsResetting] = useState(false);
     const [resetToken, setResetToken] = useState('');
     const [newPassword, setNewPassword] = useState('');
+
+    const searchParams = useSearchParams();
+
+    // Handle ?error= returned by OIDC callback on failure
+    useEffect(() => {
+        const oidcError = searchParams.get('error');
+        if (oidcError) {
+            const messages: Record<string, string> = {
+                microsoft_auth_failed: 'Falha na autenticação Microsoft Entra. Tente novamente.',
+                okta_auth_failed: 'Falha na autenticação Okta. Tente novamente.',
+            };
+            setError(messages[oidcError] || `Erro de autenticação SSO: ${oidcError}`);
+        }
+    }, [searchParams]);
 
     const router = useRouter();
 
@@ -160,21 +175,35 @@ export default function LoginPage() {
 
                             <div className="space-y-4">
                                 <button
-                                    onClick={() => window.location.href = `${API_BASE}/v1/auth/sso/login?provider=entra_id`}
+                                    onClick={() => {
+                                        setSsoLoading('microsoft');
+                                        window.location.href = `${API_BASE}/v1/auth/oidc/microsoft`;
+                                    }}
+                                    disabled={ssoLoading !== null}
                                     type="button"
-                                    className="w-full bg-[#2F2F2F] border border-border/80 text-white font-medium text-sm px-4 py-3.5 rounded-xl hover:bg-[#3f3f3f] hover:border-border transition-all flex items-center justify-center gap-3 group"
+                                    className="w-full bg-[#2F2F2F] border border-border/80 text-white font-medium text-sm px-4 py-3.5 rounded-xl hover:bg-[#3f3f3f] hover:border-border transition-all flex items-center justify-center gap-3 group disabled:opacity-60"
                                 >
-                                    <svg className="w-5 h-5 group-hover:scale-110 transition-transform" viewBox="0 0 21 21"><path fill="#f25022" d="M1 1h9v9H1z" /><path fill="#7fba00" d="M11 1h9v9h-9z" /><path fill="#00a4ef" d="M1 11h9v9H1z" /><path fill="#ffb900" d="M11 11h9v9h-9z" /></svg>
-                                    Entrar com Microsoft Entra
+                                    {ssoLoading === 'microsoft'
+                                        ? <Loader2 className="w-5 h-5 animate-spin" />
+                                        : <svg className="w-5 h-5 group-hover:scale-110 transition-transform" viewBox="0 0 21 21"><path fill="#f25022" d="M1 1h9v9H1z" /><path fill="#7fba00" d="M11 1h9v9h-9z" /><path fill="#00a4ef" d="M1 11h9v9H1z" /><path fill="#ffb900" d="M11 11h9v9h-9z" /></svg>
+                                    }
+                                    {ssoLoading === 'microsoft' ? 'Redirecionando...' : 'Entrar com Microsoft Entra'}
                                 </button>
 
                                 <button
-                                    onClick={() => window.location.href = `${API_BASE}/v1/auth/sso/login?provider=okta`}
+                                    onClick={() => {
+                                        setSsoLoading('okta');
+                                        window.location.href = `${API_BASE}/v1/auth/oidc/okta`;
+                                    }}
+                                    disabled={ssoLoading !== null}
                                     type="button"
-                                    className="w-full bg-[#2F2F2F] border border-border/80 text-white font-medium text-sm px-4 py-3.5 rounded-xl hover:bg-[#3f3f3f] hover:border-border transition-all flex items-center justify-center gap-3 group"
+                                    className="w-full bg-[#2F2F2F] border border-border/80 text-white font-medium text-sm px-4 py-3.5 rounded-xl hover:bg-[#3f3f3f] hover:border-border transition-all flex items-center justify-center gap-3 group disabled:opacity-60"
                                 >
-                                    <svg className="w-5 h-5 group-hover:scale-110 transition-transform" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z" /></svg>
-                                    Entrar com Okta
+                                    {ssoLoading === 'okta'
+                                        ? <Loader2 className="w-5 h-5 animate-spin" />
+                                        : <svg className="w-5 h-5 group-hover:scale-110 transition-transform" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z" /></svg>
+                                    }
+                                    {ssoLoading === 'okta' ? 'Redirecionando...' : 'Entrar com Okta'}
                                 </button>
                             </div>
                         </>

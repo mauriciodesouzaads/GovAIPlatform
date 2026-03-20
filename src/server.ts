@@ -22,6 +22,7 @@ import { pgPool } from './lib/db';
 import { redisCache } from './lib/redis';
 import { renderPrometheusMetrics, getMetricsContentType, activePgConnections, updateComplianceConsentedOrgs } from './lib/sre-metrics';
 import { registerOidcRoutes } from './lib/auth-oidc';
+import oidcRoutes from './routes/oidc.routes';
 import { executeAssistant } from './services/execution.service';
 import { auditQueue, initAuditWorker } from './workers/audit.worker';
 import { initNotificationWorker } from './workers/notification.worker';
@@ -440,6 +441,7 @@ fastify.get('/health', async (_request, reply) => {
 // Route plugins
 // ---------------------------------------------------------------------------
 registerOidcRoutes(fastify, pgPool);
+fastify.register(oidcRoutes); // S12: dedicated /v1/auth/oidc/microsoft + /v1/auth/oidc/okta routes
 
 import { adminRoutes } from './routes/admin.routes';
 
