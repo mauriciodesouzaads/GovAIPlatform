@@ -306,8 +306,9 @@ describe('PUT /v1/admin/organizations/:id/telemetry-consent', () => {
         expect(body400.details.some((d: { field: string }) => d.field === 'consent')).toBe(true);
     });
 
-    it('returns 404 when organization does not exist', async () => {
-        const token = makeToken(app);
+    it('returns 403 when id does not match caller org (GA-002 tenant isolation)', async () => {
+        // GA-002: cross-tenant access returns 403, not 404 — prevents org enumeration
+        const token = makeToken(app); // orgId: 'org-aaa'
         const res = await app.inject({
             method: 'PUT',
             url: '/v1/admin/organizations/org-notexist/telemetry-consent',
@@ -317,7 +318,7 @@ describe('PUT /v1/admin/organizations/:id/telemetry-consent', () => {
             },
             payload: { consent: true },
         });
-        expect(res.statusCode).toBe(404);
+        expect(res.statusCode).toBe(403);
     });
 
     it('returns 401 without authentication', async () => {
@@ -364,18 +365,20 @@ describe('GET /v1/admin/organizations/:id/telemetry-consent', () => {
         expect(body.consented_by_email).toBe('admin@test.com');
     });
 
-    it('returns 404 for unknown org', async () => {
-        const token = makeToken(app);
+    it('returns 403 for org not belonging to caller (GA-002 tenant isolation)', async () => {
+        // GA-002: cross-tenant access returns 403, prevents org enumeration
+        const token = makeToken(app); // orgId: 'org-aaa'
         const res = await app.inject({
             method: 'GET',
             url: '/v1/admin/organizations/org-unknown/telemetry-consent',
             headers: { authorization: `Bearer ${token}` },
         });
-        expect(res.statusCode).toBe(404);
+        expect(res.statusCode).toBe(403);
     });
 
-    it('dpo can read individual org consent', async () => {
-        const token = app.jwt.sign({ email: 'dpo@govai.com', role: 'dpo' }, { expiresIn: '1h' });
+    it('dpo with orgId can read own org consent', async () => {
+        // GA-002: DPO token must include orgId matching the requested :id
+        const token = app.jwt.sign({ email: 'dpo@govai.com', role: 'dpo', orgId: 'org-aaa' }, { expiresIn: '1h' });
         const res = await app.inject({
             method: 'GET',
             url: '/v1/admin/organizations/org-aaa/telemetry-consent',
@@ -489,8 +492,11 @@ describe('PUT telemetry-consent — HMAC audit log (DT-H-05)', () => {
         expect(body.audit_log_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     });
 
-    it('persists ROLLBACK on 404 — no audit log for non-existent org', async () => {
-        const token = makeToken(app);
+    it('GA-002: returns 403 and skips DB entirely for cross-tenant PUT', async () => {
+        // With GA-002, the tenant isolation check fires before any DB operations,
+        // so no BEGIN/ROLLBACK and no audit log are generated.
+        const token = makeToken(app); // orgId: 'org-aaa'
+        const sqlsBefore = capturedSql.length;
         const res = await app.inject({
             method: 'PUT',
             url: '/v1/admin/organizations/org-notexist/telemetry-consent',
@@ -500,12 +506,10 @@ describe('PUT telemetry-consent — HMAC audit log (DT-H-05)', () => {
             },
             payload: { consent: true },
         });
-        expect(res.statusCode).toBe(404);
-
-        const sqls = capturedSql.map(q => q.sql);
-        expect(sqls).toContain('begin');
-        expect(sqls).toContain('rollback');
-        expect(sqls.some(s => s.includes('insert into audit_logs_partitioned'))).toBe(false);
+        expect(res.statusCode).toBe(403);
+        // No SQL was issued (guard fires before pool.connect)
+        const sqlsAfter = capturedSql.length;
+        expect(sqlsAfter).toBe(sqlsBefore);
     });
 
     it('audit log INSERT contains correct action type on revoke', async () => {

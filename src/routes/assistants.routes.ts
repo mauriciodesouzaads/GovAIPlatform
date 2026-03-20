@@ -8,8 +8,10 @@ import { redisCache } from '../lib/redis';
 import { CreateAssistantSchema, CreateApiKeySchema, zodErrors } from '../lib/schemas';
 
 
-export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any }) {
+export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any; requireTenantRole?: any }) {
     const { pgPool, requireAdminAuth, requireRole } = opts;
+    // GA-001/GA-003: prefer requireTenantRole if provided; fall back to requireRole for compat
+    const requireTenantRole = opts.requireTenantRole ?? requireRole;
 
     app.get('/v1/admin/assistants', { preHandler: requireRole(['admin', 'sre', 'operator']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
@@ -40,7 +42,8 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
     // --- API KEY MANAGEMENT CRUD ---
 
     // List API Keys
-    app.get('/v1/admin/api-keys', { preHandler: requireAdminAuth }, async (request, reply) => {
+    // GA-003: only admins may list or create API keys
+    app.get('/v1/admin/api-keys', { preHandler: requireTenantRole(['admin']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -72,7 +75,8 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                 }),
             }
         },
-        preHandler: requireAdminAuth
+        // GA-003: only admins may create API keys
+        preHandler: requireTenantRole(['admin'])
     }, async (request, reply) => {
         const apiKeyParsed = CreateApiKeySchema.safeParse(request.body);
         if (!apiKeyParsed.success) {

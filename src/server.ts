@@ -174,7 +174,9 @@ fastify.register(rateLimit, {
 // ---------------------------------------------------------------------------
 // Auth middleware — exported for use in route plugins
 // ---------------------------------------------------------------------------
-export const requireAdminAuth = async (request: FastifyRequest, reply: FastifyReply) => {
+
+/** requireAuthenticated — verifies JWT and sets x-org-id. No role check. */
+export const requireAuthenticated = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
         await request.jwtVerify();
         const user = request.user as { orgId?: string };
@@ -184,7 +186,11 @@ export const requireAdminAuth = async (request: FastifyRequest, reply: FastifyRe
     }
 };
 
-export const requireRole = (allowedRoles: string[]) =>
+/** @deprecated Use requireAuthenticated. Kept as alias during migration. */
+export const requireAdminAuth = requireAuthenticated;
+
+/** requireTenantRole — verifies JWT, sets x-org-id, enforces tenant-scoped role list. */
+export const requireTenantRole = (allowedRoles: string[]) =>
     async (request: FastifyRequest, reply: FastifyReply) => {
         try {
             await request.jwtVerify();
@@ -201,6 +207,24 @@ export const requireRole = (allowedRoles: string[]) =>
             return reply.status(401).send({ error: 'Unauthorized: Invalid or expired JWT token.' });
         }
     };
+
+/** @deprecated Use requireTenantRole. Kept as alias during migration. */
+export const requireRole = requireTenantRole;
+
+/** requirePlatformAdmin — verifies JWT and enforces role === 'platform_admin'.
+ *  Tenant admin roles are explicitly rejected to prevent privilege escalation. */
+export const requirePlatformAdmin = async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+        await request.jwtVerify();
+        const user = request.user as { role?: string; orgId?: string };
+        if (user?.orgId) request.headers['x-org-id'] = user.orgId;
+        if (user?.role !== 'platform_admin') {
+            return reply.status(403).send({ error: 'Requer privilégio de platform admin' });
+        }
+    } catch {
+        return reply.status(401).send({ error: 'Unauthorized: Invalid or expired JWT token.' });
+    }
+};
 
 const requireApiKey = async (request: FastifyRequest, reply: FastifyReply) => {
     const authHeader = request.headers.authorization;
@@ -220,7 +244,15 @@ const requireApiKey = async (request: FastifyRequest, reply: FastifyReply) => {
     const client = await pgPool.connect();
     try {
         const res = await client.query(
-            'SELECT org_id FROM api_key_lookup WHERE key_hash = $1 AND prefix = $2 AND is_active = TRUE LIMIT 1',
+            // GA-004: also enforce expires_at so expired keys are rejected at auth time
+            `SELECT akl.org_id
+             FROM api_key_lookup akl
+             JOIN api_keys ak ON ak.key_hash = akl.key_hash
+             WHERE akl.key_hash = $1
+               AND akl.prefix = $2
+               AND akl.is_active = TRUE
+               AND (ak.expires_at IS NULL OR ak.expires_at > NOW())
+             LIMIT 1`,
             [tokenHash, prefix]
         );
         if (res.rowCount === 0) {
@@ -343,7 +375,7 @@ fastify.post('/v1/sandbox/execute', { preHandler: sandboxRateLimit }, async (req
     });
 });
 
-fastify.get('/v1/admin/export/tenant', { preHandler: requireRole(['admin', 'dpo']) }, async (request, reply) => {
+fastify.get('/v1/admin/export/tenant', { preHandler: requireTenantRole(['admin', 'dpo']) }, async (request, reply) => {
     const orgId = request.headers['x-org-id'] as string;
     if (!orgId) return reply.status(401).send({ error: 'x-org-id required' });
     const format = (request.query as any).format || 'json';
@@ -356,7 +388,7 @@ fastify.get('/v1/admin/export/tenant', { preHandler: requireRole(['admin', 'dpo'
     return reply.send({ org_id: orgId, exported_at: new Date().toISOString(), tables: exportData });
 });
 
-fastify.get('/v1/admin/export/due-diligence', { preHandler: requireRole(['admin', 'dpo', 'auditor']) }, async (_request, reply) => {
+fastify.get('/v1/admin/export/due-diligence', { preHandler: requireTenantRole(['admin', 'dpo', 'auditor']) }, async (_request, reply) => {
     const pdfBuffer = await generateDueDiligencePDF();
     reply.header('Content-Type', 'application/pdf');
     reply.header('Content-Disposition', 'attachment; filename="govai-security-due-diligence.pdf"');
@@ -445,7 +477,7 @@ fastify.register(oidcRoutes); // S12: dedicated /v1/auth/oidc/microsoft + /v1/au
 
 import { adminRoutes } from './routes/admin.routes';
 
-fastify.register(adminRoutes, { pgPool, requireAdminAuth, requireRole });
+fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, requireRole: requireTenantRole });
 // assistantsRoutes, approvalsRoutes, reportsRoutes registered internally by adminRoutes
 
 // ---------------------------------------------------------------------------

@@ -304,15 +304,20 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
     });
 
     // 3. Organizations List (Tenants)
+    // GA-002: filter by caller's own orgId — tenants cannot see other orgs
     app.get('/v1/admin/organizations', { preHandler: requireRole(['admin']) }, async (request, reply) => {
+        const orgId = (request as any).user?.orgId || request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: 'orgId missing from token.' });
         const client = await pgPool.connect();
         try {
-            const res = await client.query(`
-                SELECT id, name, 'active' AS status, created_at,
-                       telemetry_consent, telemetry_consent_at, telemetry_pii_strip
-                FROM organizations
-                ORDER BY created_at DESC
-            `);
+            const res = await client.query(
+                `SELECT id, name, 'active' AS status, created_at,
+                        telemetry_consent, telemetry_consent_at, telemetry_pii_strip
+                 FROM organizations
+                 WHERE id = $1
+                 ORDER BY created_at DESC`,
+                [orgId]
+            );
             return reply.send(res.rows);
         } catch (error) {
             app.log.error(error, "Error fetching organizations");
@@ -324,18 +329,22 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
 
     // 3a. Compliance Dashboard — tenants com telemetry_consent = TRUE
     // DT-G-02: rota para o painel de compliance LGPD/GDPR listar orgs que consentiram
+    // GA-002: restricted to caller's own org
     app.get('/v1/admin/organizations/telemetry-consented', { preHandler: requireRole(['admin', 'dpo']) }, async (request, reply) => {
+        const orgId = (request as any).user?.orgId || request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: 'orgId missing from token.' });
         const client = await pgPool.connect();
         try {
-            const res = await client.query(`
-                SELECT o.id, o.name, 'active' AS status,
-                       o.telemetry_consent, o.telemetry_consent_at, o.telemetry_pii_strip,
-                       u.email AS consented_by_email
-                FROM organizations o
-                LEFT JOIN users u ON u.id = o.telemetry_consent_by
-                WHERE o.telemetry_consent = TRUE
-                ORDER BY o.telemetry_consent_at DESC
-            `);
+            const res = await client.query(
+                `SELECT o.id, o.name, 'active' AS status,
+                        o.telemetry_consent, o.telemetry_consent_at, o.telemetry_pii_strip,
+                        u.email AS consented_by_email
+                 FROM organizations o
+                 LEFT JOIN users u ON u.id = o.telemetry_consent_by
+                 WHERE o.id = $1 AND o.telemetry_consent = TRUE
+                 ORDER BY o.telemetry_consent_at DESC`,
+                [orgId]
+            );
             return reply.send({
                 total: res.rows.length,
                 organizations: res.rows,
@@ -349,10 +358,14 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
     });
 
     // 3b. Ler estado de consentimento de uma org específica — DT-H-03
+    // GA-002: enforces that :id must match the caller's own orgId
     app.get('/v1/admin/organizations/:id/telemetry-consent', {
         preHandler: requireRole(['admin', 'dpo']),
     }, async (request, reply) => {
         const { id } = request.params as { id: string };
+        const callerOrgId = (request as any).user?.orgId || request.headers['x-org-id'] as string;
+        if (!callerOrgId) return reply.status(401).send({ error: 'orgId missing from token.' });
+        if (id !== callerOrgId) return reply.status(403).send({ error: 'Acesso negado: organização pertence a outro tenant.' });
         const client = await pgPool.connect();
         try {
             const res = await client.query(
@@ -391,6 +404,10 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         const body = bodyParsed.data;
 
         const callerUser = (request as any).user as { userId?: string; orgId?: string };
+        // GA-002: tenant isolation — reject attempts to modify another org's consent
+        if (id !== callerUser.orgId) {
+            return reply.status(403).send({ error: 'Acesso negado: organização pertence a outro tenant.' });
+        }
         const signingSecret = process.env.SIGNING_SECRET;
         if (!signingSecret) {
             app.log.error('SIGNING_SECRET não configurado — audit log de consentimento não pode ser assinado');
@@ -508,9 +525,12 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
     // 3d. Exportar trilha de auditoria de consentimento LGPD (CSV ou JSON)
     // GET /v1/admin/compliance/audit-trail?from=ISO&to=ISO&format=csv|json
     // Requer role admin ou dpo.
+    // GA-002: results scoped to caller's orgId only
     app.get('/v1/admin/compliance/audit-trail', {
         preHandler: requireRole(['admin', 'dpo']),
     }, async (request, reply) => {
+        const callerOrgId = (request as any).user?.orgId || request.headers['x-org-id'] as string;
+        if (!callerOrgId) return reply.status(401).send({ error: 'orgId missing from token.' });
         const query = request.query as { from?: string; to?: string; format?: string };
         const format = query.format === 'json' ? 'json' : 'csv';
 
@@ -537,11 +557,12 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
                  FROM audit_logs_partitioned al
                  LEFT JOIN organizations o ON o.id = al.org_id
                  WHERE al.action IN ('TELEMETRY_CONSENT_GRANTED', 'TELEMETRY_CONSENT_REVOKED')
+                   AND al.org_id = $3
                    AND al.created_at >= $1
                    AND al.created_at <= $2
                  ORDER BY al.created_at DESC
                  LIMIT 10000`,
-                [fromDate.toISOString(), toDate.toISOString()]
+                [fromDate.toISOString(), toDate.toISOString(), callerOrgId]
             );
 
             if (format === 'json') {
@@ -615,7 +636,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
     });
 
     // --- Sub-Plugins ---
-    const subOpts = { pgPool, requireAdminAuth, requireRole };
+    const subOpts = { pgPool, requireAdminAuth, requireRole, requireTenantRole: requireRole };
     // Assistants, Policies, MCP, Knowledge routes
     const { assistantsRoutes } = await import('./assistants.routes');
     app.register(assistantsRoutes, subOpts);
