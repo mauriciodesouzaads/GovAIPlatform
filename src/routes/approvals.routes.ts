@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import { checkQuota, recordTokenUsage, getCostPerToken } from '../lib/finops';
 import { telemetryQueue } from '../workers/telemetry.worker';
 import { ApprovalActionSchema, zodErrors } from '../lib/schemas';
+import { recordEvidence } from '../lib/evidence';
 
 export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any }) {
     const { pgPool, requireAdminAuth, requireRole } = opts;
@@ -163,6 +164,14 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
             await client.query('COMMIT');
             app.log.info({ orgId, approvalId, reviewer: user?.email }, 'HITL: Execution approved and completed');
 
+            // Evidence record (non-fatal; session-level set_config persists after COMMIT)
+            await recordEvidence(client, {
+                orgId, category: 'approval', eventType: 'APPROVAL_GRANTED',
+                actorId: null, actorEmail: user?.email ?? null,
+                resourceType: 'pending_approval', resourceId: approvalId,
+                metadata: { approvalId, traceId: approval.trace_id, reviewer: user?.email, reviewNote },
+            });
+
             // Side effects AFTER COMMIT
             // 3. Audit log for approval grant
             await auditQueue.add('persist-log', {
@@ -267,6 +276,13 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
                 signature: rejectSig,
                 traceId: approval.trace_id
             }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+
+            await recordEvidence(client, {
+                orgId, category: 'approval', eventType: 'APPROVAL_REJECTED',
+                actorId: null, actorEmail: user?.email ?? null,
+                resourceType: 'pending_approval', resourceId: approvalId,
+                metadata: { approvalId, traceId: approval.trace_id, reviewer: user?.email, note },
+            });
 
             app.log.info({ orgId, approvalId, reviewer: user?.email }, 'HITL: Execution rejected');
 

@@ -19,6 +19,7 @@ import { recordRequest, recordDlpDetection, assistantLatencyHistogram } from '..
 import { checkQuota, recordTokenUsage, getCostPerToken } from '../lib/finops';
 import { pgPool } from '../lib/db';
 import { redisCache } from '../lib/redis';
+import { recordEvidence } from '../lib/evidence';
 
 export interface ExecutionParams {
     assistantId: string;
@@ -157,6 +158,12 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                 metadata: hitlPayload, signature, traceId
             }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
 
+            await recordEvidence(client, {
+                orgId, category: 'approval', eventType: 'APPROVAL_REQUESTED',
+                actorId: userId ?? null, resourceType: 'assistant', resourceId: assistantId,
+                metadata: { approvalId, traceId, reason: policyCheck.reason, snapshotId },
+            });
+
             await notificationQueue.add('send-notification', {
                 event: 'PENDING_APPROVAL', orgId, assistantId, approvalId,
                 reason: policyCheck.reason || 'Ação de alto risco',
@@ -186,6 +193,12 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                 action: 'POLICY_VIOLATION' satisfies ActionType,
                 metadata: violationPayload, signature, traceId
             }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+
+            await recordEvidence(client, {
+                orgId, category: 'policy_enforcement', eventType: 'POLICY_VIOLATION',
+                actorId: userId ?? null, resourceType: 'assistant', resourceId: assistantId,
+                metadata: { traceId, reason: policyCheck.reason, snapshotId },
+            });
 
             log.warn({ orgId, assistantId, reason: policyCheck.reason }, 'Policy Violation');
             return { statusCode: 403, body: { error: policyCheck.reason, traceId } };
@@ -279,6 +292,12 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             action: 'EXECUTION_SUCCESS' satisfies ActionType,
             metadata: logContent, signature, traceId
         }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+
+        await recordEvidence(client, {
+            orgId, category: 'execution', eventType: 'EXECUTION_SUCCESS',
+            actorId: userId ?? null, resourceType: 'assistant', resourceId: assistantId,
+            metadata: { traceId, snapshotId, tokens: aiResponse.data.usage },
+        });
 
         const tokensPrompt = aiResponse.data.usage?.prompt_tokens || 0;
         const tokensCompletion = aiResponse.data.usage?.completion_tokens || 0;

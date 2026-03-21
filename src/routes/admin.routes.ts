@@ -841,6 +841,61 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         }
     });
 
+    // --- Evidence Chain (cross-referenced audit evidence) ---
+
+    app.get('/v1/admin/evidence', { preHandler: requireRole(['admin', 'auditor', 'dpo']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { resourceType, resourceId, category, limit = '50' } = request.query as {
+            resourceType?: string;
+            resourceId?: string;
+            category?: string;
+            limit?: string;
+        };
+
+        const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            const conditions: string[] = ['org_id = $1'];
+            const params: unknown[] = [orgId];
+
+            if (resourceType) {
+                params.push(resourceType);
+                conditions.push(`resource_type = $${params.length}`);
+            }
+            if (resourceId) {
+                params.push(resourceId);
+                conditions.push(`resource_id = $${params.length}`);
+            }
+            if (category) {
+                params.push(category);
+                conditions.push(`category = $${params.length}`);
+            }
+
+            params.push(limitNum);
+            const rows = await client.query(
+                `SELECT id, category, event_type, actor_id, actor_email,
+                        resource_type, resource_id, metadata, integrity_hash, created_at
+                 FROM evidence_records
+                 WHERE ${conditions.join(' AND ')}
+                 ORDER BY created_at DESC
+                 LIMIT $${params.length}`,
+                params
+            );
+
+            return reply.send({ total: rows.rowCount, records: rows.rows });
+        } catch (error) {
+            app.log.error(error, 'Error fetching evidence records');
+            return reply.status(500).send({ error: 'Erro ao buscar registros de evidência.' });
+        } finally {
+            client.release();
+        }
+    });
+
     // --- Sub-Plugins ---
     const subOpts = { pgPool, requireAdminAuth, requireRole, requireTenantRole: requireRole, requirePlatformAdmin };
     // Assistants, Policies, MCP, Knowledge routes

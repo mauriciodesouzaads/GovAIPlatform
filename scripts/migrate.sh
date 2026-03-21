@@ -68,6 +68,7 @@ MIGRATIONS=(
     "041_runtime_and_release_hardening.sql"
     "042_policy_snapshot_per_execution.sql"
     "043_policy_exceptions.sql"
+    "044_evidence_domain.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { redisCache } from '../lib/redis';
 import { CreateAssistantSchema, CreateApiKeySchema, zodErrors } from '../lib/schemas';
+import { recordEvidence } from '../lib/evidence';
 
 
 export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any; requireTenantRole?: any; requirePlatformAdmin?: any }) {
@@ -329,7 +330,14 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             );
 
             await client.query('COMMIT');
-            await redisCache.del(`assistant:${assistantId}:rules`);
+            await redisCache.del(`assistant:${assistantId}:policy`);
+
+            await recordEvidence(client, {
+                orgId, category: 'publication', eventType: 'VERSION_PUBLISHED',
+                actorId: authUser.userId ?? null, actorEmail: authUser.email ?? null,
+                resourceType: 'assistant_version', resourceId: versionId,
+                metadata: { assistantId, versionId, publishedBy: authUser.email || authUser.userId, checklist },
+            });
 
             return reply.send({ success: true, message: `Versão ${versionId} do assistente ${assistantId} aprovada e publicada.`, approved_by: authUser.email || authUser.userId });
         } catch (error) {
