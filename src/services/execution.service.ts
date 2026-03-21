@@ -161,7 +161,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             if (kbRes.rows.length > 0) {
                 const { searchWithTokenLimit } = await import('../lib/rag');
                 const aiModel = process.env.AI_MODEL || 'gemini/gemini-1.5-flash';
-                const ragResult = await searchWithTokenLimit(pgPool, kbRes.rows[0].id, safeMessage, aiModel, 10);
+                const ragResult = await searchWithTokenLimit(pgPool, kbRes.rows[0].id, orgId, safeMessage, aiModel, 10);
                 ragContext = ragResult.context;
                 ragMeta = {
                     chunksUsed: ragResult.chunksUsed,

@@ -1,19 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { Issuer, generators } from 'openid-client';
+import { Pool } from 'pg';
 import crypto from 'crypto';
-
-// ---------------------------------------------------------------------------
-// GOVAI S12 — Dedicated OIDC routes for Microsoft Entra ID and Okta
-//
-// Design decisions:
-//  - Each provider has its own separate env vars (no shared OIDC_* vars)
-//  - Routes return 501 gracefully when env vars are absent (no crash on startup)
-//  - PKCE (code_challenge + code_verifier) for public-client safety
-//  - State + nonce stored in httpOnly cookie (CSRF protection)
-//  - Callback validates state before token exchange
-// ---------------------------------------------------------------------------
-
-// ── Env-var guards ──────────────────────────────────────────────────────────
+import { redisCache } from '../lib/redis';
 
 function isMicrosoftConfigured(): boolean {
     return !!(
@@ -31,11 +20,7 @@ function isOktaConfigured(): boolean {
     );
 }
 
-// ── In-memory PKCE state store (code_verifier + nonce per state) ────────────
-// Keyed by `state` value. Entries expire after 10 minutes.
 const pkceStore = new Map<string, { codeVerifier: string; nonce: string; expiresAt: number }>();
-
-// Periodic cleanup so the Map cannot grow unboundedly
 const _pkceCleanup = setInterval(() => {
     const now = Date.now();
     for (const [k, v] of pkceStore.entries()) {
@@ -44,30 +29,186 @@ const _pkceCleanup = setInterval(() => {
 }, 300_000);
 if (_pkceCleanup.unref) _pkceCleanup.unref();
 
-const PKCE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const PKCE_TTL_MS = 10 * 60 * 1000;
+const FRONTEND_AUTH_CODE_TTL_SECONDS = 60;
 
-// Export for testing
 export { isMicrosoftConfigured, isOktaConfigured, pkceStore };
-
-// ── Shared helpers ──────────────────────────────────────────────────────────
 
 function callbackUrl(base: string, provider: 'microsoft' | 'okta'): string {
     const root = (base || 'http://localhost:3000').replace(/\/$/, '');
     return `${root}/v1/auth/oidc/${provider}/callback`;
 }
 
-// ── Plugin ──────────────────────────────────────────────────────────────────
+function frontendUrl(): string {
+    return (process.env.FRONTEND_URL || 'http://localhost:3001').replace(/\/$/, '');
+}
 
-export default async function oidcRoutes(fastify: FastifyInstance): Promise<void> {
+function oktaIssuerUrl(): string {
+    const domain = (process.env.OKTA_DOMAIN || '').replace(/\/$/, '');
+    return domain.includes('/oauth2/') ? domain : `${domain}/oauth2/default`;
+}
 
-    // ── Microsoft Entra ID ──────────────────────────────────────────────────
+async function resolveOrgIdForSsoTenant(pgPool: Pool, ssoTenantId: string): Promise<string | null> {
+    const res = await pgPool.query(
+        'SELECT org_id FROM org_sso_lookup WHERE sso_tenant_id = $1 LIMIT 1',
+        [ssoTenantId]
+    );
+    return res.rows[0]?.org_id || null;
+}
 
-    /**
-     * GET /v1/auth/oidc/microsoft
-     * Initiates PKCE authorization flow with Microsoft Entra ID.
-     * Returns 501 when AZURE_* vars are not configured.
-     */
-    fastify.get('/v1/auth/oidc/microsoft', async (request, reply) => {
+async function resolveOrProvisionSsoUser(
+    pgPool: Pool,
+    params: {
+        orgId: string;
+        provider: 'entra_id' | 'okta';
+        subject: string;
+        email: string;
+        name: string;
+    }
+): Promise<{ userId: string; role: string }> {
+    const client = await pgPool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [params.orgId]);
+
+        const exact = await client.query(
+            `SELECT id, role
+             FROM users
+             WHERE org_id = $1 AND sso_provider = $2 AND sso_user_id = $3
+             LIMIT 1`,
+            [params.orgId, params.provider, params.subject]
+        );
+        if ((exact.rowCount ?? 0) > 0) {
+            await client.query(
+                `UPDATE users
+                 SET email = $1, name = $2, status = 'active'
+                 WHERE id = $3 AND org_id = $4`,
+                [params.email, params.name, exact.rows[0].id, params.orgId]
+            );
+            await client.query('COMMIT');
+            return { userId: exact.rows[0].id, role: exact.rows[0].role };
+        }
+
+        const byEmail = await client.query(
+            `SELECT id, role, sso_provider, sso_user_id
+             FROM users
+             WHERE org_id = $1 AND LOWER(email) = LOWER($2)
+             LIMIT 1`,
+            [params.orgId, params.email]
+        );
+
+        if ((byEmail.rowCount ?? 0) > 0) {
+            const current = byEmail.rows[0];
+            if (current.sso_provider !== 'local' && (current.sso_provider !== params.provider || current.sso_user_id !== params.subject)) {
+                await client.query('ROLLBACK');
+                throw new Error('Este e-mail já está vinculado a outro provedor de identidade nesta organização.');
+            }
+
+            await client.query(
+                `UPDATE users
+                 SET sso_provider = $1,
+                     sso_user_id = $2,
+                     name = $3,
+                     status = 'active'
+                 WHERE id = $4 AND org_id = $5`,
+                [params.provider, params.subject, params.name, current.id, params.orgId]
+            );
+            await client.query('COMMIT');
+            return { userId: current.id, role: current.role };
+        }
+
+        const inserted = await client.query(
+            `INSERT INTO users (org_id, email, name, sso_provider, sso_user_id, password_hash, requires_password_change, role, status)
+             VALUES ($1, $2, $3, $4, $5, NULL, FALSE, 'operator', 'active')
+             RETURNING id, role`,
+            [params.orgId, params.email, params.name, params.provider, params.subject]
+        );
+        await client.query('COMMIT');
+        return { userId: inserted.rows[0].id, role: inserted.rows[0].role };
+    } catch (error) {
+        try { await client.query('ROLLBACK'); } catch {}
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+async function storeFrontendAuthCode(token: string, provider: 'microsoft' | 'okta'): Promise<string> {
+    const authCode = crypto.randomBytes(32).toString('hex');
+    await redisCache.set(
+        `oidc:frontend:${authCode}`,
+        JSON.stringify({ token, provider }),
+        'EX',
+        FRONTEND_AUTH_CODE_TTL_SECONDS,
+        'NX'
+    );
+    return authCode;
+}
+
+async function consumeFrontendAuthCode(code: string): Promise<{ token: string; provider: string } | null> {
+    const raw = await redisCache.eval(
+        `local value = redis.call('GET', KEYS[1]);
+         if value then
+           redis.call('DEL', KEYS[1]);
+         end
+         return value`,
+        1,
+        `oidc:frontend:${code}`
+    );
+    if (!raw || typeof raw !== 'string') return null;
+    return JSON.parse(raw) as { token: string; provider: string };
+}
+
+async function buildGovAiToken(
+    fastify: FastifyInstance,
+    pgPool: Pool,
+    params: {
+        provider: 'entra_id' | 'okta';
+        email: string;
+        name: string;
+        subject: string;
+        ssoTenantId: string;
+    }
+): Promise<string> {
+    const orgId = await resolveOrgIdForSsoTenant(pgPool, params.ssoTenantId);
+    if (!orgId) {
+        throw new Error('OIDC_TENANT_NOT_AUTHORIZED');
+    }
+
+    const { userId, role } = await resolveOrProvisionSsoUser(pgPool, {
+        orgId,
+        provider: params.provider,
+        subject: params.subject,
+        email: params.email,
+        name: params.name,
+    });
+
+    return fastify.jwt.sign(
+        { email: params.email, role, orgId, userId, ssoProvider: params.provider },
+        { expiresIn: '8h' }
+    );
+}
+
+export default async function oidcRoutes(fastify: FastifyInstance, opts: { pgPool: Pool }): Promise<void> {
+    const { pgPool } = opts;
+
+    fastify.post('/v1/auth/oidc/session', async (request, reply) => {
+        const body = (request.body || {}) as Record<string, unknown>;
+        const code = typeof body.code === 'string' ? body.code : '';
+        if (!code || code.length < 16) {
+            return reply.status(400).send({ error: 'OIDC authorization code inválido.' });
+        }
+
+        const session = await consumeFrontendAuthCode(code);
+        if (!session) {
+            return reply.status(410).send({ error: 'OIDC authorization code expirado ou já consumido.' });
+        }
+
+        reply.header('Cache-Control', 'no-store');
+        return reply.send({ token: session.token, provider: session.provider });
+    });
+
+    fastify.get('/v1/auth/oidc/microsoft', async (_request, reply) => {
         if (!isMicrosoftConfigured()) {
             return reply.status(501).send({
                 error: 'OIDC not configured',
@@ -78,9 +219,7 @@ export default async function oidcRoutes(fastify: FastifyInstance): Promise<void
 
         try {
             const tenantId = process.env.AZURE_TENANT_ID!;
-            const issuerUrl = `https://login.microsoftonline.com/${tenantId}/v2.0`;
-            const issuer = await Issuer.discover(issuerUrl);
-
+            const issuer = await Issuer.discover(`https://login.microsoftonline.com/${tenantId}/v2.0`);
             const client = new issuer.Client({
                 client_id: process.env.AZURE_CLIENT_ID!,
                 client_secret: process.env.AZURE_CLIENT_SECRET!,
@@ -92,7 +231,6 @@ export default async function oidcRoutes(fastify: FastifyInstance): Promise<void
             const nonce = crypto.randomBytes(32).toString('hex');
             const codeVerifier = generators.codeVerifier();
             const codeChallenge = generators.codeChallenge(codeVerifier);
-
             pkceStore.set(state, { codeVerifier, nonce, expiresAt: Date.now() + PKCE_TTL_MS });
 
             reply.setCookie('oidc_ms_state', state, {
@@ -103,48 +241,30 @@ export default async function oidcRoutes(fastify: FastifyInstance): Promise<void
                 maxAge: 600,
             });
 
-            const authUrl = client.authorizationUrl({
+            return reply.redirect(client.authorizationUrl({
                 scope: 'openid profile email',
                 state,
                 nonce,
                 code_challenge: codeChallenge,
                 code_challenge_method: 'S256',
-            });
-
-            return reply.redirect(authUrl);
+            }));
         } catch (err) {
             fastify.log.error(err, '[OIDC/Microsoft] Failed to initiate login');
             return reply.status(503).send({ error: 'Microsoft OIDC service unavailable' });
         }
     });
 
-    /**
-     * GET /v1/auth/oidc/microsoft/callback
-     * Receives the authorization code from Microsoft, exchanges it for tokens,
-     * issues a GovAI JWT and redirects to the admin UI.
-     */
     fastify.get('/v1/auth/oidc/microsoft/callback', async (request, reply) => {
         if (!isMicrosoftConfigured()) {
-            return reply.status(501).send({
-                error: 'OIDC not configured',
-                provider: 'microsoft',
-            });
+            return reply.status(501).send({ error: 'OIDC not configured', provider: 'microsoft' });
         }
 
         const { code, state, error: authError } = request.query as Record<string, string>;
-
         if (authError) {
-            const frontEnd = process.env.FRONTEND_URL || 'http://localhost:3001';
-            return reply.redirect(`${frontEnd}/login?error=${encodeURIComponent(authError)}`);
+            return reply.redirect(`${frontendUrl()}/login?error=${encodeURIComponent(authError)}`);
         }
-
-        if (!code) {
-            return reply.status(400).send({ error: 'Authorization code missing' });
-        }
-
-        if (!state) {
-            return reply.status(400).send({ error: 'State parameter missing' });
-        }
+        if (!code) return reply.status(400).send({ error: 'Authorization code missing' });
+        if (!state) return reply.status(400).send({ error: 'State parameter missing' });
 
         const cookieState = (request.cookies as Record<string, string>).oidc_ms_state;
         if (!cookieState || cookieState !== state) {
@@ -156,13 +276,12 @@ export default async function oidcRoutes(fastify: FastifyInstance): Promise<void
             pkceStore.delete(state);
             return reply.status(400).send({ error: 'PKCE state expired or not found — restart login' });
         }
-        pkceStore.delete(state); // one-time use
+        pkceStore.delete(state);
 
         try {
             const tenantId = process.env.AZURE_TENANT_ID!;
             const issuer = await Issuer.discover(`https://login.microsoftonline.com/${tenantId}/v2.0`);
             const redirectUri = callbackUrl(process.env.APP_BASE_URL!, 'microsoft');
-
             const client = new issuer.Client({
                 client_id: process.env.AZURE_CLIENT_ID!,
                 client_secret: process.env.AZURE_CLIENT_SECRET!,
@@ -177,39 +296,34 @@ export default async function oidcRoutes(fastify: FastifyInstance): Promise<void
             });
 
             const claims = tokenSet.claims();
-            const email = (claims.email as string) || (claims.preferred_username as string) || '';
-            const name = (claims.name as string) || email;
+            const email = ((claims.email as string) || (claims.preferred_username as string) || '').trim().toLowerCase();
+            const name = ((claims.name as string) || email).trim();
+            const subject = String(claims.sub || '').trim();
+            const ssoTenantId = String(claims.tid || '').trim();
 
-            const token = fastify.jwt.sign(
-                { email, role: 'operator', orgId: null, userId: null, ssoProvider: 'microsoft' },
-                { expiresIn: '8h' }
-            );
+            if (!email || !subject || !ssoTenantId) {
+                return reply.redirect(`${frontendUrl()}/login?error=identity_claims_incomplete`);
+            }
 
-            const frontEnd = process.env.FRONTEND_URL || 'http://localhost:3001';
-            reply.setCookie('token', token, {
-                path: '/',
-                httpOnly: true,
-                sameSite: 'lax',
-                secure: process.env.NODE_ENV === 'production',
-                maxAge: 8 * 60 * 60,
+            const token = await buildGovAiToken(fastify, pgPool, {
+                provider: 'entra_id',
+                email,
+                name,
+                subject,
+                ssoTenantId,
             });
-
-            return reply.redirect(`${frontEnd}/assistants?login=sso_success&provider=microsoft&name=${encodeURIComponent(name)}`);
-        } catch (err) {
+            const authCode = await storeFrontendAuthCode(token, 'microsoft');
+            return reply.redirect(`${frontendUrl()}/login?auth_code=${authCode}&provider=microsoft`);
+        } catch (err: any) {
             fastify.log.error(err, '[OIDC/Microsoft] Callback token exchange failed');
-            const frontEnd = process.env.FRONTEND_URL || 'http://localhost:3001';
-            return reply.redirect(`${frontEnd}/login?error=microsoft_auth_failed`);
+            const errorCode = err?.message === 'OIDC_TENANT_NOT_AUTHORIZED'
+                ? 'tenant_not_authorized'
+                : 'microsoft_auth_failed';
+            return reply.redirect(`${frontendUrl()}/login?error=${errorCode}`);
         }
     });
 
-    // ── Okta ────────────────────────────────────────────────────────────────
-
-    /**
-     * GET /v1/auth/oidc/okta
-     * Initiates PKCE authorization flow with Okta.
-     * Returns 501 when OKTA_* vars are not configured.
-     */
-    fastify.get('/v1/auth/oidc/okta', async (request, reply) => {
+    fastify.get('/v1/auth/oidc/okta', async (_request, reply) => {
         if (!isOktaConfigured()) {
             return reply.status(501).send({
                 error: 'OIDC not configured',
@@ -219,12 +333,7 @@ export default async function oidcRoutes(fastify: FastifyInstance): Promise<void
         }
 
         try {
-            const domain = process.env.OKTA_DOMAIN!.replace(/\/$/, '');
-            const issuerUrl = domain.includes('/oauth2/')
-                ? domain
-                : `${domain}/oauth2/default`;
-
-            const issuer = await Issuer.discover(issuerUrl);
+            const issuer = await Issuer.discover(oktaIssuerUrl());
             const client = new issuer.Client({
                 client_id: process.env.OKTA_CLIENT_ID!,
                 client_secret: process.env.OKTA_CLIENT_SECRET!,
@@ -236,7 +345,6 @@ export default async function oidcRoutes(fastify: FastifyInstance): Promise<void
             const nonce = crypto.randomBytes(32).toString('hex');
             const codeVerifier = generators.codeVerifier();
             const codeChallenge = generators.codeChallenge(codeVerifier);
-
             pkceStore.set(state, { codeVerifier, nonce, expiresAt: Date.now() + PKCE_TTL_MS });
 
             reply.setCookie('oidc_okta_state', state, {
@@ -247,48 +355,30 @@ export default async function oidcRoutes(fastify: FastifyInstance): Promise<void
                 maxAge: 600,
             });
 
-            const authUrl = client.authorizationUrl({
+            return reply.redirect(client.authorizationUrl({
                 scope: 'openid profile email',
                 state,
                 nonce,
                 code_challenge: codeChallenge,
                 code_challenge_method: 'S256',
-            });
-
-            return reply.redirect(authUrl);
+            }));
         } catch (err) {
             fastify.log.error(err, '[OIDC/Okta] Failed to initiate login');
             return reply.status(503).send({ error: 'Okta OIDC service unavailable' });
         }
     });
 
-    /**
-     * GET /v1/auth/oidc/okta/callback
-     * Receives the authorization code from Okta, exchanges it for tokens,
-     * issues a GovAI JWT and redirects to the admin UI.
-     */
     fastify.get('/v1/auth/oidc/okta/callback', async (request, reply) => {
         if (!isOktaConfigured()) {
-            return reply.status(501).send({
-                error: 'OIDC not configured',
-                provider: 'okta',
-            });
+            return reply.status(501).send({ error: 'OIDC not configured', provider: 'okta' });
         }
 
         const { code, state, error: authError } = request.query as Record<string, string>;
-
         if (authError) {
-            const frontEnd = process.env.FRONTEND_URL || 'http://localhost:3001';
-            return reply.redirect(`${frontEnd}/login?error=${encodeURIComponent(authError)}`);
+            return reply.redirect(`${frontendUrl()}/login?error=${encodeURIComponent(authError)}`);
         }
-
-        if (!code) {
-            return reply.status(400).send({ error: 'Authorization code missing' });
-        }
-
-        if (!state) {
-            return reply.status(400).send({ error: 'State parameter missing' });
-        }
+        if (!code) return reply.status(400).send({ error: 'Authorization code missing' });
+        if (!state) return reply.status(400).send({ error: 'State parameter missing' });
 
         const cookieState = (request.cookies as Record<string, string>).oidc_okta_state;
         if (!cookieState || cookieState !== state) {
@@ -303,11 +393,8 @@ export default async function oidcRoutes(fastify: FastifyInstance): Promise<void
         pkceStore.delete(state);
 
         try {
-            const domain = process.env.OKTA_DOMAIN!.replace(/\/$/, '');
-            const issuerUrl = domain.includes('/oauth2/') ? domain : `${domain}/oauth2/default`;
-            const issuer = await Issuer.discover(issuerUrl);
+            const issuer = await Issuer.discover(oktaIssuerUrl());
             const redirectUri = callbackUrl(process.env.APP_BASE_URL!, 'okta');
-
             const client = new issuer.Client({
                 client_id: process.env.OKTA_CLIENT_ID!,
                 client_secret: process.env.OKTA_CLIENT_SECRET!,
@@ -322,28 +409,30 @@ export default async function oidcRoutes(fastify: FastifyInstance): Promise<void
             });
 
             const claims = tokenSet.claims();
-            const email = (claims.email as string) || (claims.preferred_username as string) || '';
-            const name = (claims.name as string) || email;
+            const email = ((claims.email as string) || (claims.preferred_username as string) || '').trim().toLowerCase();
+            const name = ((claims.name as string) || email).trim();
+            const subject = String(claims.sub || '').trim();
+            const ssoTenantId = String((claims.iss as string) || oktaIssuerUrl()).replace(/\/$/, '');
 
-            const token = fastify.jwt.sign(
-                { email, role: 'operator', orgId: null, userId: null, ssoProvider: 'okta' },
-                { expiresIn: '8h' }
-            );
+            if (!email || !subject || !ssoTenantId) {
+                return reply.redirect(`${frontendUrl()}/login?error=identity_claims_incomplete`);
+            }
 
-            const frontEnd = process.env.FRONTEND_URL || 'http://localhost:3001';
-            reply.setCookie('token', token, {
-                path: '/',
-                httpOnly: true,
-                sameSite: 'lax',
-                secure: process.env.NODE_ENV === 'production',
-                maxAge: 8 * 60 * 60,
+            const token = await buildGovAiToken(fastify, pgPool, {
+                provider: 'okta',
+                email,
+                name,
+                subject,
+                ssoTenantId,
             });
-
-            return reply.redirect(`${frontEnd}/assistants?login=sso_success&provider=okta&name=${encodeURIComponent(name)}`);
-        } catch (err) {
+            const authCode = await storeFrontendAuthCode(token, 'okta');
+            return reply.redirect(`${frontendUrl()}/login?auth_code=${authCode}&provider=okta`);
+        } catch (err: any) {
             fastify.log.error(err, '[OIDC/Okta] Callback token exchange failed');
-            const frontEnd = process.env.FRONTEND_URL || 'http://localhost:3001';
-            return reply.redirect(`${frontEnd}/login?error=okta_auth_failed`);
+            const errorCode = err?.message === 'OIDC_TENANT_NOT_AUTHORIZED'
+                ? 'tenant_not_authorized'
+                : 'okta_auth_failed';
+            return reply.redirect(`${frontendUrl()}/login?error=${errorCode}`);
         }
     });
 }

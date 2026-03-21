@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import api, { ENDPOINTS, API_BASE } from '@/lib/api';
+import { useAuth } from '@/components/AuthProvider';
 import { ToggleRight, ToggleLeft, ShieldCheck, AlertTriangle, RefreshCw, Eye, EyeOff, Download } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 
@@ -41,18 +42,30 @@ export default function CompliancePage() {
     const [loading, setLoading] = useState(true);
     const [updateState, setUpdateState] = useState<UpdateState>({});
     const { toast } = useToast();
+    // GA-014: use role to select the correct endpoint
+    const { role } = useAuth();
 
     const fetchOrgs = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await api.get<OrgConsent[]>(ENDPOINTS.ORGANIZATIONS);
-            setOrgs(res.data);
+            if (role === 'dpo') {
+                // GA-014: DPO uses the restricted /compliance/dpo-summary endpoint
+                const res = await api.get<{ organization: OrgConsent; recentAuditLogs: unknown[] }>(
+                    ENDPOINTS.COMPLIANCE_DPO_SUMMARY
+                );
+                const org = res.data.organization;
+                setOrgs(org ? [org] : []);
+            } else {
+                // admin: full organizations list
+                const res = await api.get<OrgConsent[]>(ENDPOINTS.ORGANIZATIONS);
+                setOrgs(res.data);
+            }
         } catch (err: any) {
             toast(err?.response?.data?.error ?? 'Erro ao carregar organizações. Verifique sua conexão.', 'error');
         } finally {
             setLoading(false);
         }
-    }, [toast]);
+    }, [toast, role]);
 
     useEffect(() => { fetchOrgs(); }, [fetchOrgs]);
 

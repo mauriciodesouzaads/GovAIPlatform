@@ -52,7 +52,7 @@ export default function ApprovalsPage() {
     const handleApprove = async (id: string) => {
         setProcessing(id);
         try {
-            const res = await api.post(`${ENDPOINTS.APPROVALS}/${id}/approve`);
+            const res = await api.post(`${ENDPOINTS.APPROVALS}/${id}/approve`, { reviewNote: 'Aprovado' });
             toast(`Decisão aprovada! Trace: ${res.data._govai?.traceId || id.substring(0, 8)}`, 'success');
             // Optimistic update: remove from current list if in pending tab
             if (tab === 'pending') {
@@ -71,7 +71,7 @@ export default function ApprovalsPage() {
     const handleReject = async (id: string) => {
         setProcessing(id);
         try {
-            await api.post(`${ENDPOINTS.APPROVALS}/${id}/reject`, { note: rejectNote || undefined });
+            await api.post(`${ENDPOINTS.APPROVALS}/${id}/reject`, { reviewNote: rejectNote || 'Rejeitado' });
             toast('Solicitação bloqueada via política corporativa.', 'success');
             setShowRejectModal(null);
             setRejectNote('');

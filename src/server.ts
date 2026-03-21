@@ -21,7 +21,6 @@ import { dlpEngine } from './lib/dlp-engine';
 import { pgPool } from './lib/db';
 import { redisCache } from './lib/redis';
 import { renderPrometheusMetrics, getMetricsContentType, activePgConnections, updateComplianceConsentedOrgs } from './lib/sre-metrics';
-import { registerOidcRoutes } from './lib/auth-oidc';
 import oidcRoutes from './routes/oidc.routes';
 import { executeAssistant } from './services/execution.service';
 import { auditQueue, initAuditWorker } from './workers/audit.worker';
@@ -244,14 +243,12 @@ const requireApiKey = async (request: FastifyRequest, reply: FastifyReply) => {
     const client = await pgPool.connect();
     try {
         const res = await client.query(
-            // GA-004: also enforce expires_at so expired keys are rejected at auth time
             `SELECT akl.org_id
              FROM api_key_lookup akl
-             JOIN api_keys ak ON ak.key_hash = akl.key_hash
              WHERE akl.key_hash = $1
                AND akl.prefix = $2
                AND akl.is_active = TRUE
-               AND (ak.expires_at IS NULL OR ak.expires_at > NOW())
+               AND (akl.expires_at IS NULL OR akl.expires_at > NOW())
              LIMIT 1`,
             [tokenHash, prefix]
         );
@@ -472,12 +469,11 @@ fastify.get('/health', async (_request, reply) => {
 // ---------------------------------------------------------------------------
 // Route plugins
 // ---------------------------------------------------------------------------
-registerOidcRoutes(fastify, pgPool);
-fastify.register(oidcRoutes); // S12: dedicated /v1/auth/oidc/microsoft + /v1/auth/oidc/okta routes
+fastify.register(oidcRoutes, { pgPool }); // GA-005/GA-006: unified OIDC with JIT provisioning + Bearer-only session
 
 import { adminRoutes } from './routes/admin.routes';
 
-fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, requireRole: requireTenantRole });
+fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, requireRole: requireTenantRole, requirePlatformAdmin });
 // assistantsRoutes, approvalsRoutes, reportsRoutes registered internally by adminRoutes
 
 // ---------------------------------------------------------------------------

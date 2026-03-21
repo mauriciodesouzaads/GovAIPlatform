@@ -133,13 +133,19 @@ describe('B2B Enterprise Audit — Testes Comportamentais Reais', () => {
         expect(approvals).not.toMatch(/approvals.*approvalId.*approve.*requireRole\(\['.*operator/);
     });
 
-    it('[TEST-10] Homologação: rota de publicação exige checklist e registra published_by', () => {
+    it('[TEST-10] Homologação: rota de publicação exige checklist e registra no audit trail (GA-009)', () => {
         const assistants = fs.readFileSync(path.join(process.cwd(), 'src/routes/assistants.routes.ts'), 'utf8');
+        // GA-009: publication events table stores checklist_jsonb, published_at; published_by in notes
         expect(assistants).toContain('checklist_jsonb');
         expect(assistants).toContain('published_by');
         expect(assistants).toContain('published_at');
         // Validação que rejeita checklist incompleto
         expect(assistants).toContain("Object.values(checklist).some(val => val !== true)");
+        // GA-009: imutabilidade — nenhum UPDATE em assistant_versions na rota de aprovação
+        const approveFnStart = assistants.indexOf('versions/:versionId/approve');
+        const approveFnEnd = assistants.indexOf('// --- RAG KNOWLEDGE BASE ---');
+        const approveFnBody = assistants.substring(approveFnStart, approveFnEnd);
+        expect(approveFnBody).not.toContain('UPDATE assistant_versions');
     });
 
     it('[TEST-11] Migration de expiração cross-tenant existe e tem política RLS correta', () => {

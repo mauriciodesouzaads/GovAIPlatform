@@ -28,7 +28,8 @@ async function buildApp(): Promise<FastifyInstance> {
     const app = Fastify({ logger: false });
     await app.register(cookie, { secret: 'test-cookie-secret' });
     await app.register(fastifyJwt, { secret: JWT_SECRET });
-    await app.register(oidcRoutes);
+    const mockPool = { query: vi.fn().mockResolvedValue({ rows: [] }) } as any;
+    await app.register(oidcRoutes, { pgPool: mockPool });
     await app.ready();
     return app;
 }

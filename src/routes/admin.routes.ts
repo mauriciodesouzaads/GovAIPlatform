@@ -5,15 +5,17 @@ import { dlpEngine } from '../lib/dlp-engine';
 import { mailer } from '../lib/mailer';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
-import { LoginSchema, ChangePasswordSchema, TelemetryConsentSchema, zodErrors } from '../lib/schemas';
+import { LoginSchema, ChangePasswordSchema, FirstLoginResetSchema, TelemetryConsentSchema, zodErrors } from '../lib/schemas';
+import { redisCache } from '../lib/redis';
 
 
 /**
  * Admin Routes Plugin — extracted from server.ts (DT-3 Refactoring)
  * Encapsulates all /v1/admin/* endpoints behind requireAdminAuth or requireRole.
  */
-export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any }) {
+export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any; requirePlatformAdmin?: any }) {
     const { pgPool, requireAdminAuth, requireRole } = opts;
+    const requirePlatformAdmin = opts.requirePlatformAdmin ?? requireRole(['platform_admin']);
 
     // --- ADMIN ROUTES ---
 
@@ -47,7 +49,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
             // para usuários locais. Isso elimina a necessidade do bypass IS NULL
             // na policy users_login_policy (CVE P-01: cross-tenant data leakage).
             const lookupRes = await client.query(
-                `SELECT user_id, org_id FROM user_lookup WHERE email = $1`,
+                `SELECT user_id, org_id FROM user_lookup WHERE LOWER(email) = LOWER($1)`,
                 [email]
             );
 
@@ -66,7 +68,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
             // Agora a query em users é 100% isolada pelo RLS (org_id = contexto)
             const res = await client.query(
                 `SELECT id, org_id, password_hash, role, requires_password_change 
-                 FROM users WHERE email = $1 AND sso_provider = 'local'`,
+                 FROM users WHERE LOWER(email) = LOWER($1) AND sso_provider = 'local'`,
                 [email]
             );
 
@@ -103,16 +105,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
                 userId: user.id
             }, { expiresIn: '8h' });
 
-            // Cookie httpOnly: JS não pode ler o token — protege contra XSS.
-            // O token também é retornado no corpo JSON para o AuthProvider do frontend.
-            reply.setCookie('token', token, {
-                path: '/',
-                httpOnly: true,
-                sameSite: 'lax',
-                secure: process.env.NODE_ENV === 'production',
-                maxAge: 8 * 60 * 60,
-            });
-
+            // GA-012: Bearer-only session model — token returned in body only, no cookie.
             return reply.send({ token, message: 'Login successful', role: user.role });
         } catch (error) {
             app.log.error(error, "Login error");
@@ -122,7 +115,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         }
     });
 
-    // 0.1 Change Password endpoint for Force Reset
+    // 0.1 Change Password endpoint for authenticated users
     app.post('/v1/admin/change-password', {
         config: {
             rateLimit: {
@@ -132,59 +125,147 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
                 errorResponseBuilder: (_request: FastifyRequest, context: any) => ({
                     statusCode: 429,
                     error: 'Too many password change attempts',
-                    message: 'Muitas tentativas de redefinição de senha. Tente novamente em 15 minutos.',
+                    message: 'Muitas tentativas de troca de senha. Tente novamente em 15 minutos.',
                     retryAfter: Math.ceil(context.ttl / 1000),
                 }),
             }
-        }
+        },
+        preHandler: requireAdminAuth,
     }, async (request, reply) => {
-        // Validate body structure first — returns 400 before touching auth logic
         const cpParsed = ChangePasswordSchema.safeParse(request.body);
         if (!cpParsed.success) {
             return reply.status(400).send({ error: 'Validation failed', details: zodErrors(cpParsed.error) });
         }
-        const { newPassword } = cpParsed.data;
+        const { currentPassword, newPassword } = cpParsed.data;
 
-        // We use manual inspection instead of requireAdminAuth because the token is resetOnly: true
-        const authHeader = request.headers.authorization;
-        if (!authHeader) return reply.status(401).send({ error: "Token não fornecido" });
-
-        const token = authHeader.split(' ')[1];
-        let decoded: any;
-        try {
-            decoded = app.jwt.verify(token);
-        } catch (e) {
-            return reply.status(401).send({ error: "Token de redefinição inválido ou expirado." });
-        }
-
-        if (!decoded.resetOnly) {
-            return reply.status(400).send({ error: "Este token não é válido para troca de senha obrigatória." });
+        const user = request.user as { userId?: string; orgId?: string };
+        if (!user?.userId || !user?.orgId) {
+            return reply.status(401).send({ error: 'Sessão inválida para troca de senha.' });
         }
 
         const client = await pgPool.connect();
         try {
-            const hash = await bcrypt.hash(newPassword, 12);
-            await client.query(
-                `UPDATE users SET password_hash = $1, requires_password_change = false WHERE id = $2`,
-                [hash, decoded.userId]
+            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [user.orgId]);
+            const currentRes = await client.query(
+                `SELECT password_hash FROM users WHERE id = $1 AND org_id = $2 AND sso_provider = 'local'`,
+                [user.userId, user.orgId]
             );
-            return reply.send({ success: true, message: "Senha alterada com sucesso. Faça login novamente." });
+            if (currentRes.rowCount === 0) {
+                return reply.status(404).send({ error: 'Usuário local não encontrado para troca de senha.' });
+            }
+
+            const passwordHash = currentRes.rows[0].password_hash as string | null;
+            if (!passwordHash) {
+                return reply.status(400).send({ error: 'Conta não configurada para autenticação local.' });
+            }
+
+            const isValid = await bcrypt.compare(currentPassword, passwordHash);
+            if (!isValid) {
+                return reply.status(401).send({ error: 'Senha atual inválida.' });
+            }
+
+            const hash = await bcrypt.hash(newPassword, 12);
+            const updateRes = await client.query(
+                `UPDATE users SET password_hash = $1, requires_password_change = FALSE WHERE id = $2 AND org_id = $3`,
+                [hash, user.userId, user.orgId]
+            );
+            if ((updateRes.rowCount ?? 0) !== 1) {
+                return reply.status(500).send({ error: 'Falha ao atualizar a senha do usuário autenticado.' });
+            }
+            return reply.send({ success: true, message: 'Senha alterada com sucesso.' });
         } catch (error) {
-            app.log.error(error, "Password reset error");
+            app.log.error(error, 'change-password error');
             return reply.status(500).send({ error: 'Erro interno ao atualizar a senha.' });
         } finally {
             client.release();
         }
     });
 
-    // /v1/admin/logout — limpa o cookie httpOnly de sessão (SSO e login local)
-    app.post('/v1/admin/logout', async (request, reply) => {
-        reply.clearCookie('token', { path: '/' });
+    // 0.2 First-login password reset — GA-007
+    // Uses resetToken from login response body (not Authorization header).
+    // One-time use enforced via Redis; requires_password_change verified in DB.
+    app.post('/v1/admin/reset-password', {
+        config: {
+            rateLimit: {
+                max: 5,
+                timeWindow: '15 minutes',
+                keyGenerator: (request: FastifyRequest) => request.ip + ':reset-password',
+                errorResponseBuilder: (_request: FastifyRequest, context: any) => ({
+                    statusCode: 429,
+                    error: 'Too many reset attempts',
+                    message: 'Muitas tentativas de redefinição de senha. Tente novamente em 15 minutos.',
+                    retryAfter: Math.ceil(context.ttl / 1000),
+                }),
+            }
+        }
+    }, async (request, reply) => {
+        const parsed = FirstLoginResetSchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.status(400).send({ error: 'Validation failed', details: zodErrors(parsed.error) });
+        }
+        const { resetToken, newPassword } = parsed.data;
+
+        let decoded: any;
+        try {
+            decoded = app.jwt.verify(resetToken);
+        } catch {
+            return reply.status(401).send({ error: 'Token de redefinição inválido ou expirado.' });
+        }
+
+        if (!decoded.resetOnly) {
+            return reply.status(403).send({ error: 'Este token não é válido para troca de senha obrigatória.' });
+        }
+
+        const userId = decoded.userId as string;
+        const orgId = decoded.orgId as string;
+
+        // One-time use guard
+        const redisKey = `reset_used:${userId}`;
+        const alreadyUsed = await redisCache.get(redisKey);
+        if (alreadyUsed) {
+            return reply.status(410).send({ error: 'Token de reset já utilizado.' });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+
+            // Verify user still requires password change
+            const userRes = await client.query(
+                'SELECT id FROM users WHERE id = $1 AND requires_password_change = TRUE',
+                [userId]
+            );
+            if (userRes.rowCount === 0) {
+                return reply.status(403).send({ error: 'Troca de senha não é necessária ou usuário não encontrado.' });
+            }
+
+            const hash = await bcrypt.hash(newPassword, 12);
+            const updateRes = await client.query(
+                `UPDATE users SET password_hash = $1, requires_password_change = FALSE WHERE id = $2`,
+                [hash, userId]
+            );
+            if ((updateRes.rowCount ?? 0) === 0) {
+                return reply.status(500).send({ error: 'Falha ao atualizar senha: nenhuma linha afetada.' });
+            }
+
+            // Mark token as used (TTL 3600s)
+            await redisCache.set(redisKey, '1', 'EX', 3600);
+
+            return reply.status(201).send({ success: true, message: 'Senha redefinida com sucesso. Faça login novamente.' });
+        } catch (error) {
+            app.log.error(error, 'reset-password error');
+            return reply.status(500).send({ error: 'Erro interno ao redefinir a senha.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // /v1/admin/logout — sessão bearer-only é invalidada no cliente.
+    app.post('/v1/admin/logout', async (_request, reply) => {
         return reply.send({ message: 'Logout realizado com sucesso.' });
     });
 
-    // /v1/admin/me — retorna os claims do JWT atual (lido do httpOnly cookie ou Bearer token).
-    // Necessário para que o frontend obtenha role/email após redirect SSO (Etapa 3).
+    // /v1/admin/me — retorna os claims do JWT atual.
     app.get('/v1/admin/me', { preHandler: requireAdminAuth }, async (request, reply) => {
         const user = request.user as { email?: string; role?: string; orgId?: string; userId?: string };
         return reply.send({
@@ -323,6 +404,36 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
             app.log.error(error, "Error fetching organizations");
             reply.status(500).send({ error: "Erro ao buscar organizações" });
         } finally {
+            client.release();
+        }
+    });
+
+    // GA-014: DPO-specific compliance summary
+    // Gives DPO role access to their org's consent status + recent audit logs
+    // without exposing the full /organizations admin endpoint.
+    app.get('/v1/admin/compliance/dpo-summary', { preHandler: requireRole(['admin', 'dpo']) }, async (request, reply) => {
+        const orgId = (request as any).user?.orgId || request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: 'orgId missing from token.' });
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const org = await client.query(
+                'SELECT id, name, telemetry_consent, telemetry_consent_at FROM organizations WHERE id = $1',
+                [orgId]
+            );
+            const logs = await client.query(
+                `SELECT action, created_at, metadata
+                 FROM audit_logs_partitioned
+                 WHERE org_id = $1
+                 ORDER BY created_at DESC LIMIT 50`,
+                [orgId]
+            );
+            return reply.send({ organization: org.rows[0] ?? null, recentAuditLogs: logs.rows });
+        } catch (error) {
+            app.log.error(error, 'Error fetching DPO compliance summary');
+            reply.status(500).send({ error: 'Erro ao buscar resumo de compliance' });
+        } finally {
+            await client.query('RESET app.current_org_id');
             client.release();
         }
     });
@@ -613,20 +724,49 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         }
     });
 
+    // 3e. Platform control-plane views — explicit global scope, never tenant-admin.
+    app.get('/v1/admin/platform/organizations', { preHandler: requirePlatformAdmin }, async (_request, reply) => {
+        const client = await pgPool.connect();
+        try {
+            const res = await client.query(
+                `SELECT id, name, telemetry_consent, telemetry_consent_at, telemetry_pii_strip, sso_tenant_id, created_at
+                 FROM organizations
+                 ORDER BY created_at DESC`
+            );
+            return reply.send(res.rows);
+        } catch (error) {
+            app.log.error(error, 'Error fetching platform organizations');
+            return reply.status(500).send({ error: 'Erro ao buscar organizações da plataforma.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    app.get('/v1/admin/platform/users', { preHandler: requirePlatformAdmin }, async (_request, reply) => {
+        const client = await pgPool.connect();
+        try {
+            const res = await client.query(
+                `SELECT id, email, org_id, role, status, sso_provider, created_at
+                 FROM users
+                 ORDER BY created_at DESC`
+            );
+            return reply.send(res.rows);
+        } catch (error) {
+            app.log.error(error, 'Error fetching platform users');
+            return reply.status(500).send({ error: 'Erro ao buscar usuários da plataforma.' });
+        } finally {
+            client.release();
+        }
+    });
+
     // 4. Users List
     app.get('/v1/admin/users', { preHandler: requireRole(['admin']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         const client = await pgPool.connect();
         try {
-            if (orgId) {
-                await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
-                const res = await client.query('SELECT id, email, role, status, created_at FROM users ORDER BY created_at DESC');
-                return reply.send(res.rows);
-            } else {
-                // Platform admin view
-                const res = await client.query('SELECT id, email, org_id, role, status, created_at FROM users ORDER BY created_at DESC');
-                return reply.send(res.rows);
-            }
+            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
+            const res = await client.query('SELECT id, email, role, status, created_at FROM users ORDER BY created_at DESC');
+            return reply.send(res.rows);
         } catch (error) {
             app.log.error(error, "Error fetching users");
             reply.status(500).send({ error: "Erro ao buscar usuários" });
@@ -636,7 +776,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
     });
 
     // --- Sub-Plugins ---
-    const subOpts = { pgPool, requireAdminAuth, requireRole, requireTenantRole: requireRole };
+    const subOpts = { pgPool, requireAdminAuth, requireRole, requireTenantRole: requireRole, requirePlatformAdmin };
     // Assistants, Policies, MCP, Knowledge routes
     const { assistantsRoutes } = await import('./assistants.routes');
     app.register(assistantsRoutes, subOpts);

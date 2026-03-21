@@ -79,8 +79,8 @@ function createSuccessClient() {
             if (sql.includes('INSERT INTO api_keys')) {
                 return { rows: [{ id: 'key-2', prefix: 'test-key-xyz', created_at: new Date(), expires_at: null }] };
             }
-            if (sql.includes('UPDATE api_keys SET is_active')) {
-                return { rows: [], rowCount: 1 };
+            if (sql.includes('UPDATE api_keys') && sql.includes('is_active')) {
+                return { rows: [{ id: 'key-1', revoked_at: new Date(), revoke_reason: 'revoked_by_tenant_admin' }], rowCount: 1 };
             }
             if (sql.includes('FROM policy_versions')) {
                 return { rows: [{ id: 'pv-1', name: 'Default Policy', version: 1 }] };
@@ -112,6 +112,17 @@ function createSuccessClient() {
             if (sql.includes('UPDATE assistants') && sql.includes('current_version_id')) {
                 return { rows: [], rowCount: 1 };
             }
+            // GA-009: approve route SELECT to check version status + already_published
+            if (sql.includes('FROM assistant_versions') && sql.includes('already_published')) {
+                return { rows: [{ id: VER_ID, status: 'draft', already_published: false }], rowCount: 1 };
+            }
+            // fallback for old format
+            if (sql.includes('SELECT id, status FROM assistant_versions')) {
+                return { rows: [{ id: VER_ID, status: 'draft', already_published: false }], rowCount: 1 };
+            }
+            if (sql.includes('INSERT INTO assistant_publication_events')) {
+                return { rows: [], rowCount: 1 };
+            }
             if (sql.includes('INSERT INTO knowledge_bases')) {
                 return { rows: [{ id: 'kb-1', name: 'Base Padrão', created_at: new Date() }] };
             }
@@ -141,8 +152,13 @@ function createSuccessClient() {
     };
 }
 
-const requireAdminAuth = async (_req: any, _reply: any): Promise<void> => { /* pass-through */ };
-const requireRole = (_roles: string[]) => async (_req: any, _reply: any): Promise<void> => { /* pass-through */ };
+// Pass-through middleware that also sets req.user so routes using request.user work in tests
+const requireAdminAuth = async (req: any, _reply: any): Promise<void> => {
+    req.user = { email: 'admin@orga.com', userId: 'admin-user-id', orgId: ORG_ID, role: 'admin' };
+};
+const requireRole = (_roles: string[]) => async (req: any, _reply: any): Promise<void> => {
+    req.user = { email: 'admin@orga.com', userId: 'admin-user-id', orgId: ORG_ID, role: 'admin' };
+};
 
 // ── Fastify instance ──────────────────────────────────────────────────────────
 

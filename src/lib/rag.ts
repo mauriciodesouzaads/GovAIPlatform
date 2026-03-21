@@ -152,31 +152,46 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
 /**
  * Ingest a document: chunk it, generate embeddings, and store in PostgreSQL.
+ * GA-008: orgId is required for RLS isolation — uses a contextualised client.
  */
 export async function ingestDocument(
     pool: Pool,
     kbId: string,
+    orgId: string,
     content: string,
     metadata?: Record<string, any>
 ): Promise<{ chunksStored: number }> {
     const chunks = chunkText(content);
     let stored = 0;
 
-    for (const chunk of chunks) {
-        try {
-            const embedding = await generateEmbedding(chunk);
-            validateEmbeddingDimension(embedding);
-            const vectorStr = `[${embedding.join(',')}]`;
-
-            await pool.query(
-                `INSERT INTO documents (kb_id, content, metadata, embedding) 
-                 VALUES ($1, $2, $3, $4::vector)`,
-                [kbId, chunk, JSON.stringify(metadata || {}), vectorStr]
-            );
-            stored++;
-        } catch (error) {
-            console.error(`Error embedding chunk: ${error}`);
+    const client = await pool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+        const kbOwnership = await client.query(
+            'SELECT 1 FROM knowledge_bases WHERE id = $1 AND org_id = $2 LIMIT 1',
+            [kbId, orgId]
+        );
+        if ((kbOwnership.rowCount ?? 0) === 0) {
+            throw new Error('Knowledge base não pertence à organização autenticada.');
         }
+        for (const chunk of chunks) {
+            try {
+                const embedding = await generateEmbedding(chunk);
+                validateEmbeddingDimension(embedding);
+                const vectorStr = `[${embedding.join(',')}]`;
+
+                await client.query(
+                    `INSERT INTO documents (kb_id, org_id, content, metadata, embedding)
+                     VALUES ($1, $2, $3, $4, $5::vector)`,
+                    [kbId, orgId, chunk, JSON.stringify(metadata || {}), vectorStr]
+                );
+                stored++;
+            } catch (error) {
+                console.error(`Error embedding chunk: ${error}`);
+            }
+        }
+    } finally {
+        client.release();
     }
 
     return { chunksStored: stored };
@@ -188,11 +203,12 @@ export async function ingestDocument(
 
 /**
  * Search for relevant document chunks using cosine similarity.
- * Returns the top-K most similar chunks to the query.
+ * GA-008: orgId required — uses contextualised client + filters by org_id.
  */
 export async function searchSimilarChunks(
     pool: Pool,
     kbId: string,
+    orgId: string,
     queryText: string,
     topK: number = 3
 ): Promise<{ content: string; similarity: number }[]> {
@@ -200,16 +216,21 @@ export async function searchSimilarChunks(
     validateEmbeddingDimension(queryEmbedding);
     const vectorStr = `[${queryEmbedding.join(',')}]`;
 
-    const result = await pool.query(
-        `SELECT content, 1 - (embedding <=> $1::vector) AS similarity
-         FROM documents
-         WHERE kb_id = $2
-         ORDER BY embedding <=> $1::vector
-         LIMIT $3`,
-        [vectorStr, kbId, topK]
-    );
-
-    return result.rows;
+    const client = await pool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', $1, true)`, [orgId]);
+        const result = await client.query(
+            `SELECT content, 1 - (embedding <=> $1::vector) AS similarity
+             FROM documents
+             WHERE kb_id = $2 AND org_id = $3
+             ORDER BY embedding <=> $1::vector
+             LIMIT $4`,
+            [vectorStr, kbId, orgId, topK]
+        );
+        return result.rows;
+    } finally {
+        client.release();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -243,6 +264,7 @@ export interface TokenAwareSearchResult {
 export async function searchWithTokenLimit(
     pool: Pool,
     kbId: string,
+    orgId: string,
     queryText: string,
     model: string = 'default',
     maxCandidates: number = 10
@@ -251,8 +273,8 @@ export async function searchWithTokenLimit(
     const SEPARATOR = '\n---\n';
     const separatorTokens = estimateTokens(SEPARATOR);
 
-    // Fetch a generous pool of candidates
-    const candidates = await searchSimilarChunks(pool, kbId, queryText, maxCandidates);
+    // Fetch a generous pool of candidates (GA-008: orgId scoped)
+    const candidates = await searchSimilarChunks(pool, kbId, orgId, queryText, maxCandidates);
 
     const usedChunks: string[] = [];
     let currentTokens = 0;

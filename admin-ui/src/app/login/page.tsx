@@ -6,6 +6,7 @@ import axios from 'axios';
 import { ShieldAlert, Loader2 } from 'lucide-react';
 
 import { API_BASE } from '@/lib/api';
+import { setAuthToken } from '@/lib/auth-storage';
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
@@ -20,7 +21,31 @@ export default function LoginPage() {
     const [resetToken, setResetToken] = useState('');
     const [newPassword, setNewPassword] = useState('');
 
+    const router = useRouter();
     const searchParams = useSearchParams();
+
+    // Handle one-time OIDC auth code from callback and exchange it for a JWT
+    useEffect(() => {
+        const authCode = searchParams.get('auth_code');
+        if (!authCode) return;
+
+        let cancelled = false;
+        const exchangeCode = async () => {
+            try {
+                const res = await axios.post(`${API_BASE}/v1/auth/oidc/session`, { code: authCode });
+                if (cancelled) return;
+                setAuthToken(res.data.token);
+                router.replace('/');
+            } catch (err: unknown) {
+                if (cancelled) return;
+                const axiosError = err as { response?: { data?: { error?: string } } };
+                setError(axiosError.response?.data?.error || 'Falha ao concluir a sessão SSO. Reinicie o login.');
+            }
+        };
+
+        exchangeCode();
+        return () => { cancelled = true; };
+    }, [searchParams, router]);
 
     // Handle ?error= returned by OIDC callback on failure
     useEffect(() => {
@@ -29,12 +54,13 @@ export default function LoginPage() {
             const messages: Record<string, string> = {
                 microsoft_auth_failed: 'Falha na autenticação Microsoft Entra. Tente novamente.',
                 okta_auth_failed: 'Falha na autenticação Okta. Tente novamente.',
+                tenant_not_authorized: 'Nenhuma organização autorizada foi encontrada para este tenant de identidade.',
+                identity_claims_incomplete: 'O provedor de identidade não retornou claims suficientes para concluir o login.',
             };
             setError(messages[oidcError] || `Erro de autenticação SSO: ${oidcError}`);
         }
     }, [searchParams]);
 
-    const router = useRouter();
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -45,7 +71,7 @@ export default function LoginPage() {
             const res = await axios.post(`${API_BASE}/v1/admin/login`, { email, password });
 
             // Store token
-            localStorage.setItem('govai_admin_token', res.data.token);
+            setAuthToken(res.data.token);
 
             // Redirect to dashboard
             router.push('/');
@@ -70,18 +96,8 @@ export default function LoginPage() {
         setError('');
 
         try {
-            // Placeholder for actual API call. Assuming 'api' and 'ENDPOINTS' are defined.
-            // If not, this line will cause an error.
-            // For the original logic, it would be:
-            // const res = await axios.post(
-            //     `${API_BASE}/v1/admin/change-password`,
-            //     { newPassword },
-            //     { headers: { Authorization: `Bearer ${resetToken}` } }
-            // );
-            // setSuccessMsg(res.data.message || 'Senha atualizada com sucesso!');
-            // For the provided snippet, we'll use the placeholder:
-            await axios.post(`${API_BASE}/v1/admin/change-password`, { resetToken, newPassword }, { headers: { Authorization: `Bearer ${resetToken}` } }); // Using original endpoint for consistency
-            setSuccessMsg('Senha atualizada com sucesso!'); // Assuming success message from original logic
+            await axios.post(`${API_BASE}/v1/admin/reset-password`, { resetToken, newPassword });
+            setSuccessMsg('Senha atualizada com sucesso!');
             setIsResetting(false);
             setResetToken('');
             setNewPassword('');

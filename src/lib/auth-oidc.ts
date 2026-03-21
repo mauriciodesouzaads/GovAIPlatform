@@ -1,3 +1,5 @@
+// @deprecated — Usar src/routes/oidc.routes.ts
+// Este arquivo não está mais registrado em server.ts (removido em Sprint R3 / GA-005+GA-006)
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { Issuer, BaseClient, TokenSet } from 'openid-client';
 import { Pool } from 'pg';

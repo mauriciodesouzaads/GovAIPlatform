@@ -59,6 +59,13 @@ MIGRATIONS=(
     "032_explicit_vector_dimension.sql"
     "033_create_schema_migrations.sql"
     "034_grant_platform_admin_table_access.sql"
+    "035_organizations_rls.sql"
+    "036_api_key_lookup_add_expires.sql"
+    "037_documents_add_org_id.sql"
+    "038_fix_version_publish_flow.sql"
+    "039_identity_and_publish_hardening.sql"
+    "040_org_sso_lookup.sql"
+    "041_runtime_and_release_hardening.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

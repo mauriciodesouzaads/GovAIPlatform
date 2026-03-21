@@ -48,13 +48,21 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Install dependencies
+      - name: Install backend dependencies
         run: npm ci
 
-      - name: TypeScript type-check (lint)
+      - name: TypeScript type-check (backend)
         run: npx tsc --noEmit
 
-      - name: Build (tsc → dist/)
+      - name: Build backend (tsc → dist/)
+        run: npm run build
+
+      - name: Install frontend dependencies
+        working-directory: admin-ui
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: admin-ui
         run: npm run build
 
       - name: Upload build artifact
@@ -320,7 +328,7 @@ jobs:
     name: Deploy to Production VPS
     runs-on: ubuntu-latest
     needs: build-docker
-    continue-on-error: true
+    continue-on-error: false
     # Só roda em push para main E somente se DEPLOY_SSH_KEY estiver configurado.
     # Pull Requests nunca disparam o deploy.
     # Para desabilitar o deploy sem remover o job: basta não configurar o secret.
@@ -393,7 +401,7 @@ jobs:
                 -v /opt/govai-platform/scripts:/scripts:ro \
                 -e DATABASE_URL="postgresql://postgres:$(grep '^DB_PASSWORD=' .env.prod | cut -d= -f2- | tr -d '\"' | xargs)@database:5432/govai_platform" \
                 postgres:15-alpine \
-                bash /scripts/migrate.sh || echo "⚠ Migrations: verifique manualmente."
+                bash /scripts/migrate.sh
 
               echo "=== Subindo stack ==="
               docker compose -f docker-compose.prod.yml --env-file .env.prod \

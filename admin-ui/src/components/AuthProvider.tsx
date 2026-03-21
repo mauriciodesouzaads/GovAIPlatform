@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import api, { ENDPOINTS } from '@/lib/api';
+import { getAuthToken, clearAuthToken } from '@/lib/auth-storage';
 
 interface AuthContextType {
     token: string | null;
@@ -32,18 +33,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const pathname = usePathname();
 
-    // Tenta obter claims do servidor via /v1/admin/me.
-    // Usado no fluxo SSO: o httpOnly cookie é enviado automaticamente (withCredentials: true),
-    // o servidor extrai o JWT do cookie e retorna os claims.
     const refreshFromServer = useCallback(async (): Promise<boolean> => {
         try {
             const res = await api.get(ENDPOINTS.ME);
             const { email: serverEmail, role: serverRole } = res.data;
             setRole(serverRole || 'operator');
             setEmail(serverEmail || '');
-            // Sentinel: indica sessão ativa por httpOnly cookie (sem token JS-acessível)
-            setToken('__server_session__');
-            api.defaults.headers.common['Authorization'] = undefined;
+            const storedToken = getAuthToken();
+            setToken(storedToken);
             return true;
         } catch {
             return false;
@@ -52,61 +49,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         const initAuth = async () => {
-            const storedToken = localStorage.getItem('govai_admin_token');
+            const storedToken = getAuthToken();
 
-            if (storedToken) {
-                // Fluxo de login local: token no localStorage.
-                // Decodifica o payload (verificação real ocorre no servidor a cada request).
-                try {
-                    const base64Url = storedToken.split('.')[1];
-                    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-                    const jsonPayload = decodeURIComponent(
-                        window.atob(base64).split('').map(c =>
-                            '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
-                        ).join('')
-                    );
-                    const decoded = JSON.parse(jsonPayload);
-                    setRole(decoded.role || 'operator');
-                    setEmail(decoded.email || '');
-                } catch {
-                    // Token malformado — limpa e força re-auth
-                    localStorage.removeItem('govai_admin_token');
-                    router.push('/login');
-                    setIsLoading(false);
-                    return;
-                }
-                setToken(storedToken);
-                api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-            } else if (pathname !== '/login') {
-                // Sem localStorage token — tenta sessão SSO via httpOnly cookie.
-                const hasServerSession = await refreshFromServer();
-                if (!hasServerSession) {
-                    router.push('/login');
-                }
+            if (!storedToken) {
+                setToken(null);
+                setRole('operator');
+                setEmail('');
+                setIsLoading(false);
+                if (pathname !== '/login') router.push('/login');
+                return;
             }
 
+            api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+            const ok = await refreshFromServer();
+            if (!ok) {
+                clearAuthToken();
+                delete api.defaults.headers.common['Authorization'];
+                setToken(null);
+                setRole('operator');
+                setEmail('');
+                if (pathname !== '/login') router.push('/login');
+            }
             setIsLoading(false);
         };
 
         initAuth();
-    // Apenas na montagem; pathname é deliberadamente excluído das deps
-    // para evitar re-runs em navegação (o estado de auth não muda entre páginas).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [pathname, refreshFromServer, router]);
 
     const logout = useCallback(async () => {
-        // Limpa localStorage
-        localStorage.removeItem('govai_admin_token');
+        clearAuthToken();
         delete api.defaults.headers.common['Authorization'];
         setToken(null);
         setRole('operator');
         setEmail('');
 
-        // Limpa httpOnly cookie server-side (cobre sessões SSO)
         try {
             await api.post(ENDPOINTS.LOGOUT);
         } catch {
-            // Falha silenciosa — o cookie vai expirar naturalmente
+            // noop — sessão bearer-only já foi invalidada no cliente
         }
 
         router.push('/login');

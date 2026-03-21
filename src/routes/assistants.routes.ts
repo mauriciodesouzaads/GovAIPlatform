@@ -8,7 +8,7 @@ import { redisCache } from '../lib/redis';
 import { CreateAssistantSchema, CreateApiKeySchema, zodErrors } from '../lib/schemas';
 
 
-export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any; requireTenantRole?: any }) {
+export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any; requireTenantRole?: any; requirePlatformAdmin?: any }) {
     const { pgPool, requireAdminAuth, requireRole } = opts;
     // GA-001/GA-003: prefer requireTenantRole if provided; fall back to requireRole for compat
     const requireTenantRole = opts.requireTenantRole ?? requireRole;
@@ -26,7 +26,17 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
             const res = await client.query(`
                 SELECT a.id, a.name, a.status, a.created_at, 
-                       (SELECT v.id FROM assistant_versions v WHERE v.assistant_id = a.id AND v.status = 'draft' ORDER BY v.created_at DESC LIMIT 1) as draft_version_id
+                       (
+                           SELECT v.id
+                           FROM assistant_versions v
+                           WHERE v.assistant_id = a.id
+                             AND v.status = 'draft'
+                             AND NOT EXISTS (
+                                 SELECT 1 FROM assistant_publication_events e WHERE e.version_id = v.id
+                             )
+                           ORDER BY v.created_at DESC
+                           LIMIT 1
+                       ) as draft_version_id
                 FROM assistants a 
                 ORDER BY a.created_at DESC
             `);
@@ -111,7 +121,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
     });
 
     // Revoke API Key
-    app.delete('/v1/admin/api-keys/:keyId', { preHandler: requireRole(['admin']) }, async (request, reply) => {
+    app.delete('/v1/admin/api-keys/:keyId', { preHandler: requireTenantRole(['admin']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
@@ -119,8 +129,17 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         const client = await pgPool.connect();
         try {
             await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
-            await client.query('UPDATE api_keys SET is_active = FALSE WHERE id = $1', [keyId]);
-            return reply.send({ message: 'Chave revogada com sucesso.' });
+            const res = await client.query(
+                `UPDATE api_keys
+                 SET is_active = FALSE, revoked_at = NOW(), revoke_reason = COALESCE(revoke_reason, 'revoked_by_tenant_admin')
+                 WHERE id = $1
+                 RETURNING id, revoked_at, revoke_reason`,
+                [keyId]
+            );
+            if ((res.rowCount ?? 0) === 0) {
+                return reply.status(404).send({ error: 'Chave não encontrada para esta organização.' });
+            }
+            return reply.send({ message: 'Chave revogada com sucesso.', ...res.rows[0] });
         } catch (error) {
             app.log.error(error, "Error revoking API key");
             reply.status(500).send({ error: "Erro ao revogar chave" });
@@ -175,30 +194,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                 "INSERT INTO assistants (org_id, name, status) VALUES ($1, $2, 'draft') RETURNING id, name, status, created_at",
                 [orgId, name]
             );
-            const assistantId = res.rows[0].id;
-
-            // 2. Criar a versão do assistente se política foi fornecida
-            const { policy_version_id, mcp_server_id, allowed_tools } = request.body as any;
-
-            if (policy_version_id) {
-                const versionRes = await client.query(
-                    `INSERT INTO assistant_versions (org_id, assistant_id, policy_version_id, prompt, version, status) 
-                 VALUES ($1, $2, $3, 'Você é um assistente da GovAI.', 1, 'draft') RETURNING id`,
-                    [orgId, assistantId, policy_version_id]
-                );
-                const versionId = versionRes.rows[0].id;
-
-                // 3. Se um MCP Server foi selecionado, conceder o Alvará
-                if (mcp_server_id && allowed_tools && Array.isArray(allowed_tools) && allowed_tools.length > 0) {
-                    await client.query(
-                        `INSERT INTO connector_version_grants (org_id, assistant_version_id, mcp_server_id, allowed_tools_jsonb)
-                     VALUES ($1, $2, $3, $4)`,
-                        [orgId, versionId, mcp_server_id, JSON.stringify(allowed_tools)]
-                    );
-                }
-            }
-
-            // Finalizar Transação
+            // Finalizar Transação (GA-011: only schema-validated fields used, no request.body as any)
             await client.query('COMMIT');
             return reply.status(201).send(res.rows[0]);
         } catch (error) {
@@ -220,9 +216,13 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
         if (!policy_json) return reply.status(400).send({ error: "Campo 'policy_json' obrigatório." });
 
-        // publish: true → INSERT com status = 'published' diretamente (evita trigger de imutabilidade)
         const shouldPublish = publish === true;
-        const versionStatus = shouldPublish ? 'published' : 'draft';
+        if (shouldPublish) {
+            return reply.status(400).send({
+                error: 'Publicação direta não é permitida. Crie a versão em rascunho e use o endpoint formal de homologação.',
+            });
+        }
+        const versionStatus = 'draft';
 
         const client = await pgPool.connect();
         try {
@@ -255,18 +255,8 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             );
             const newVersionId = newVerRes.rows[0].id;
 
-            // Se publicando: atualizar ponteiro do assistente e seu status
-            if (shouldPublish) {
-                await client.query(
-                    `UPDATE assistants SET current_version_id = $1, status = 'published' WHERE id = $2 AND org_id = $3`,
-                    [newVersionId, assistantId, orgId]
-                );
-                // Invalidar cache Redis para forçar reload das regras na próxima execução
-                await redisCache.del(`assistant:${assistantId}:rules`);
-            }
-
             await client.query('COMMIT');
-            return reply.status(201).send({ id: newVersionId, status: versionStatus, version: nextVersion });
+            return reply.status(201).send({ id: newVersionId, status: versionStatus, version: nextVersion, assistant_id: assistantId });
         } catch (error) {
             await client.query('ROLLBACK');
             app.log.error(error, "Error creating assistant version");
@@ -277,22 +267,15 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
     });
 
     // --- ASSISTANT HOMOLOGATION ---
+    // Fluxo formal de publicação: cria-se versão em rascunho e a homologação
+    // publica a versão por meio de evento imutável + atualização do ponteiro do assistente.
 
-    app.post('/v1/admin/assistants/:assistantId/versions/:versionId/approve', { preHandler: requireRole(['admin']) }, async (request, reply) => {
+    app.post('/v1/admin/assistants/:assistantId/versions/:versionId/approve', { preHandler: requireTenantRole(['admin']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
-        // The token payload is attached to the request by the Auth Middleware if configured correctly.
-        // Assuming `request.user.email` exists or fallback to dummy email. Let's extract the JWT payload to get the publisher identity.
-        let email = 'system@govai.com';
-        try {
-            const authHeader = request.headers.authorization;
-            if (authHeader && authHeader.startsWith('Bearer ')) {
-                const token = authHeader.split(' ')[1];
-                const decoded = app.jwt.decode(token) as any;
-                if (decoded && decoded.email) email = decoded.email;
-            }
-        } catch { } // fallback to system
+        const authUser = request.user as { userId?: string; email?: string };
 
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+        if (!authUser?.userId) return reply.status(401).send({ error: 'Sessão inválida para homologação.' });
 
         const { assistantId, versionId } = request.params as { assistantId: string, versionId: string };
         const { checklist } = request.body as { checklist: Record<string, boolean> };
@@ -304,48 +287,51 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
         const client = await pgPool.connect();
         try {
-            await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
 
-            await client.query('BEGIN');
-
-            // 1. Mark version as published
-            const res = await client.query(
-                `UPDATE assistant_versions 
-                 SET status = 'published', 
-                     published_by = $1, 
-                     published_at = NOW(), 
-                     checklist_jsonb = $2 
-                 WHERE id = $3 AND assistant_id = $4 AND org_id = $5 
-                 RETURNING id`,
-                [email, JSON.stringify(checklist || {}), versionId, assistantId, orgId]
-            );
-
-            if (res.rowCount === 0) {
-                await client.query('ROLLBACK');
-                return reply.status(404).send({ error: "Versão não encontrada ou não pertence a esta organização." });
-            }
-
-            // 2. Archive older versions
-            await client.query(
-                `UPDATE assistant_versions 
-                 SET status = 'archived' 
-                 WHERE assistant_id = $1 AND id != $2 AND org_id = $3`,
-                [assistantId, versionId, orgId]
-            );
-
-            // 3. Update main assistant pointer
-            await client.query(
-                `UPDATE assistants 
-                 SET current_version_id = $1, status = 'published' 
-                 WHERE id = $2 AND org_id = $3`,
+            // GA-009: Verify version exists; immutability trigger prohibits any mutation of assistant_versions
+            const verRes = await client.query(
+                `SELECT v.id,
+                        v.status,
+                        EXISTS (
+                            SELECT 1 FROM assistant_publication_events e WHERE e.version_id = v.id
+                        ) AS already_published
+                 FROM assistant_versions v
+                 WHERE v.id = $1 AND v.assistant_id = $2 AND v.org_id = $3`,
                 [versionId, assistantId, orgId]
             );
 
+            if (verRes.rowCount === 0) {
+                return reply.status(404).send({ error: "Versão não encontrada ou não pertence a esta organização." });
+            }
+
+            if (verRes.rows[0].status !== 'draft' || verRes.rows[0].already_published === true) {
+                return reply.status(409).send({
+                    error: 'Somente versões em rascunho ainda não publicadas podem ser homologadas.',
+                    versionId,
+                    currentStatus: verRes.rows[0].status,
+                });
+            }
+
+            await client.query('BEGIN');
+
+            // Update main assistant pointer (assistants table only — never assistant_versions)
+            await client.query(
+                `UPDATE assistants SET current_version_id = $1, status = 'published' WHERE id = $2 AND org_id = $3`,
+                [versionId, assistantId, orgId]
+            );
+
+            await client.query(
+                `INSERT INTO assistant_publication_events
+                     (assistant_id, version_id, org_id, published_by, checklist_jsonb, published_at, notes)
+                 VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), $6)`,
+                [assistantId, versionId, orgId, authUser.userId, JSON.stringify(checklist), `approved_by:${authUser.email || authUser.userId}`]
+            );
+
             await client.query('COMMIT');
-            // Invalidar cache do assistente publicado
             await redisCache.del(`assistant:${assistantId}:rules`);
 
-            return reply.send({ success: true, message: `Versão ${versionId} do assistente ${assistantId} aprovada e publicada.`, approved_by: email });
+            return reply.send({ success: true, message: `Versão ${versionId} do assistente ${assistantId} aprovada e publicada.`, approved_by: authUser.email || authUser.userId });
         } catch (error) {
             await client.query('ROLLBACK');
             app.log.error(error, "Error homologating assistant version");
@@ -392,8 +378,21 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         if (!content) return reply.status(400).send({ error: "Campo 'content' obrigatório." });
 
         try {
+            const client = await pgPool.connect();
+            try {
+                await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+                const kbRes = await client.query(
+                    'SELECT id FROM knowledge_bases WHERE id = $1 AND org_id = $2 LIMIT 1',
+                    [kbId, orgId]
+                );
+                if ((kbRes.rowCount ?? 0) === 0) {
+                    return reply.status(404).send({ error: 'Base de conhecimento não encontrada para esta organização.' });
+                }
+            } finally {
+                client.release();
+            }
             const { ingestDocument } = await import('../lib/rag');
-            const result = await ingestDocument(pgPool, kbId, content, { title: title || 'Untitled', orgId });
+            const result = await ingestDocument(pgPool, kbId, orgId, content, { title: title || 'Untitled' });
             return reply.status(201).send({
                 message: `Documento ingerido com sucesso. ${result.chunksStored} chunks vetorizados.`,
                 ...result

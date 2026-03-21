@@ -10,6 +10,7 @@ export default function AssistantsPage() {
     const [assistants, setAssistants] = useState<Assistant[]>([]);
     const [loading, setLoading] = useState(true);
     const [newName, setNewName] = useState('');
+    const [systemPrompt, setSystemPrompt] = useState('');
     const [creating, setCreating] = useState(false);
 
     // MCP & Policies State
@@ -55,8 +56,7 @@ export default function AssistantsPage() {
 
     useEffect(() => {
         // A autenticação SSO é gerenciada pelo AuthProvider via /v1/admin/me.
-        // O httpOnly cookie é enviado automaticamente em cada requisição.
-        // Não há mais extração manual de cookies aqui.
+        // Sessão Bearer em memória/aba: o interceptor Axios injeta Authorization automaticamente.
         fetchAssistants();
         fetchSelectables();
     }, []);
@@ -71,11 +71,10 @@ export default function AssistantsPage() {
             }
             await api.post(ENDPOINTS.ASSISTANTS, {
                 name: newName,
-                policy_version_id: selectedPolicyId,
-                mcp_server_id: selectedMcpServerId || undefined,
-                allowed_tools: tools.length > 0 ? tools : undefined
+                systemPrompt: systemPrompt || undefined,
             });
             setNewName('');
+            setSystemPrompt('');
             setAllowedToolsInput('');
             setSelectedMcpServerId('');
             fetchAssistants();
@@ -117,11 +116,13 @@ export default function AssistantsPage() {
         if (!publishModalAst) return;
         setPublishing(true);
         try {
-            // Usar o novo fluxo: criar versão com publish: true diretamente no INSERT
-            // (evita o trigger de imutabilidade que bloqueia UPDATE em assistant_versions)
-            await api.post(`${ENDPOINTS.ASSISTANTS}/${publishModalAst.id}/versions`, {
-                policy_json: { rules: [], checklist },
-                publish: true,
+            if (!publishModalAst.draft_version_id) {
+                toast('Crie uma nova versão em rascunho antes de homologar e publicar.', 'error');
+                setPublishing(false);
+                return;
+            }
+            await api.post(`${ENDPOINTS.ASSISTANTS}/${publishModalAst.id}/versions/${publishModalAst.draft_version_id}/approve`, {
+                checklist,
             });
             toast('Assistente homologado e publicado com sucesso!', 'success');
             setPublishModalAst(null);
@@ -140,12 +141,10 @@ export default function AssistantsPage() {
         setPublishing(true);
         try {
             const policy = JSON.parse(versionData.policyJson);
-            // publish: true → status 'published' no INSERT (sem UPDATE posterior)
             await api.post(`${ENDPOINTS.ASSISTANTS}/${versionData.assistantId}/versions`, {
                 policy_json: policy,
-                publish: true,
             });
-            toast('Versão criada e publicada com sucesso!', 'success');
+            toast('Versão criada em rascunho. Execute a homologação para publicar.', 'success');
             setShowNewVersionModal(false);
             fetchAssistants();
         } catch (e: unknown) {
@@ -175,19 +174,28 @@ export default function AssistantsPage() {
                     <div className="flex gap-3">
                         <button onClick={() => setShowNewVersionModal(true)}
                             className="bg-foreground text-background font-medium text-sm px-6 py-2 rounded-md hover:bg-foreground/90 transition-colors flex items-center gap-2">
-                            <Upload className="w-4 h-4" /> Publicar Nova Versão
+                            <Upload className="w-4 h-4" /> Criar Nova Versão
                         </button>
                         <div className="w-px h-8 bg-border" />
-                        <div className="flex gap-2">
-                            <input
-                                type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
-                                placeholder="Novo Assistente..."
-                                className="bg-secondary border border-border rounded-md px-3 py-2 text-sm focus:outline-none w-40"
+                        <div className="flex flex-col gap-2">
+                            <div className="flex gap-2">
+                                <input
+                                    type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
+                                    placeholder="Novo Assistente..."
+                                    className="bg-secondary border border-border rounded-md px-3 py-2 text-sm focus:outline-none w-40"
+                                />
+                                <button onClick={createAssistant} disabled={creating || !newName}
+                                    className="bg-blue-600 text-white font-medium text-sm px-4 py-2 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50">
+                                    Criar
+                                </button>
+                            </div>
+                            <textarea
+                                placeholder="Instruções do sistema (ex: Você é um assistente jurídico...)"
+                                value={systemPrompt}
+                                onChange={e => setSystemPrompt(e.target.value)}
+                                rows={2}
+                                className="bg-secondary border border-border rounded-md px-3 py-2 text-sm focus:outline-none w-full resize-none"
                             />
-                            <button onClick={createAssistant} disabled={creating || !newName}
-                                className="bg-blue-600 text-white font-medium text-sm px-4 py-2 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50">
-                                Criar
-                            </button>
                         </div>
                     </div>
                 </div>

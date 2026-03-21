@@ -70,6 +70,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
 
         const { approvalId } = request.params as { approvalId: string };
         const user = request.user as { email?: string };
+        const { reviewNote } = approveParsed.data;
 
         const client = await pgPool.connect();
         try {
@@ -78,12 +79,13 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
             await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
             // C2 FIX: Atomic UPDATE with TTL check (A2: expires_at > NOW())
+            // GA-010 FIX 1: persist review_note in approve (was missing, only reject had it)
             const approvalRes = await client.query(
-                `UPDATE pending_approvals 
-             SET status = 'approved', reviewer_email = $1, reviewed_at = NOW() 
-             WHERE id = $2 AND status = 'pending' AND expires_at > NOW()
+                `UPDATE pending_approvals
+             SET status = 'approved', reviewer_email = $1, review_note = $2, reviewed_at = NOW()
+             WHERE id = $3 AND status = 'pending' AND expires_at > NOW()
              RETURNING *`,
-                [user?.email || 'admin', approvalId]
+                [user?.email || 'admin', reviewNote, approvalId]
             );
             if (approvalRes.rows.length === 0) {
                 await client.query('ROLLBACK');
@@ -95,22 +97,8 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
 
             const approval = approvalRes.rows[0];
 
-            // 3. Audit log for approval
-            const approvalPayload = { approvalId, action: 'approved', reviewer: user?.email, originalMessage: approval.message, traceId: approval.trace_id };
-            const approvalSig = IntegrityService.signPayload(approvalPayload, process.env.SIGNING_SECRET!);
-            await auditQueue.add('persist-log', {
-                org_id: orgId,
-                assistant_id: approval.assistant_id,
-                action: 'APPROVAL_GRANTED' satisfies ActionType,
-                metadata: approvalPayload,
-                signature: approvalSig,
-                traceId: approval.trace_id
-            }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
-
             // 4. Execute the original AI call (now approved)
             // Defense-in-depth: re-sanitize approval.message before RAG and LLM.
-            // The message was sanitized at PENDING_APPROVAL insertion, but we apply
-            // a second pass to guard against any legacy unsanitized rows in the DB.
             const safeApprovalMessage = dlpEngine.sanitize(approval.message).sanitizedText;
 
             let ragContext = '';
@@ -119,7 +107,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
                 if (kbRes.rows.length > 0) {
                     const { searchWithTokenLimit } = await import('../lib/rag');
                     const aiModel = process.env.AI_MODEL || 'gemini/gemini-1.5-flash';
-                    const ragResult = await searchWithTokenLimit(pgPool, kbRes.rows[0].id, safeApprovalMessage, aiModel, 10);
+                    const ragResult = await searchWithTokenLimit(pgPool, kbRes.rows[0].id, orgId, safeApprovalMessage, aiModel, 10);
                     if (ragResult.chunksUsed > 0) ragContext = ragResult.context;
                 }
             } catch { /* RAG optional */ }
@@ -153,7 +141,10 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
                 return reply.status(502).send({ error: 'Falha ao executar IA após aprovação — aprovação revertida', details: error.message });
             }
 
-            // 5. Audit log for execution (after approval)
+            // Prepare audit payloads (pure computation — no side effects yet)
+            const approvalPayload = { approvalId, action: 'approved', reviewer: user?.email, originalMessage: approval.message, traceId: approval.trace_id };
+            const approvalSig = IntegrityService.signPayload(approvalPayload, process.env.SIGNING_SECRET!);
+
             const { sanitized: logContent } = await dlpEngine.sanitizeObject({
                 input: approval.message,
                 output: aiResponse.data.choices[0],
@@ -163,6 +154,27 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
                 approvalId,
             });
             const execSig = IntegrityService.signPayload(logContent, process.env.SIGNING_SECRET!);
+
+            // GA-010 FIX 3: Read telemetry consent inside transaction (client still open) — used after COMMIT
+            const orgConsent = await client.query('SELECT telemetry_consent FROM organizations WHERE id = $1', [orgId]);
+            const telemetryEnabled = orgConsent.rows[0]?.telemetry_consent ?? false;
+
+            // GA-010 FIX 2: COMMIT before side effects (queue/external calls must not run inside PG transaction)
+            await client.query('COMMIT');
+            app.log.info({ orgId, approvalId, reviewer: user?.email }, 'HITL: Execution approved and completed');
+
+            // Side effects AFTER COMMIT
+            // 3. Audit log for approval grant
+            await auditQueue.add('persist-log', {
+                org_id: orgId,
+                assistant_id: approval.assistant_id,
+                action: 'APPROVAL_GRANTED' satisfies ActionType,
+                metadata: approvalPayload,
+                signature: approvalSig,
+                traceId: approval.trace_id
+            }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+
+            // 5. Audit log for execution
             await auditQueue.add('persist-log', {
                 org_id: orgId,
                 assistant_id: approval.assistant_id,
@@ -172,7 +184,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
                 traceId: approval.trace_id
             }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
 
-            // 6. FinOps and Telemetry
+            // 6. FinOps
             const tokensPrompt = aiResponse.data.usage?.prompt_tokens || 0;
             const tokensCompletion = aiResponse.data.usage?.completion_tokens || 0;
             const aiModel = process.env.AI_MODEL || "gemini-1.5-flash";
@@ -182,19 +194,18 @@ export async function approvalsRoutes(app: FastifyInstance, opts: { pgPool: Pool
             await recordTokenUsage(pgPool, orgId, approval.assistant_id, tokensPrompt, tokensCompletion, costUsd, approval.trace_id)
                 .catch((e: Error) => app.log.error(e, 'Failed to update FinOps ledger'));
 
-            await telemetryQueue.add('export-metrics', {
-                org_id: orgId,
-                assistant_id: approval.assistant_id,
-                traceId: approval.trace_id,
-                tokens: aiResponse.data.usage,
-                cost: costUsd,
-                latency_ms: latencyMs,
-                model: aiModel
-            }, { removeOnComplete: true });
-
-            // COMMIT transaction only after AI execution succeeds
-            await client.query('COMMIT');
-            app.log.info({ orgId, approvalId, reviewer: user?.email }, 'HITL: Execution approved and completed');
+            // GA-010 FIX 3: Only enqueue telemetry if org has consented (consent read before COMMIT)
+            if (telemetryEnabled) {
+                await telemetryQueue.add('export-metrics', {
+                    org_id: orgId,
+                    assistant_id: approval.assistant_id,
+                    traceId: approval.trace_id,
+                    tokens: aiResponse.data.usage,
+                    cost: costUsd,
+                    latency_ms: latencyMs,
+                    model: aiModel
+                }, { removeOnComplete: true });
+            }
 
             return reply.send({
                 status: 'APPROVED_AND_EXECUTED',

@@ -1,19 +1,24 @@
 model_list:
-  # ── Modelo principal: nome deve coincidir com AI_MODEL no .env ──────────────
-  # A app envia model: "gemini/gemini-1.5-flash" para o proxy LiteLLM.
-  # O model_name aqui DEVE bater com esse valor para o roteamento funcionar.
-  - model_name: gemini/gemini-1.5-flash
+  # Provider principal: Groq (rápido, generoso no free tier)
+  - model_name: groq/llama-3.3-70b-versatile
     litellm_params:
-      # gemini-1.5-flash foi descontinuado; gemini-2.0-flash sem free tier neste projeto.
-      # gemini-2.5-flash é o modelo disponível com a GEMINI_API_KEY atual.
-      model: gemini/gemini-2.5-flash
-      api_key: os.environ/GEMINI_API_KEY
-
-  # ── Alias de compatibilidade: govai-llm (mantido para CI e testes) ───────────
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+  # Alias govai-llm → Groq (compatibilidade com código existente)
   - model_name: govai-llm
     litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+  # Alias de retrocompatibilidade: nome antigo → Groq
+  - model_name: gemini/gemini-1.5-flash
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+  # Fallback: Gemini (quando disponível)
+  - model_name: gemini/gemini-2.5-flash
+    litellm_params:
       model: gemini/gemini-2.5-flash
       api_key: os.environ/GEMINI_API_KEY
-
 general_settings:
   master_key: os.environ/LITELLM_KEY
+  drop_params: true

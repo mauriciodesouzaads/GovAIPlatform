@@ -79,16 +79,18 @@ function buildMockPool(overrides: {
         }
 
         // user_lookup: lookup by email (P-01 — no RLS required)
-        if (/from user_lookup where email/i.test(s)) {
+        // Matches both old WHERE email = $1 and new WHERE LOWER(email) = LOWER($1)
+        if (/from user_lookup\b/i.test(s) && /where/i.test(s)) {
             const email = params[0] as string;
-            const row = lookupRows[email];
+            const row = lookupRows[email] || lookupRows[email?.toLowerCase()];
             return { rows: row ? [row] : [] };
         }
 
         // users: query with RLS context active
-        if (/from users where email.*sso_provider/i.test(s)) {
+        // Matches both old WHERE email ... sso_provider and new WHERE LOWER(email)... sso_provider
+        if (/from users\b/i.test(s) && /sso_provider/i.test(s)) {
             const email = params[0] as string;
-            const row = (usersRows as any)[email];
+            const row = (usersRows as any)[email] || (usersRows as any)[email?.toLowerCase()];
             return { rows: row ? [row] : [] };
         }
 
@@ -202,9 +204,9 @@ describe('P-01: Login Endpoint — user_lookup isolation', () => {
         expect(res.statusCode).toBe(401);
         expect(res.json().error).toBe('Credenciais inválidas.');
         // user_lookup foi consultado mas não encontrou resultado
-        expect(capturedSql.some(q => /from user_lookup where email/i.test(q.sql))).toBe(true);
+        expect(capturedSql.some(q => /from user_lookup/i.test(q.sql) && /where/i.test(q.sql))).toBe(true);
         // users NÃO deve ter sido consultado (falha rápida no lookup)
-        expect(capturedSql.some(q => /from users where email.*sso_provider/i.test(q.sql))).toBe(false);
+        expect(capturedSql.some(q => /from users\b/i.test(q.sql) && /sso_provider/i.test(q.sql))).toBe(false);
 
         await app.close();
     });
@@ -236,7 +238,8 @@ describe('P-01: Login Endpoint — user_lookup isolation', () => {
         // Verificar que user_lookup vem ANTES do set_config na sequência de queries
         const lookupIdx  = capturedSql.findIndex(q => /from user_lookup/i.test(q.sql));
         const setcfgIdx  = capturedSql.findIndex(q => /set_config/i.test(q.sql));
-        const usersIdx   = capturedSql.findIndex(q => /from users where email/i.test(q.sql));
+        // Match both old WHERE email and new WHERE LOWER(email)
+        const usersIdx   = capturedSql.findIndex(q => /from users\b/i.test(q.sql) && /where/i.test(q.sql) && /sso_provider/i.test(q.sql));
 
         expect(lookupIdx).toBeGreaterThanOrEqual(0);
         expect(setcfgIdx).toBeGreaterThanOrEqual(0);
