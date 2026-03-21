@@ -45,6 +45,13 @@ docker exec -i "$CONTAINER_NAME" psql -U postgres -d govai_platform \
   -v ON_ERROR_STOP=1 < init.sql
 echo "init.sql aplicado."
 
+# Criar tabela de tracking _migrations (criada pelo migrate.sh em produção)
+docker exec "$CONTAINER_NAME" psql -U postgres -d govai_platform -c \
+  "CREATE TABLE IF NOT EXISTS _migrations (
+     name       TEXT PRIMARY KEY,
+     applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );" > /dev/null
+
 # Aplicar migrations numeradas em ordem
 MIGRATIONS=$(ls [0-9][0-9][0-9]_*.sql 2>/dev/null | sort)
 COUNT=0

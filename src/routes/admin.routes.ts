@@ -724,40 +724,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         }
     });
 
-    // 3e. Platform control-plane views — explicit global scope, never tenant-admin.
-    app.get('/v1/admin/platform/organizations', { preHandler: requirePlatformAdmin }, async (_request, reply) => {
-        const client = await pgPool.connect();
-        try {
-            const res = await client.query(
-                `SELECT id, name, telemetry_consent, telemetry_consent_at, telemetry_pii_strip, sso_tenant_id, created_at
-                 FROM organizations
-                 ORDER BY created_at DESC`
-            );
-            return reply.send(res.rows);
-        } catch (error) {
-            app.log.error(error, 'Error fetching platform organizations');
-            return reply.status(500).send({ error: 'Erro ao buscar organizações da plataforma.' });
-        } finally {
-            client.release();
-        }
-    });
-
-    app.get('/v1/admin/platform/users', { preHandler: requirePlatformAdmin }, async (_request, reply) => {
-        const client = await pgPool.connect();
-        try {
-            const res = await client.query(
-                `SELECT id, email, org_id, role, status, sso_provider, created_at
-                 FROM users
-                 ORDER BY created_at DESC`
-            );
-            return reply.send(res.rows);
-        } catch (error) {
-            app.log.error(error, 'Error fetching platform users');
-            return reply.status(500).send({ error: 'Erro ao buscar usuários da plataforma.' });
-        } finally {
-            client.release();
-        }
-    });
+    // 3e. Platform control-plane views — extracted to platform.routes.ts
 
     // 4. Users List
     app.get('/v1/admin/users', { preHandler: requireRole(['admin']) }, async (request, reply) => {
@@ -775,6 +742,105 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         }
     });
 
+    // --- Policy Exceptions (formal exception management with approval lifecycle) ---
+
+    // POST /v1/admin/policy-exceptions — create exception request (status: pending)
+    app.post('/v1/admin/policy-exceptions', { preHandler: requireRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const userId = (request as any).user?.userId as string | undefined;
+        const body = request.body as any;
+        const { assistantId, exceptionType, justification, expiresAt } = body ?? {};
+
+        if (!exceptionType || typeof exceptionType !== 'string' || exceptionType.trim().length === 0) {
+            return reply.status(400).send({ error: 'exceptionType é obrigatório.' });
+        }
+        if (!justification || typeof justification !== 'string' || justification.trim().length < 10) {
+            return reply.status(400).send({ error: 'justification deve ter pelo menos 10 caracteres.' });
+        }
+        if (!expiresAt || isNaN(Date.parse(expiresAt))) {
+            return reply.status(400).send({ error: 'expiresAt deve ser uma data ISO válida.' });
+        }
+        if (new Date(expiresAt) <= new Date()) {
+            return reply.status(400).send({ error: 'expiresAt deve ser uma data futura.' });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `INSERT INTO policy_exceptions
+                 (org_id, assistant_id, exception_type, justification, expires_at, created_by, status)
+                 VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+                 RETURNING id, org_id, assistant_id, exception_type, justification,
+                           expires_at, status, created_at`,
+                [orgId, assistantId ?? null, exceptionType.trim(), justification.trim(), expiresAt, userId ?? null]
+            );
+            return reply.status(201).send(res.rows[0]);
+        } catch (error) {
+            app.log.error(error, 'Error creating policy exception');
+            return reply.status(500).send({ error: 'Erro ao criar exceção de política.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // POST /v1/admin/policy-exceptions/:id/approve — approve pending exception
+    app.post('/v1/admin/policy-exceptions/:id/approve', { preHandler: requireRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const userId = (request as any).user?.userId as string | undefined;
+        const { id } = request.params as { id: string };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `UPDATE policy_exceptions
+                 SET status = 'approved', approved_by = $1, approved_at = NOW()
+                 WHERE id = $2 AND org_id = $3 AND status = 'pending'
+                 RETURNING id, status, approved_at`,
+                [userId ?? null, id, orgId]
+            );
+            if (res.rows.length === 0) {
+                return reply.status(404).send({ error: 'Exceção não encontrada ou já processada.' });
+            }
+            return reply.send(res.rows[0]);
+        } catch (error) {
+            app.log.error(error, 'Error approving policy exception');
+            return reply.status(500).send({ error: 'Erro ao aprovar exceção de política.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // DELETE /v1/admin/policy-exceptions/:id — revoke exception
+    app.delete('/v1/admin/policy-exceptions/:id', { preHandler: requireRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const { id } = request.params as { id: string };
+        const body = request.body as any;
+        const reason = body?.reason ?? 'Revogado pelo administrador';
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `UPDATE policy_exceptions
+                 SET status = 'revoked', revoked_at = NOW(), revoke_reason = $1
+                 WHERE id = $2 AND org_id = $3 AND status IN ('pending', 'approved')
+                 RETURNING id, status, revoked_at, revoke_reason`,
+                [reason, id, orgId]
+            );
+            if (res.rows.length === 0) {
+                return reply.status(404).send({ error: 'Exceção não encontrada ou já encerrada.' });
+            }
+            return reply.send(res.rows[0]);
+        } catch (error) {
+            app.log.error(error, 'Error revoking policy exception');
+            return reply.status(500).send({ error: 'Erro ao revogar exceção de política.' });
+        } finally {
+            client.release();
+        }
+    });
+
     // --- Sub-Plugins ---
     const subOpts = { pgPool, requireAdminAuth, requireRole, requireTenantRole: requireRole, requirePlatformAdmin };
     // Assistants, Policies, MCP, Knowledge routes
@@ -786,4 +852,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
     // Reports (PDF, CSV) routes
     const { reportsRoutes } = await import('./reports.routes');
     app.register(reportsRoutes, subOpts);
+    // Platform control-plane routes (requirePlatformAdmin)
+    const { platformRoutes } = await import('./platform.routes');
+    app.register(platformRoutes, subOpts);
 }

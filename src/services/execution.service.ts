@@ -6,7 +6,9 @@
  */
 
 import { FastifyBaseLogger } from 'fastify';
+import { PoolClient } from 'pg';
 import axios from 'axios';
+import { createHash } from 'crypto';
 import { IntegrityService, ActionType } from '../lib/governance';
 import { opaEngine } from '../lib/opa-governance';
 import { dlpEngine } from '../lib/dlp-engine';
@@ -23,6 +25,7 @@ export interface ExecutionParams {
     orgId: string;
     message: string;
     traceId: string;
+    userId?: string;
     log: FastifyBaseLogger;
 }
 
@@ -31,8 +34,49 @@ export interface ExecutionResult {
     body: unknown;
 }
 
+/**
+ * Capture or reuse an immutable policy snapshot for audit trail.
+ * Uses SHA-256 content-addressable storage: same policy hash → same snapshot id.
+ * Must run within an existing PoolClient that already has app.current_org_id set.
+ */
+export async function captureOrReusePolicySnapshot(
+    client: PoolClient,
+    orgId: string,
+    assistantId: string,
+    versionId: string | null,
+    policyJson: object,
+    capturedBy: string | null
+): Promise<string | null> {
+    try {
+        const policyHash = createHash('sha256')
+            .update(JSON.stringify(policyJson))
+            .digest('hex');
+
+        // Reuse existing snapshot if same hash already exists for this org
+        const existing = await client.query(
+            `SELECT id FROM policy_snapshots
+             WHERE org_id = $1 AND policy_hash = $2 LIMIT 1`,
+            [orgId, policyHash]
+        );
+        if (existing.rows.length > 0) return existing.rows[0].id as string;
+
+        // Create new immutable snapshot
+        const result = await client.query(
+            `INSERT INTO policy_snapshots
+             (org_id, assistant_id, version_id, policy_hash, policy_json, captured_by)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING id`,
+            [orgId, assistantId, versionId, policyHash, JSON.stringify(policyJson), capturedBy]
+        );
+        return result.rows[0].id as string;
+    } catch (err) {
+        // Non-fatal: snapshot failure must not block execution
+        return null;
+    }
+}
+
 export async function executeAssistant(params: ExecutionParams): Promise<ExecutionResult> {
-    const { assistantId, orgId, message, traceId, log } = params;
+    const { assistantId, orgId, message, traceId, userId, log } = params;
     const execStart = Date.now();
     const client = await pgPool.connect();
 
@@ -51,12 +95,16 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
         }
 
         // Fetch active assistant version + policy rules (Redis-cached, 60s TTL)
-        const cacheKey = `assistant:${assistantId}:rules`;
-        let policyRulesStr = await redisCache.get(cacheKey);
+        // Cache format: { versionId, policyRules } — includes versionId for snapshot
+        const cacheKey = `assistant:${assistantId}:policy`;
         let policyRules: any;
+        let versionId: string | null = null;
 
-        if (policyRulesStr) {
-            policyRules = JSON.parse(policyRulesStr);
+        const cachedStr = await redisCache.get(cacheKey);
+        if (cachedStr) {
+            const cached = JSON.parse(cachedStr);
+            policyRules = cached.policyRules;
+            versionId = cached.versionId ?? null;
         } else {
             const versionRes = await client.query(`
                 SELECT av.id as version_id, pv.rules_jsonb as policy_rules
@@ -68,7 +116,8 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
 
             if (versionRes.rows.length > 0) {
                 policyRules = versionRes.rows[0].policy_rules;
-                await redisCache.setex(cacheKey, 60, JSON.stringify(policyRules));
+                versionId = versionRes.rows[0].version_id as string;
+                await redisCache.setex(cacheKey, 60, JSON.stringify({ versionId, policyRules }));
             } else {
                 const assistantRes = await client.query(
                     'SELECT id FROM assistants WHERE id = $1 AND status = $2',
@@ -80,6 +129,11 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                 policyRules = { pii_filter: true, forbidden_topics: ['hack', 'bypass'] };
             }
         }
+
+        // Capture immutable policy snapshot before governance evaluation
+        const snapshotId = await captureOrReusePolicySnapshot(
+            client, orgId, assistantId, versionId, policyRules, userId ?? null
+        );
 
         // Governance evaluation (OPA + DLP + HITL keywords)
         const policyContext = { orgId, rules: policyRules };
@@ -94,7 +148,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                 [orgId, assistantId, sanitizedMessage, policyCheck.reason, traceId]
             );
             const approvalId = approvalRes.rows[0].id;
-            const hitlPayload = { reason: policyCheck.reason, input: sanitizedMessage, approvalId, traceId };
+            const hitlPayload = { reason: policyCheck.reason, input: sanitizedMessage, approvalId, traceId, snapshotId };
             const signature = IntegrityService.signPayload(hitlPayload, process.env.SIGNING_SECRET!);
 
             await auditQueue.add('persist-log', {
@@ -124,7 +178,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
         if (!policyCheck.allowed) {
             recordRequest('blocked', Date.now() - execStart);
             const sanitizedMessage = policyCheck.sanitizedInput || dlpEngine.sanitize(message).sanitizedText;
-            const violationPayload = { reason: policyCheck.reason, input: sanitizedMessage, traceId };
+            const violationPayload = { reason: policyCheck.reason, input: sanitizedMessage, traceId, snapshotId };
             const signature = IntegrityService.signPayload(violationPayload, process.env.SIGNING_SECRET!);
 
             await auditQueue.add('persist-log', {
@@ -214,6 +268,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             output: aiResponse.data.choices[0],
             usage: aiResponse.data.usage,
             traceId,
+            snapshotId,
             ...(policyCheck.dlpReport ? { dlp: policyCheck.dlpReport } : {}),
         };
         const { sanitized: logContent } = await dlpEngine.sanitizeObject(rawLogContent);
@@ -269,7 +324,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
 
         return {
             statusCode: 200,
-            body: { ...aiResponse.data, _govai: { traceId, signature, ragMeta } },
+            body: { ...aiResponse.data, _govai: { traceId, signature, snapshotId, ragMeta } },
         };
 
     } catch (error) {
