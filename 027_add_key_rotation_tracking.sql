@@ -17,9 +17,9 @@
 ALTER TABLE run_content_encrypted
     ADD COLUMN IF NOT EXISTS key_rotated_at TIMESTAMPTZ DEFAULT NULL;
 
--- Índice parcial: apenas registros não rotacionados ou com rotação antiga
--- são candidatos ao scheduler. Filtrar antecipadamente reduz o plano de execução.
+-- Índice parcial: registros nunca rotacionados são candidatos imediatos ao scheduler.
+-- NOW() não é IMMUTABLE — não pode ser usado em predicado de índice.
+-- O scheduler filtra registros com key_rotated_at antigo diretamente na query.
 CREATE INDEX IF NOT EXISTS idx_run_content_rotation
     ON run_content_encrypted (created_at, key_rotated_at)
-    WHERE key_rotated_at IS NULL
-       OR key_rotated_at < NOW() - INTERVAL '90 days';
+    WHERE key_rotated_at IS NULL;
