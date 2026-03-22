@@ -79,6 +79,10 @@ jobs:
     needs: lint-and-build
 
     env:
+      # Explicitamente vazio: DATABASE_URL é setado no nível do workflow para
+      # integration-tests, mas unit-tests não deve herdá-lo. Com DATABASE_URL=''
+      # o vitest.config.ts exclui todos os integrationTestPatterns automaticamente.
+      DATABASE_URL: ''
       SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
       JWT_SECRET:     ${{ secrets.JWT_SECRET }}
       ORG_MASTER_KEY: ${{ secrets.ORG_MASTER_KEY }}
@@ -123,15 +127,13 @@ jobs:
         run: npm ci
 
       - name: Run unit tests
-        # Exclui os 3 arquivos de integração que requerem DATABASE_URL e banco real:
-        #   - governance.integration* → testes E2E com DB real
-        #   - governance.flow*        → testes de fluxo com DB real
-        #   - security.tenant-isolation* → testes RLS com DB real (job integration-tests)
-        run: |
-          npx vitest run \
-            --exclude "**/governance.integration*" \
-            --exclude "**/governance.flow*" \
-            --exclude "**/security.tenant-isolation*"
+        # A exclusão dos testes de integração é controlada por vitest.config.ts:
+        # quando DATABASE_URL está vazio/ausente, integrationTestPatterns são
+        # adicionados ao array de excludes automaticamente. Isso cobre todos os
+        # 8 arquivos de integração (shield.core, shield.collector, shield.risk-engine,
+        # compliance.guarantees, consultant.plane, governance.*, security.tenant-isolation).
+        # Não usar --exclude inline para evitar divergência com vitest.config.ts.
+        run: npx vitest run
 
   # ── Job 3: Testes de integração (com DB real) ────────────────────────────────
   integration-tests:
