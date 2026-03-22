@@ -1,8 +1,5 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import './globals.css';
-
-const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'GovAI Platform',
@@ -20,7 +17,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR" className="dark">
-      <body className={`${inter.className} bg-background text-foreground h-screen flex overflow-hidden`}>
+      <body className="font-sans bg-background text-foreground h-screen flex overflow-hidden">
         <AuthProvider>
           <ToastProvider>
             <LayoutWrapper>

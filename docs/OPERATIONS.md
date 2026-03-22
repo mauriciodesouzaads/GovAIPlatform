@@ -43,7 +43,7 @@ docker logs govaigrcplatform-api-1 --tail=50 -f
 # Validar todas as migrations em banco limpo (pré-deploy)
 ./scripts/test-migrations-clean.sh
 
-# Rodar suite de testes completa
+# Rodar suite de testes completa (542 testes, v1.1.1)
 npx vitest run
 
 # Health check da API
@@ -81,7 +81,7 @@ docker compose up -d --no-deps --force-recreate api
 
 ## Migrations
 
-Todas as migrations são numeradas (`011_*.sql` … `041_*.sql`) e aplicadas em ordem pelo `scripts/migrate.sh`.
+Todas as migrations são numeradas (`011_*.sql` … `045_*.sql`) e aplicadas em ordem pelo `scripts/migrate.sh`. Total: **35 migrations** (v1.1.1).
 
 ```bash
 # Ver migrations aplicadas
@@ -90,7 +90,7 @@ docker exec govaigrcplatform-database-1 psql -U postgres -d govai_platform \
 
 # Forçar re-aplicação de uma migration específica (sem registro em _migrations)
 docker exec -i govaigrcplatform-database-1 psql -U postgres -d govai_platform \
-  -v ON_ERROR_STOP=1 < 041_runtime_and_release_hardening.sql
+  -v ON_ERROR_STOP=1 < 045_catalog_registry.sql
 ```
 
 ---

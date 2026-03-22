@@ -5,11 +5,11 @@
 <img src="https://img.shields.io/badge/Next.js-14-black?style=for-the-badge&logo=next.js" />
 <img src="https://img.shields.io/badge/PostgreSQL-15-336791?style=for-the-badge&logo=postgresql" />
 <img src="https://img.shields.io/badge/OPA-WASM-7B42BC?style=for-the-badge" />
-<img src="https://img.shields.io/badge/Gemini-2.5_Flash-4285F4?style=for-the-badge&logo=google" />
+<img src="https://img.shields.io/badge/Groq-llama--3.3--70b-orange?style=for-the-badge" />
 
 <br/><br/>
 
-<img src="https://img.shields.io/badge/tests-460_passing-00ff88?style=flat-square" />
+<img src="https://img.shields.io/badge/tests-542_passing-00ff88?style=flat-square" />
 <img src="https://img.shields.io/badge/coverage-81%25-00ff88?style=flat-square" />
 <img src="https://img.shields.io/badge/CI%2FCD-passing-00ff88?style=flat-square" />
 <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" />
@@ -50,7 +50,7 @@ graph TD
         DLP["🔍 DLP Engine\nPresidio NLP + Regex\nCPF · CNPJ · PIX · email"]
         OPA["🛡 OPA WASM\nOWASP LLM Top 10\nLLM01–LLM10 · 144 testes"]
         HITL{"👤 HITL\nRequired?"}
-        LLM["🧠 LiteLLM Proxy\nGemini · OpenAI · Anthropic"]
+        LLM["🧠 LiteLLM Proxy\nGroq · OpenAI · Anthropic"]
     end
 
     subgraph Workers["Workers — BullMQ / Redis"]
@@ -130,7 +130,7 @@ sequenceDiagram
 | 🔑 **API Key Management** | Rotação automática TTL 90 dias, hash bcrypt, prefix indexing | ✅ |
 | 📚 **RAG Knowledge Base** | pgvector 768 dims, text chunking, cosine similarity search, token budget | ✅ |
 | 📋 **Audit Logs** | HMAC-SHA256 signed, imutáveis, verificação de integridade, LGPD/GDPR ready | ✅ |
-| 🤖 **LLM Agnostic** | Gemini 2.5 Flash, OpenAI, Anthropic e qualquer provedor via LiteLLM proxy | ✅ |
+| 🤖 **LLM Agnostic** | Groq llama-3.3-70b-versatile, OpenAI, Anthropic e qualquer provedor via LiteLLM proxy | ✅ |
 | 🔐 **SSO / OIDC** | Microsoft Entra ID, Okta, qualquer IdP OIDC; JIT provisioning | ✅ |
 | 💰 **FinOps** | Token tracking, cost estimation por org, FinOps ledger por execução | ✅ |
 | 📊 **Observabilidade** | Prometheus `/metrics`, Grafana dashboards, Langfuse, AlertManager SMTP/Slack | ✅ |
@@ -149,7 +149,7 @@ cd GovAIPlatform
 
 # 2. Configure
 cp .env.example .env
-# Edite .env — mínimo: GEMINI_API_KEY, DB_PASSWORD, DB_APP_PASSWORD,
+# Edite .env — mínimo: GROQ_API_KEY, DB_PASSWORD, DB_APP_PASSWORD,
 # REDIS_PASSWORD, SIGNING_SECRET, JWT_SECRET, ORG_MASTER_KEY
 
 # 3. Inicie o stack completo (6 containers)
@@ -160,12 +160,12 @@ DATABASE_URL=postgresql://postgres:govai_dev_db_password@localhost:5432/govai_pl
   bash scripts/migrate.sh
 
 # 5. Acesso
-# Admin UI:  http://localhost:3001  (admin@orga.com / password)
+# Admin UI:  http://localhost:3001  (admin@orga.com / GovAI2026@Admin)
 # API:       http://localhost:3000
 # Login curl:
 curl -s -X POST http://localhost:3000/v1/admin/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@orga.com","password":"password"}' | python3 -m json.tool
+  -d '{"email":"admin@orga.com","password":"GovAI2026@Admin"}' | python3 -m json.tool
 ```
 
 ---
@@ -178,7 +178,7 @@ curl -s -X POST http://localhost:3000/v1/admin/login \
 | PostgreSQL 15 + pgvector | Tailwind CSS v4 | Redis 7 + BullMQ |
 | OPA WASM (Rego policies) | Recharts (dashboards) | LiteLLM proxy |
 | Presidio NLP (Python/FastAPI) | Lucide Icons | Prometheus + Grafana |
-| Vitest (460 testes, 81% cov) | TypeScript strict | AlertManager (SMTP + Slack) |
+| Vitest (542 testes, 81% cov) | TypeScript strict | AlertManager (SMTP + Slack) |
 | Playwright E2E (5 testes) | Playwright E2E | Nginx (reverse proxy) |
 | Zod validation (todos endpoints) | Axios + SWR | GitHub Actions CI/CD |
 
@@ -208,7 +208,7 @@ govai-platform/
 │   │   ├── audit.worker.ts      # Persist HMAC-signed logs
 │   │   ├── telemetry.worker.ts  # Langfuse export
 │   │   └── expiration.worker.ts # 48h HITL TTL
-│   └── __tests__/               # 460 testes Vitest
+│   └── __tests__/               # 542 testes Vitest
 ├── admin-ui/                    # Frontend (Next.js 14)
 │   ├── src/app/
 │   │   ├── page.tsx             # Dashboard + métricas
@@ -229,10 +229,10 @@ govai-platform/
 │   └── demo-seed.sh             # Seed de demonstração
 ├── docker-compose.yml           # Dev stack (6 serviços)
 ├── docker-compose.prod.yml      # Prod stack (govai-prod-net, resource limits)
-├── litellm-config.yaml          # LiteLLM proxy config (Gemini 2.5 Flash)
+├── litellm-config.yaml          # LiteLLM proxy config (Groq llama-3.3-70b-versatile)
 ├── .env.example                 # Template de variáveis de dev
 ├── .env.prod.example            # Template de variáveis de produção
-└── 011–034_*.sql                # Migrations numeradas
+└── 011–045_*.sql                # Migrations numeradas (35 total)
 ```
 
 ---
@@ -302,7 +302,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ## Testes
 
 ```bash
-# Backend — 460 testes unitários + integração
+# Backend — 542 testes unitários + integração
 npx vitest run
 npx vitest run --coverage   # coverage ≥ 70% lines/functions, ≥ 60% branches
 
@@ -322,7 +322,7 @@ cd admin-ui && npx playwright test
 
 Contribuições são bem-vindas. Antes de abrir um PR:
 
-1. `npx vitest run` — todos os 460 testes devem passar
+1. `npx vitest run` — todos os 542 testes devem passar
 2. `npx tsc --noEmit` — zero erros TypeScript strict
 3. `npm audit --audit-level=high` — sem vulnerabilidades high/critical
 4. Nenhum secret hardcoded (Gitleaks verifica no CI)
