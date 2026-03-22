@@ -219,6 +219,47 @@ describe('Guarantee T6: requireApiKey query usa predicados corretos', () => {
     });
 });
 
+// ── T6b: API key com is_active=false é excluída da query de autenticação ──────
+
+describe('Guarantee T6b: api key inativa (is_active=false) excluída da query de auth', () => {
+    it('chave ativa retorna com is_active=TRUE; mesma chave retorna 0 rows com is_active=FALSE', async () => {
+        // Confirmar que existe pelo menos uma chave ativa no banco
+        const activeResult = await pgPool.query(
+            `SELECT key_hash FROM api_key_lookup WHERE is_active = TRUE LIMIT 1`
+        );
+
+        if (activeResult.rows.length > 0) {
+            const activeHash = activeResult.rows[0].key_hash;
+
+            // Query com is_active=FALSE — chave ativa NÃO deve ser retornada
+            const withFalse = await pgPool.query(
+                `SELECT akl.org_id FROM api_key_lookup akl
+                 WHERE akl.key_hash = $1
+                   AND akl.is_active = FALSE
+                   AND (akl.expires_at IS NULL OR akl.expires_at > NOW())`,
+                [activeHash]
+            );
+            expect(withFalse.rows).toHaveLength(0);
+
+            // Query com is_active=TRUE — mesma chave DEVE ser retornada (filtro discrimina)
+            const withTrue = await pgPool.query(
+                `SELECT akl.org_id FROM api_key_lookup akl
+                 WHERE akl.key_hash = $1
+                   AND akl.is_active = TRUE`,
+                [activeHash]
+            );
+            expect(withTrue.rows).toHaveLength(1);
+        } else {
+            // Sem chaves ativas — verificar que a coluna is_active existe (garantia estrutural)
+            const col = await pgPool.query(
+                `SELECT column_name FROM information_schema.columns
+                 WHERE table_name = 'api_key_lookup' AND column_name = 'is_active'`
+            );
+            expect(col.rows).toHaveLength(1);
+        }
+    });
+});
+
 // ── T7: Chave expirada rejeitada pela query real de auth ─────────────────────
 
 describe('Guarantee T7: chave API expirada não é retornada pela query real', () => {

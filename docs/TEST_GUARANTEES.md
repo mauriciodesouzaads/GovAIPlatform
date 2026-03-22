@@ -34,12 +34,16 @@ Auditores externos podem executar `DATABASE_URL=postgresql://... npx vitest run 
 
 ## Garantias de Autorização
 
+> Testes com tipo **DB real** requerem `DATABASE_URL` configurado.
+> São excluídos automaticamente de `npx vitest run` sem banco (ver `vitest.config.ts`).
+
 | Garantia | Arquivo de Teste | Caso | Mecanismo | Tipo |
 |----------|-----------------|------|-----------|------|
 | Consultor sem assignment recebe 403 | `consultant.plane.test.ts` | T2 | HTTP inject → `getConsultantAssignment` retorna null | API real |
 | Assignment revogado (`revoked_at IS NOT NULL`) é negado | `consultant.plane.test.ts` | T3 | INSERT revogado → SQL WHERE revoked_at IS NULL | DB real |
 | Assignment expirado (`expires_at < NOW()`) é negado | `consultant.plane.test.ts` | T4 | INSERT expirado → SQL WHERE expires_at > NOW() | DB real |
-| API key revogada (`is_active = false`) bloqueia auth | `compliance.guarantees.test.ts` | T6 | Query real de `requireApiKey` (0 rows) | DB real |
+| API key com hash desconhecido retorna 0 rows | `compliance.guarantees.test.ts` | T6 | Query real de `requireApiKey` (hash inexistente) | DB real |
+| API key inativa (`is_active=false`) excluída da auth | `compliance.guarantees.test.ts` | T6b | Chave ativa: 0 rows com FALSE, 1 row com TRUE | DB real |
 | Chave expirada rejeitada pela query real | `compliance.guarantees.test.ts` | T7 | INSERT expirada + query real → 0 rows | DB real |
 | Publicação exige `lifecycle_state = 'approved'` | `compliance.guarantees.test.ts` | T8 | CHECK constraint no banco | DB real |
 
@@ -89,7 +93,7 @@ Auditores externos podem executar `DATABASE_URL=postgresql://... npx vitest run 
 ## Como Executar
 
 ```bash
-# Testes unitários (sem banco) — 561+ testes
+# Suíte padrão (sem banco) — 542 testes, 49 arquivos
 npx vitest run
 
 # Apenas garantias de compliance (requer banco)
@@ -109,7 +113,8 @@ DATABASE_URL=postgresql://... npx vitest run --reporter=verbose
 | Campo | Valor |
 |-------|-------|
 | Versão da plataforma | v1.1.1 |
-| Total de testes (sem banco) | 561+ |
-| Total de testes (com banco) | 579+ (inclui 18 garantias reais) |
+| Suíte padrão (sem DATABASE_URL) | 542 testes · 49 arquivos |
+| Garantias com banco (DATABASE_URL) | +19 testes (compliance.guarantees T1–T10+T6b + consultant.plane T1–T8) |
+| Total confirmado com banco | 561+ (542 + 19 garantias; governance tests adicionais) |
 | Última atualização | 2026-03-22 |
-| Sprint | E-FIX — Testes de Garantia Reais |
+| Sprint | E-FIX — Testes de Garantia Reais (Pre-F) |

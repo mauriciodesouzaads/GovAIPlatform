@@ -4,14 +4,15 @@
 
 | Métrica | Valor |
 |---------|-------|
-| **Total de testes (sem banco)** | 542 |
-| **Total de testes (com banco)** | 560+ (inclui 18 garantias com DB real) |
-| **Total de arquivos de teste** | 51 |
-| **Status** | ✅ Todos passando (sem banco: 542; com banco: 560+) |
+| **Suíte padrão (sem DATABASE_URL)** | 542 testes · 49 arquivos |
+| **Suíte de integração (DATABASE_URL)** | +19 garantias com banco real |
+| **Total com banco** | 561+ (542 + 19 garantias confirmadas) |
+| **Total de arquivos** | 54 (49 padrão + 5 integração) |
+| **Status** | ✅ Suíte padrão: 542 passando |
 | **Última execução** | 2026-03-22 |
-| **Comando (sem banco)** | `npx vitest run` |
-| **Comando (com banco)** | `DATABASE_URL=postgresql://... npx vitest run` |
-| **Versão** | v1.1.1 (Sprint E-FIX) |
+| **Comando (suíte padrão)** | `npx vitest run` |
+| **Comando (suíte completa)** | `DATABASE_URL=postgresql://... npx vitest run` |
+| **Versão** | v1.1.1 (Sprint E-FIX / Pre-F) |
 
 ## Cobertura por sprint
 
@@ -21,83 +22,113 @@
 | Sprint B | +10 | Policy snapshots, policy exceptions |
 | Sprint C | +8 | Evidence domain (recordEvidence, linkEvidence, getEvidenceChain) |
 | Sprint D | +8 | Catalog lifecycle (submit-review, catalog-review, suspend, archive) |
-| Sprint E | +19 | Consultant Plane (mock) + compliance guarantees (mock) |
-| Sprint E-FIX | rewrite | Garantias migradas para banco real (−mock, +DB real) |
-| **Total (sem banco)** | **542** | |
-| **Total (com banco)** | **560+** | |
+| Sprint E | +19 mock | Consultant Plane + compliance guarantees (mock pool) |
+| Sprint E-FIX | rewrite | 19 mock → 19 DB real (movidos para integrationTestPatterns) |
+| Sprint Pre-F | +1 | T6b: is_active=false excluído da query de auth |
+| **Suíte padrão** | **542** | |
+| **Com banco (+garantias)** | **561+** | |
 
-## Separação de testes por tipo de execução
+## Separação por tipo de execução
 
 | Tipo | Arquivo | Requer DB | Testes |
 |------|---------|-----------|--------|
-| Unitário / Lógica pura | `evidence.domain.test.ts` | Não | 8 |
-| Unitário / Lógica pura | `policy.snapshot.test.ts` | Não | 5 |
-| Unitário / Lógica pura | `catalog.lifecycle.test.ts` | Não | 8 |
-| Integração (banco real) | `compliance.guarantees.test.ts` | **Sim** | 10 |
-| Integração (banco real) | `consultant.plane.test.ts` | **Sim** | 8 |
-| Integração (banco real) | `governance.flow.test.ts` | **Sim** | — |
-| Integração (banco real) | `governance.integration.test.ts` | **Sim** | — |
-| Integração (banco real) | `security.tenant-isolation.test.ts` | **Sim** | — |
-| Todos os demais | `*.test.ts` (44 arquivos) | Não | 521 |
+| Lógica pura | `evidence.domain.test.ts` | Não | 8 |
+| Lógica pura | `policy.snapshot.test.ts` | Não | 5 |
+| Lógica pura | `catalog.lifecycle.test.ts` | Não | 8 |
+| DB + API real | `compliance.guarantees.test.ts` | **Sim** | 11 (T1–T10 + T6b) |
+| DB + API real | `consultant.plane.test.ts` | **Sim** | 8 |
+| DB real | `governance.flow.test.ts` | **Sim** | — |
+| DB real | `governance.integration.test.ts` | **Sim** | — |
+| DB real | `security.tenant-isolation.test.ts` | **Sim** | — |
+| Unitário | demais 46 arquivos | Não | 521 |
+| **Suíte padrão total** | **49 arquivos** | | **542** |
 
-## Arquivos de teste (51 arquivos)
+> Nota: `governance.flow`, `governance.integration` e `security.tenant-isolation` não têm
+> contagem de testes exibida pois requerem infraestrutura completa (DB + Redis) para execução.
+
+## Arquivos de teste (54 arquivos)
+
+### Suíte padrão (49 arquivos — `npx vitest run`)
 
 ```
 src/__tests__/
-├── admin.auth.test.ts
-├── admin.compliance.test.ts
-├── admin.orgs.test.ts
-├── api.gateway.test.ts
-├── audit.worker.test.ts
-├── byok.crypto.test.ts
+├── admin-me-telemetry.test.ts
+├── api-key-rotation.test.ts
+├── approvals.contract.test.ts
+├── assistant-versions.test.ts
+├── assistants.contract.test.ts
+├── audit-compliance.test.ts
+├── auth-oidc.test.ts
+├── auth.reset.test.ts
+├── b2b-pillars.test.ts
 ├── catalog.lifecycle.test.ts           ← Sprint D
-├── compliance.guarantees.test.ts       ← Sprint E / E-FIX (banco real)
-├── consultant.plane.test.ts            ← Sprint E / E-FIX (banco real)
-├── crypto.service.test.ts
-├── dlp.engine.test.ts
+├── compliance-report.test.ts
+├── crypto-service.test.ts
+├── dlp-extended.test.ts
+├── dlp.test.ts
 ├── e2e-pg-presidio.test.ts
+├── e2e.test.ts
 ├── evidence.domain.test.ts             ← Sprint C
 ├── execution.service.test.ts
-├── finops.test.ts
+├── expiration.worker.test.ts
 ├── governance.test.ts
-├── hitl.approval.test.ts
-├── identity.hardening.test.ts
-├── knowledge.test.ts
-├── lgpd.compliance.test.ts
+├── input-validation.test.ts
+├── integrity.test.ts
 ├── mcp.test.ts
-├── opa.governance.test.ts
+├── monitoring.test.ts
+├── observability.test.ts
+├── oidc-decision-tree.test.ts
+├── oidc.test.ts
+├── oidc.unified.test.ts
+├── opa-governance.test.ts
 ├── policy.exceptions.test.ts           ← Sprint B
 ├── policy.snapshot.test.ts             ← Sprint B
+├── rag-dimension.test.ts
+├── rag-extended.test.ts
+├── rag.isolation.test.ts
 ├── rag.test.ts
-├── rate.limiter.test.ts
-├── redis.cache.test.ts
-├── reports.test.ts
+├── rate-limit.test.ts
 ├── routes.coverage.test.ts
-├── schemas.test.ts
-├── security.hardening.test.ts
-├── sre.metrics.test.ts
-├── telemetry.worker.test.ts
-└── ... (18 additional files)
+├── security.audit-crypto.test.ts
+├── security.authorization.test.ts
+├── security.crypto.test.ts
+├── security.dlp-hitl.test.ts
+├── security.dlp-leaks.test.ts
+├── security.headers.test.ts
+├── security.login-isolation.test.ts
+├── security.mcp.test.ts
+├── security.rbac.test.ts
+├── security.rls.test.ts
+├── security.sso.test.ts
+└── session.model.test.ts
+```
+
+### Integração com banco (5 arquivos — requerem DATABASE_URL)
+
+```
+src/__tests__/
+├── compliance.guarantees.test.ts       ← Sprint E-FIX + Pre-F (11 testes)
+├── consultant.plane.test.ts            ← Sprint E-FIX (8 testes)
+├── governance.flow.test.ts             ← integração completa
+├── governance.integration.test.ts      ← integração completa
+└── security.tenant-isolation.test.ts   ← integração completa
 ```
 
 ## Comando completo
 
 ```bash
-# Executar todos os testes (sem banco — 542 testes)
+# Suíte padrão (sem banco — 542 testes, 49 arquivos)
 npx vitest run
 
-# Com banco (560+ testes, inclui garantias reais)
+# Suíte completa com banco (561+ testes)
 DATABASE_URL=postgresql://postgres:GovAI2026@Admin@localhost:5432/govai_platform npx vitest run
 
 # Com coverage
 npx vitest run --coverage
 
-# Com verbose (mostra cada teste)
-npx vitest run --reporter=verbose
-
-# Apenas garantias de compliance (banco real)
+# Apenas garantias de compliance (banco real — 11 testes)
 DATABASE_URL=postgresql://... npx vitest run src/__tests__/compliance.guarantees.test.ts --reporter=verbose
 
-# Apenas Consultant Plane (banco real)
+# Apenas Consultant Plane (banco real — 8 testes)
 DATABASE_URL=postgresql://... npx vitest run src/__tests__/consultant.plane.test.ts --reporter=verbose
 ```
