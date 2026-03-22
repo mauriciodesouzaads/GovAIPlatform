@@ -24,8 +24,13 @@ import {
     processShieldObservations,
     generateShieldFindings,
     acknowledgeShieldFinding,
+    acceptRisk,
+    dismissFinding,
+    resolveFinding,
+    reopenFinding,
     promoteShieldFindingToCatalog,
     listShieldFindings,
+    generateExecutivePosture,
 } from '../lib/shield';
 import { shieldRoutes } from '../routes/shield.routes';
 
@@ -60,26 +65,39 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-    // Limpar dados de teste inseridos (shield_findings/rollups/observations/tools)
-    // não são imutáveis — pode deletar
+    // Limpar dados de teste (não imutáveis)
     const client = await pgPool.connect();
     try {
         const normalized = normalizeToolName(TEST_TOOL);
+        // Limpar em ordem de dependência (FKs)
         await client.query(
-            `DELETE FROM shield_findings WHERE org_id = $1 AND tool_name_normalized = $2`,
-            [ORG_ID, normalized]
+            `DELETE FROM shield_finding_actions
+             WHERE finding_id IN (
+               SELECT id FROM shield_findings
+               WHERE org_id = $1 AND (tool_name_normalized LIKE $2 OR tool_name_normalized = 'rls-test-tool')
+             )`,
+            [ORG_ID, normalized.replace(/-\d+$/, '') + '%']
         );
         await client.query(
-            `DELETE FROM shield_rollups WHERE org_id = $1 AND tool_name_normalized = $2`,
-            [ORG_ID, normalized]
+            `DELETE FROM shield_posture_snapshots WHERE org_id = $1`, [ORG_ID]
         );
         await client.query(
-            `DELETE FROM shield_observations_raw WHERE org_id = $1 AND tool_name_normalized = $2`,
-            [ORG_ID, normalized]
+            `DELETE FROM shield_findings WHERE org_id = $1
+             AND (tool_name_normalized LIKE $2 OR tool_name_normalized = 'rls-test-tool'
+                  OR tool_name_normalized LIKE 'workflow-test%')`,
+            [ORG_ID, normalized.replace(/-\d+$/, '') + '%']
         );
         await client.query(
-            `DELETE FROM shield_tools WHERE org_id = $1 AND tool_name_normalized = $2`,
-            [ORG_ID, normalized]
+            `DELETE FROM shield_rollups WHERE org_id = $1 AND tool_name_normalized LIKE $2`,
+            [ORG_ID, normalized.replace(/-\d+$/, '') + '%']
+        );
+        await client.query(
+            `DELETE FROM shield_observations_raw WHERE org_id = $1 AND tool_name_normalized LIKE $2`,
+            [ORG_ID, normalized.replace(/-\d+$/, '') + '%']
+        );
+        await client.query(
+            `DELETE FROM shield_tools WHERE org_id = $1 AND tool_name_normalized LIKE $2`,
+            [ORG_ID, normalized.replace(/-\d+$/, '') + '%']
         );
     } finally {
         client.release();
@@ -238,30 +256,42 @@ describe('T4: processShieldObservations cria rollup diário único por (org, too
 
 // ── T5: generateShieldFindings — cria finding open para ferramenta unknown ───
 
-describe('T5: generateShieldFindings cria finding open para ferramenta desconhecida', () => {
-    it('finding aberto criado com severidade calculada', async () => {
+describe('T5: generateShieldFindings cria finding com risk_score, risk_dimensions, confidence', () => {
+    it('finding aberto com score de risco calculado pelas 5 dimensões', async () => {
         const result = await generateShieldFindings(pgPool, ORG_ID);
         expect(typeof result.generated).toBe('number');
         expect(typeof result.updated).toBe('number');
 
         const findingRow = await pgPool.query(
-            `SELECT id, status, severity, observation_count
+            `SELECT id, status, severity, observation_count, risk_score, risk_dimensions, confidence
              FROM shield_findings
              WHERE org_id = $1 AND tool_name_normalized = $2
              ORDER BY created_at DESC LIMIT 1`,
             [ORG_ID, normalizeToolName(TEST_TOOL)]
         );
         expect(findingRow.rows).toHaveLength(1);
-        expect(findingRow.rows[0].status).toBe('open');
-        expect(['medium', 'high']).toContain(findingRow.rows[0].severity);
-        expect(findingRow.rows[0].observation_count).toBeGreaterThan(0);
+        const f = findingRow.rows[0];
+        expect(f.status).toBe('open');
+        expect(f.observation_count).toBeGreaterThan(0);
+        // risk_score deve estar preenchido (0-100)
+        expect(f.risk_score).toBeGreaterThanOrEqual(0);
+        expect(f.risk_score).toBeLessThanOrEqual(100);
+        // risk_dimensions deve ser objeto com as 5 dimensões
+        expect(f.risk_dimensions).toBeTruthy();
+        const dims = typeof f.risk_dimensions === 'string'
+            ? JSON.parse(f.risk_dimensions) : f.risk_dimensions;
+        expect(dims).toHaveProperty('baseRisk');
+        expect(dims).toHaveProperty('exposure');
+        expect(dims).toHaveProperty('businessContext');
+        expect(dims).toHaveProperty('persistence');
+        expect(dims).toHaveProperty('confidence');
     });
 });
 
-// ── T6: acknowledgeShieldFinding — atualiza status + timestamps ───────────────
+// ── T6: acknowledgeShieldFinding — atualiza status + gera action log ─────────
 
-describe('T6: acknowledgeShieldFinding atualiza status, acknowledged_at e acknowledged_by', () => {
-    it('status muda de open para acknowledged', async () => {
+describe('T6: acknowledgeShieldFinding atualiza status e gera action log', () => {
+    it('status muda de open para acknowledged + action log inserido', async () => {
         // Buscar finding aberto para o TEST_TOOL
         const client = await pgPool.connect();
         try {
@@ -275,14 +305,12 @@ describe('T6: acknowledgeShieldFinding atualiza status, acknowledged_at e acknow
                  LIMIT 1`,
                 [ORG_ID, normalizeToolName(TEST_TOOL)]
             );
-            if (findingRow.rows.length === 0) {
-                // Se o finding já foi promovido em T7, criar um novo
-                return;
-            }
-            const findingId = findingRow.rows[0].id as string;
+            if (findingRow.rows.length === 0) return; // já processado
 
+            const findingId = findingRow.rows[0].id as string;
             await acknowledgeShieldFinding(client, findingId, ACTOR_ID);
 
+            // Status atualizado
             const updated = await client.query(
                 'SELECT status, acknowledged_at, acknowledged_by FROM shield_findings WHERE id = $1',
                 [findingId]
@@ -290,6 +318,15 @@ describe('T6: acknowledgeShieldFinding atualiza status, acknowledged_at e acknow
             expect(updated.rows[0].status).toBe('acknowledged');
             expect(updated.rows[0].acknowledged_at).not.toBeNull();
             expect(updated.rows[0].acknowledged_by).toBe(ACTOR_ID);
+
+            // Action log inserido
+            const action = await client.query(
+                `SELECT action_type, actor_user_id FROM shield_finding_actions
+                 WHERE finding_id = $1 AND action_type = 'acknowledge' LIMIT 1`,
+                [findingId]
+            );
+            expect(action.rows).toHaveLength(1);
+            expect(action.rows[0].actor_user_id).toBe(ACTOR_ID);
         } finally {
             await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
             client.release();
@@ -457,5 +494,262 @@ describe('T10: GET /v1/admin/shield/findings responde 200 com auth válida', () 
         expect(Array.isArray(body.findings)).toBe(true);
         expect(typeof body.total).toBe('number');
         expect(body.total).toBe(body.findings.length);
+    });
+});
+
+// ── T11: acceptRisk — transição + action log + campos accepted_risk ───────────
+
+describe('T11: acceptRisk transiciona finding para accepted_risk + gera action log', () => {
+    it('status muda para accepted_risk, campos preenchidos, action log inserido', async () => {
+        // Criar finding open dedicado para este teste
+        const client = await pgPool.connect();
+        let findingId: string;
+        try {
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)",
+                [ORG_ID]
+            );
+            const res = await client.query(
+                `INSERT INTO shield_findings
+                 (org_id, tool_name, tool_name_normalized, severity, rationale,
+                  first_seen_at, last_seen_at, observation_count)
+                 VALUES ($1, $2, $3, 'medium', 'Finding para T11 acceptRisk', NOW(), NOW(), 3)
+                 RETURNING id`,
+                [ORG_ID, 'workflow-test-accept-' + Date.now(), 'workflow-test-accept-risk']
+            );
+            findingId = res.rows[0].id as string;
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+
+        await acceptRisk(pgPool, findingId, ACTOR_ID, 'Risco aceito para teste T11');
+
+        const client2 = await pgPool.connect();
+        try {
+            await client2.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [ORG_ID]
+            );
+
+            const finding = await client2.query(
+                `SELECT status, accepted_risk, accepted_risk_note, accepted_risk_at, accepted_risk_by
+                 FROM shield_findings WHERE id = $1`,
+                [findingId]
+            );
+            expect(finding.rows[0].status).toBe('accepted_risk');
+            expect(finding.rows[0].accepted_risk).toBe(true);
+            expect(finding.rows[0].accepted_risk_note).toBe('Risco aceito para teste T11');
+            expect(finding.rows[0].accepted_risk_at).not.toBeNull();
+            expect(finding.rows[0].accepted_risk_by).toBe(ACTOR_ID);
+
+            const action = await client2.query(
+                `SELECT action_type, actor_user_id, note FROM shield_finding_actions
+                 WHERE finding_id = $1 AND action_type = 'accept_risk' LIMIT 1`,
+                [findingId]
+            );
+            expect(action.rows).toHaveLength(1);
+            expect(action.rows[0].actor_user_id).toBe(ACTOR_ID);
+            expect(action.rows[0].note).toBe('Risco aceito para teste T11');
+        } finally {
+            await client2.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client2.release();
+        }
+    });
+});
+
+// ── T12: resolveFinding — transição + action log ──────────────────────────────
+
+describe('T12: resolveFinding transiciona finding para resolved + gera action log', () => {
+    it('status muda para resolved e action log inserido', async () => {
+        const client = await pgPool.connect();
+        let findingId: string;
+        try {
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [ORG_ID]
+            );
+            const res = await client.query(
+                `INSERT INTO shield_findings
+                 (org_id, tool_name, tool_name_normalized, severity, rationale,
+                  first_seen_at, last_seen_at, observation_count)
+                 VALUES ($1, $2, $3, 'low', 'Finding para T12 resolve', NOW(), NOW(), 2)
+                 RETURNING id`,
+                [ORG_ID, 'workflow-test-resolve-' + Date.now(), 'workflow-test-resolve']
+            );
+            findingId = res.rows[0].id as string;
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+
+        await resolveFinding(pgPool, findingId, ACTOR_ID, 'Resolvido em T12');
+
+        const client2 = await pgPool.connect();
+        try {
+            await client2.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [ORG_ID]
+            );
+
+            const finding = await client2.query(
+                'SELECT status FROM shield_findings WHERE id = $1',
+                [findingId]
+            );
+            expect(finding.rows[0].status).toBe('resolved');
+
+            const action = await client2.query(
+                `SELECT action_type, actor_user_id FROM shield_finding_actions
+                 WHERE finding_id = $1 AND action_type = 'resolve' LIMIT 1`,
+                [findingId]
+            );
+            expect(action.rows).toHaveLength(1);
+            expect(action.rows[0].actor_user_id).toBe(ACTOR_ID);
+        } finally {
+            await client2.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client2.release();
+        }
+    });
+});
+
+// ── T13: generateExecutivePosture — persiste shield_posture_snapshots ─────────
+
+describe('T13: generateExecutivePosture persiste snapshot em shield_posture_snapshots', () => {
+    it('snapshot criado com summary_score e campos estruturados', async () => {
+        const snapshot = await generateExecutivePosture(pgPool, ORG_ID, ACTOR_ID);
+
+        expect(snapshot).toBeTruthy();
+        expect(typeof snapshot.summaryScore).toBe('number');
+        expect(snapshot.summaryScore).toBeGreaterThanOrEqual(0);
+        expect(snapshot.summaryScore).toBeLessThanOrEqual(100);
+        expect(typeof snapshot.openFindings).toBe('number');
+        expect(Array.isArray(snapshot.topTools)).toBe(true);
+        expect(Array.isArray(snapshot.recommendations)).toBe(true);
+
+        // Verificar persistência no banco
+        const client = await pgPool.connect();
+        try {
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [ORG_ID]
+            );
+            const row = await client.query(
+                `SELECT id, summary_score, open_findings, recommendations
+                 FROM shield_posture_snapshots
+                 WHERE org_id = $1
+                 ORDER BY generated_at DESC LIMIT 1`,
+                [ORG_ID]
+            );
+            expect(row.rows).toHaveLength(1);
+            expect(row.rows[0].summary_score).toBe(snapshot.summaryScore);
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+});
+
+// ── T20: POST /v1/admin/shield/findings/:id/accept-risk responde 200 ──────────
+
+describe('T20: POST /v1/admin/shield/findings/:id/accept-risk responde 200', () => {
+    it('endpoint aceita risco em finding aberto', async () => {
+        // Criar finding open via DB
+        const client = await pgPool.connect();
+        let findingId: string;
+        try {
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [ORG_ID]
+            );
+            const res = await client.query(
+                `INSERT INTO shield_findings
+                 (org_id, tool_name, tool_name_normalized, severity, rationale,
+                  first_seen_at, last_seen_at, observation_count)
+                 VALUES ($1, $2, $3, 'low', 'Finding para T20 accept-risk route', NOW(), NOW(), 1)
+                 RETURNING id`,
+                [ORG_ID, 'workflow-test-ar-route-' + Date.now(), 'workflow-test-ar-route']
+            );
+            findingId = res.rows[0].id as string;
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+
+        const res = await app.inject({
+            method: 'POST',
+            url:    `/v1/admin/shield/findings/${findingId}/accept-risk`,
+            payload: { note: 'Aceito via T20' },
+        });
+
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.body);
+        expect(body.findingId).toBe(findingId);
+    });
+});
+
+// ── T21: POST /v1/admin/shield/findings/:id/resolve responde 200 ──────────────
+
+describe('T21: POST /v1/admin/shield/findings/:id/resolve responde 200', () => {
+    it('endpoint resolve finding aberto', async () => {
+        const client = await pgPool.connect();
+        let findingId: string;
+        try {
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [ORG_ID]
+            );
+            const res = await client.query(
+                `INSERT INTO shield_findings
+                 (org_id, tool_name, tool_name_normalized, severity, rationale,
+                  first_seen_at, last_seen_at, observation_count)
+                 VALUES ($1, $2, $3, 'low', 'Finding para T21 resolve route', NOW(), NOW(), 1)
+                 RETURNING id`,
+                [ORG_ID, 'workflow-test-resolve-route-' + Date.now(), 'workflow-test-resolve-route']
+            );
+            findingId = res.rows[0].id as string;
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+
+        const res = await app.inject({
+            method: 'POST',
+            url:    `/v1/admin/shield/findings/${findingId}/resolve`,
+            payload: { note: 'Resolvido via T21' },
+        });
+
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.body);
+        expect(body.findingId).toBe(findingId);
+    });
+});
+
+// ── T22: GET /v1/admin/shield/posture responde 200 ───────────────────────────
+
+describe('T22: GET /v1/admin/shield/posture responde 200', () => {
+    it('endpoint retorna snapshot mais recente ou 404 sem snapshot', async () => {
+        const res = await app.inject({
+            method: 'GET',
+            url:    `/v1/admin/shield/posture?orgId=${ORG_ID}`,
+        });
+
+        // 200 se snapshot existe (T13 já gerou), 404 se não há snapshot ainda
+        expect([200, 404]).toContain(res.statusCode);
+        if (res.statusCode === 200) {
+            const body = JSON.parse(res.body);
+            expect(typeof body.summary_score).toBe('number');
+        }
+    });
+});
+
+// ── T23: POST /v1/admin/shield/posture/generate responde 200 ─────────────────
+
+describe('T23: POST /v1/admin/shield/posture/generate responde 200', () => {
+    it('endpoint gera e persiste novo snapshot de postura', async () => {
+        const res = await app.inject({
+            method: 'POST',
+            url:    '/v1/admin/shield/posture/generate',
+            payload: { orgId: ORG_ID },
+        });
+
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.body);
+        expect(typeof body.summaryScore).toBe('number');
+        expect(body.summaryScore).toBeGreaterThanOrEqual(0);
+        expect(body.summaryScore).toBeLessThanOrEqual(100);
     });
 });

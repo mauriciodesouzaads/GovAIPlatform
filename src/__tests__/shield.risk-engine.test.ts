@@ -139,4 +139,73 @@ describe('calculateRiskScore — 5 dimensões auditáveis', () => {
         expect(sanctioned.promotionCandidate).toBe(false);
     });
 
+    // T9: total score sancionado < não sancionado (mesmo input)
+    it('T9: total score de ferramenta sancionada < não sancionada (mesmo perfil)', () => {
+        const base = {
+            toolBaseRisk:     12,
+            dataExposureRisk: 12,
+            observationCount: 30,
+            uniqueUsers:      15,
+            signalSources:    ['oauth', 'network'] as string[],
+        };
+        const unsanctioned = calculateRiskScore({ ...base, isSanctioned: false });
+        const sanctioned   = calculateRiskScore({ ...base, isSanctioned: true });
+
+        expect(sanctioned.total).toBeLessThan(unsanctioned.total);
+    });
+
+    // T10: score é determinístico para mesmo input
+    it('T10: mesmo input produz score idêntico em chamadas consecutivas', () => {
+        const input = {
+            toolBaseRisk:     8,
+            dataExposureRisk: 12,
+            scopes:           ['Mail.Read'],
+            observationCount: 25,
+            uniqueUsers:      7,
+            isSanctioned:     false,
+            isKnownTool:      true,
+            signalSources:    ['oauth'],
+        };
+
+        const r1 = calculateRiskScore(input);
+        const r2 = calculateRiskScore(input);
+
+        expect(r1.total).toBe(r2.total);
+        expect(r1.severity).toBe(r2.severity);
+        expect(r1.dimensions.baseRisk).toBe(r2.dimensions.baseRisk);
+        expect(r1.dimensions.exposure).toBe(r2.dimensions.exposure);
+    });
+
+    // T11: recommendedAction não é nulo e tem valor válido
+    it('T11: recommendedAction retornado e válido para todos os níveis de risco', () => {
+        const validActions = ['restrict_and_catalog', 'catalog_and_review', 'monitor', 'observe'];
+
+        const critical = calculateRiskScore({
+            toolBaseRisk:     20,
+            dataExposureRisk: 20,
+            scopes:           ['Mail.Read', 'Files.ReadWrite.All'],
+            observationCount: 200,
+            uniqueUsers:      50,
+            isSanctioned:     false,
+            isKnownTool:      false,
+            signalSources:    ['oauth', 'network', 'browser'],
+        });
+        expect(validActions).toContain(critical.recommendedAction);
+
+        const low = calculateRiskScore({
+            toolBaseRisk: 2, dataExposureRisk: 0, uniqueUsers: 1,
+            isSanctioned: true, signalSources: ['manual'],
+        });
+        expect(validActions).toContain(low.recommendedAction);
+
+        // Alto risco → restrict_and_catalog
+        expect(critical.recommendedAction).toBe('restrict_and_catalog');
+        // Baixo risco → observe
+        expect(low.recommendedAction).toBe('observe');
+
+        // scoreVersion sempre '1.1'
+        expect(critical.scoreVersion).toBe('1.1');
+        expect(low.scoreVersion).toBe('1.1');
+    });
+
 });

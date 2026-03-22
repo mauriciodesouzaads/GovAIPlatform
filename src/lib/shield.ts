@@ -1,23 +1,23 @@
 /**
- * Shield Core — Detection Foundation
+ * Shield Core — Detection & Risk Intelligence Plane
  *
  * Funções do núcleo de detecção de uso shadow AI:
  *   - normalização de nomes de ferramentas
  *   - hash de identidade de usuário (nunca e-mail cru)
  *   - ingestão de observações brutas
  *   - processamento (upsert shield_tools + rollup diário)
- *   - geração de findings
- *   - acknowledge / promote-to-catalog
+ *   - geração de findings com risk score 5 dimensões
+ *   - workflow completo de findings:
+ *       acknowledge / accept_risk / dismiss / resolve / reopen / promote
+ *   - postura executiva persistida em shield_posture_snapshots
  *
- * O que esta sprint NÃO entrega:
- *   - collectors corporativos reais (M365, Google, DNS, browser extension)
- *   - workers de processamento assíncrono
- *   - regras de severidade complexas
- *   Ver ADR-003 para roadmap.
+ * Coleta disponível: manual (via API) + Microsoft Graph OAuth + Google Workspace.
+ * Workers/BullMQ: não implementado — coleta admin-triggered nesta sprint.
+ * SSE/CASB/browser extension: ver ADR-004 para roadmap.
  *
  * Regra de set_config:
  *   Usar false (session-level). Limpar no finally.
- *   Nunca usar true (transaction-local) — ver F1 spec regra #3.
+ *   Nunca usar true (transaction-local).
  */
 
 import { Pool, PoolClient } from 'pg';
@@ -417,6 +417,24 @@ export async function generateShieldFindings(
     }
 }
 
+// ── insertFindingAction (helper privado) ──────────────────────────────────────
+
+async function insertFindingAction(
+    db: DbClient,
+    orgId: string,
+    findingId: string,
+    actionType: string,
+    actorUserId: string | null,
+    note?: string | null
+): Promise<void> {
+    await (db as Pool).query(
+        `INSERT INTO shield_finding_actions
+         (org_id, finding_id, action_type, actor_user_id, note)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [orgId, findingId, actionType, actorUserId, note ?? null]
+    );
+}
+
 // ── acknowledgeShieldFinding ──────────────────────────────────────────────────
 
 export async function acknowledgeShieldFinding(
@@ -424,14 +442,20 @@ export async function acknowledgeShieldFinding(
     findingId: string,
     actorUserId: string
 ): Promise<void> {
-    await (db as Pool).query(
+    // Buscar org_id do finding para o action log
+    const row = await (db as Pool).query(
         `UPDATE shield_findings
          SET status          = 'acknowledged',
              acknowledged_at = NOW(),
              acknowledged_by = $2
-         WHERE id = $1 AND status = 'open'`,
+         WHERE id = $1 AND status = 'open'
+         RETURNING org_id`,
         [findingId, actorUserId]
     );
+    if (row.rows.length > 0) {
+        const orgId = row.rows[0].org_id as string;
+        await insertFindingAction(db, orgId, findingId, 'acknowledge', actorUserId);
+    }
 }
 
 // ── promoteShieldFindingToCatalog ─────────────────────────────────────────────
@@ -499,6 +523,9 @@ export async function promoteShieldFindingToCatalog(
              WHERE id = $1`,
             [findingId]
         );
+
+        // Log da ação de promoção
+        await insertFindingAction(client, orgId, findingId, 'promote', actorUserId);
 
         await client.query('COMMIT');
 
@@ -577,4 +604,267 @@ export async function listShieldFindings(
         params
     );
     return result.rows;
+}
+
+// ── acceptRisk ────────────────────────────────────────────────────────────────
+
+/**
+ * Marca um finding como risco aceito.
+ * Transição válida: open | acknowledged → accepted_risk.
+ * Gera action log.
+ */
+export async function acceptRisk(
+    pool: Pool,
+    findingId: string,
+    actorUserId: string,
+    note?: string
+): Promise<void> {
+    const client = await pool.connect();
+    try {
+        const row = await client.query(
+            `UPDATE shield_findings
+             SET status            = 'accepted_risk',
+                 accepted_risk     = true,
+                 accepted_risk_note = $2,
+                 accepted_risk_at  = NOW(),
+                 accepted_risk_by  = $3
+             WHERE id = $1
+               AND status IN ('open','acknowledged')
+             RETURNING org_id`,
+            [findingId, note ?? null, actorUserId]
+        );
+        if (row.rows.length > 0) {
+            const orgId = row.rows[0].org_id as string;
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+            );
+            await insertFindingAction(client, orgId, findingId, 'accept_risk', actorUserId, note);
+        }
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── dismissFinding ────────────────────────────────────────────────────────────
+
+/**
+ * Descarta um finding (falso positivo, fora de escopo, etc.).
+ * Transição válida: open | acknowledged → dismissed.
+ * Gera action log.
+ */
+export async function dismissFinding(
+    pool: Pool,
+    findingId: string,
+    actorUserId: string,
+    note?: string
+): Promise<void> {
+    const client = await pool.connect();
+    try {
+        const row = await client.query(
+            `UPDATE shield_findings
+             SET status       = 'dismissed',
+                 dismissed_at = NOW(),
+                 dismissed_by = $2
+             WHERE id = $1
+               AND status IN ('open','acknowledged')
+             RETURNING org_id`,
+            [findingId, actorUserId]
+        );
+        if (row.rows.length > 0) {
+            const orgId = row.rows[0].org_id as string;
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+            );
+            await insertFindingAction(client, orgId, findingId, 'dismiss', actorUserId, note);
+        }
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── resolveFinding ────────────────────────────────────────────────────────────
+
+/**
+ * Marca um finding como resolvido (ferramenta desativada, controlada, etc.).
+ * Transição válida: qualquer status ativo → resolved.
+ * Gera action log.
+ */
+export async function resolveFinding(
+    pool: Pool,
+    findingId: string,
+    actorUserId: string,
+    note?: string
+): Promise<void> {
+    const client = await pool.connect();
+    try {
+        const row = await client.query(
+            `UPDATE shield_findings
+             SET status      = 'resolved',
+                 resolved_at = NOW(),
+                 resolved_by = $2
+             WHERE id = $1
+               AND status NOT IN ('promoted','resolved')
+             RETURNING org_id`,
+            [findingId, actorUserId]
+        );
+        if (row.rows.length > 0) {
+            const orgId = row.rows[0].org_id as string;
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+            );
+            await insertFindingAction(client, orgId, findingId, 'resolve', actorUserId, note);
+        }
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── reopenFinding ─────────────────────────────────────────────────────────────
+
+/**
+ * Reabre um finding (dismissed ou resolved).
+ * Transição válida: dismissed | resolved | accepted_risk → open.
+ * Gera action log.
+ */
+export async function reopenFinding(
+    pool: Pool,
+    findingId: string,
+    actorUserId: string,
+    note?: string
+): Promise<void> {
+    const client = await pool.connect();
+    try {
+        const row = await client.query(
+            `UPDATE shield_findings
+             SET status           = 'open',
+                 accepted_risk    = false,
+                 accepted_risk_at = NULL,
+                 accepted_risk_by = NULL,
+                 dismissed_at     = NULL,
+                 dismissed_by     = NULL,
+                 resolved_at      = NULL,
+                 resolved_by      = NULL
+             WHERE id = $1
+               AND status IN ('dismissed','resolved','accepted_risk')
+             RETURNING org_id`,
+            [findingId]
+        );
+        if (row.rows.length > 0) {
+            const orgId = row.rows[0].org_id as string;
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+            );
+            await insertFindingAction(client, orgId, findingId, 'reopen', actorUserId, note);
+        }
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── generateExecutivePosture ──────────────────────────────────────────────────
+
+/**
+ * Gera e persiste um snapshot de postura executiva em shield_posture_snapshots.
+ * Consolida: findings por severidade/status, top tools, promoted, accepted_risk.
+ * Retorna estrutura pronta para API/relatório.
+ *
+ * Não requer app.current_org_id externo — configura e limpa internamente.
+ */
+export async function generateExecutivePosture(
+    pool: Pool,
+    orgId: string,
+    generatedBy: string
+): Promise<{
+    snapshotId: string;
+    summaryScore: number;
+    openFindings: number;
+    promotedFindings: number;
+    acceptedRisk: number;
+    topTools: Array<{ toolName: string; score: number; severity: string }>;
+    recommendations: string[];
+}> {
+    const client = await pool.connect();
+    try {
+        await client.query(
+            "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+        );
+
+        // Contagens de findings por status
+        const counts = await client.query(
+            `SELECT
+               COUNT(*) FILTER (WHERE status = 'open')          AS open_count,
+               COUNT(*) FILTER (WHERE status = 'acknowledged')  AS ack_count,
+               COUNT(*) FILTER (WHERE status = 'promoted')      AS promoted_count,
+               COUNT(*) FILTER (WHERE status = 'accepted_risk') AS accepted_count,
+               COUNT(*) FILTER (WHERE severity = 'critical')    AS critical_count,
+               COUNT(*) FILTER (WHERE severity = 'high')        AS high_count,
+               COALESCE(AVG(risk_score), 0)::int                AS avg_score
+             FROM shield_findings
+             WHERE org_id = $1 AND status IN ('open','acknowledged','accepted_risk')`,
+            [orgId]
+        );
+
+        const c = counts.rows[0];
+        const openFindings     = parseInt(c.open_count ?? '0') + parseInt(c.ack_count ?? '0');
+        const promotedFindings = parseInt(c.promoted_count ?? '0');
+        const acceptedRisk     = parseInt(c.accepted_count ?? '0');
+        const summaryScore     = c.avg_score ?? 0;
+        const criticalCount    = parseInt(c.critical_count ?? '0');
+        const highCount        = parseInt(c.high_count ?? '0');
+
+        // Top tools por risk_score
+        const topToolsResult = await client.query(
+            `SELECT tool_name, COALESCE(risk_score, 0) AS risk_score, severity
+             FROM shield_findings
+             WHERE org_id = $1 AND status IN ('open','acknowledged')
+             ORDER BY risk_score DESC NULLS LAST
+             LIMIT 5`,
+            [orgId]
+        );
+        const topTools = topToolsResult.rows.map(r => ({
+            toolName: r.tool_name as string,
+            score:    r.risk_score as number,
+            severity: r.severity as string,
+        }));
+
+        // Recomendações dinâmicas
+        const recommendations: string[] = [];
+        if (criticalCount > 0)
+            recommendations.push(`${criticalCount} ferramenta(s) de risco crítico requerem ação imediata.`);
+        if (highCount > 0)
+            recommendations.push(`Iniciar catalogação para ${highCount} ferramenta(s) de alto risco.`);
+        if (promotedFindings > 0)
+            recommendations.push(`${promotedFindings} ferramenta(s) promovida(s) ao catálogo aguardam revisão.`);
+        if (recommendations.length === 0)
+            recommendations.push('Nenhuma ação crítica pendente. Manter monitoramento.');
+
+        // Persistir snapshot
+        const snap = await client.query(
+            `INSERT INTO shield_posture_snapshots
+             (org_id, posture, summary_score, open_findings,
+              promoted_findings, accepted_risk, top_tools, recommendations)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING id`,
+            [
+                orgId,
+                JSON.stringify({ criticalCount, highCount, summaryScore, generatedBy }),
+                summaryScore,
+                openFindings,
+                promotedFindings,
+                acceptedRisk,
+                JSON.stringify(topTools),
+                JSON.stringify(recommendations),
+            ]
+        );
+        const snapshotId = snap.rows[0].id as string;
+
+        return { snapshotId, summaryScore, openFindings, promotedFindings, acceptedRisk, topTools, recommendations };
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
 }

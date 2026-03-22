@@ -20,11 +20,22 @@ import {
     processShieldObservations,
     generateShieldFindings,
     acknowledgeShieldFinding,
+    acceptRisk,
+    dismissFinding,
+    resolveFinding,
+    reopenFinding,
     promoteShieldFindingToCatalog,
     listShieldFindings,
+    generateExecutivePosture,
 } from '../lib/shield';
 import { collectMicrosoftOAuthGrants } from '../lib/shield-oauth-collector';
 import { generateExecutiveReport } from '../lib/shield-report';
+import {
+    storeGoogleCollector,
+    storeGoogleToken,
+    fetchGoogleObservations,
+    ingestGoogleObservations,
+} from '../lib/shield-google-collector';
 
 export async function shieldRoutes(
     fastify: FastifyInstance,
@@ -174,6 +185,189 @@ export async function shieldRoutes(
             pgPool, id, userId, { assistantName, category }
         );
         return reply.status(201).send(result);
+    });
+
+    // ── POST /v1/admin/shield/findings/:id/accept-risk ───────────────────────
+    fastify.post('/v1/admin/shield/findings/:id/accept-risk', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { id } = request.params as { id: string };
+        const { userId } = request.user ?? {};
+        const { note } = (request.body as any) ?? {};
+        if (!userId) return reply.status(401).send({ error: 'Não autenticado.' });
+        await acceptRisk(pgPool, id, userId, note);
+        return reply.send({ success: true, findingId: id });
+    });
+
+    // ── POST /v1/admin/shield/findings/:id/dismiss ────────────────────────────
+    fastify.post('/v1/admin/shield/findings/:id/dismiss', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { id } = request.params as { id: string };
+        const { userId } = request.user ?? {};
+        const { note } = (request.body as any) ?? {};
+        if (!userId) return reply.status(401).send({ error: 'Não autenticado.' });
+        await dismissFinding(pgPool, id, userId, note);
+        return reply.send({ success: true, findingId: id });
+    });
+
+    // ── POST /v1/admin/shield/findings/:id/resolve ────────────────────────────
+    fastify.post('/v1/admin/shield/findings/:id/resolve', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { id } = request.params as { id: string };
+        const { userId } = request.user ?? {};
+        const { note } = (request.body as any) ?? {};
+        if (!userId) return reply.status(401).send({ error: 'Não autenticado.' });
+        await resolveFinding(pgPool, id, userId, note);
+        return reply.send({ success: true, findingId: id });
+    });
+
+    // ── POST /v1/admin/shield/findings/:id/reopen ─────────────────────────────
+    fastify.post('/v1/admin/shield/findings/:id/reopen', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { id } = request.params as { id: string };
+        const { userId } = request.user ?? {};
+        const { note } = (request.body as any) ?? {};
+        if (!userId) return reply.status(401).send({ error: 'Não autenticado.' });
+        await reopenFinding(pgPool, id, userId, note);
+        return reply.send({ success: true, findingId: id });
+    });
+
+    // ── GET /v1/admin/shield/posture — snapshot mais recente ──────────────────
+    fastify.get('/v1/admin/shield/posture', {
+        preHandler: requireRole(['admin', 'auditor', 'dpo']),
+    }, async (request: any, reply) => {
+        const { orgId } = request.query as any;
+        if (!orgId) return reply.status(400).send({ error: 'orgId obrigatório.' });
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+            );
+            const snap = await client.query(
+                `SELECT * FROM shield_posture_snapshots
+                 WHERE org_id = $1
+                 ORDER BY generated_at DESC LIMIT 1`,
+                [orgId]
+            );
+            return reply.send(snap.rows[0] ?? { message: 'Nenhum snapshot disponível.' });
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+    // ── POST /v1/admin/shield/posture/generate — gerar novo snapshot ──────────
+    fastify.post('/v1/admin/shield/posture/generate', {
+        preHandler: requireRole(['admin', 'auditor', 'dpo']),
+    }, async (request: any, reply) => {
+        const { orgId } = request.body as any;
+        const { userId } = request.user ?? {};
+        if (!orgId) return reply.status(400).send({ error: 'orgId obrigatório.' });
+        if (!userId) return reply.status(401).send({ error: 'Não autenticado.' });
+
+        const posture = await generateExecutivePosture(pgPool, orgId, userId);
+        return reply.status(201).send(posture);
+    });
+
+    // ── GET /v1/admin/shield/posture/history — histórico de snapshots ─────────
+    fastify.get('/v1/admin/shield/posture/history', {
+        preHandler: requireRole(['admin', 'auditor', 'dpo']),
+    }, async (request: any, reply) => {
+        const { orgId, limit } = request.query as any;
+        if (!orgId) return reply.status(400).send({ error: 'orgId obrigatório.' });
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+            );
+            const snaps = await client.query(
+                `SELECT id, generated_at, summary_score, open_findings,
+                        promoted_findings, accepted_risk, top_tools
+                 FROM shield_posture_snapshots
+                 WHERE org_id = $1
+                 ORDER BY generated_at DESC
+                 LIMIT $2`,
+                [orgId, Math.min(parseInt(limit ?? '10', 10), 50)]
+            );
+            return reply.send({ history: snaps.rows });
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+    // ── POST /v1/admin/shield/google/collectors — configurar coletor Google ───
+    fastify.post('/v1/admin/shield/google/collectors', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { orgId, collectorName, adminEmail, scopes } = (request.body as any) ?? {};
+        if (!orgId || !collectorName || !adminEmail)
+            return reply.status(400).send({ error: 'orgId, collectorName e adminEmail obrigatórios.' });
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+            );
+            const collector = await storeGoogleCollector(pgPool, {
+                orgId, collectorName, adminEmail, scopes: scopes ?? [],
+            });
+            return reply.status(201).send(collector);
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+    // ── POST /v1/admin/shield/google/collectors/:id/token ─────────────────────
+    // Armazena token OAuth criptografado para o coletor Google.
+    // O caller é responsável pela criptografia do token antes de enviar.
+    fastify.post('/v1/admin/shield/google/collectors/:id/token', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { id: collectorId } = request.params as { id: string };
+        const { orgId, accessTokenEncrypted, refreshTokenEncrypted, tokenHash, expiresAt } =
+            (request.body as any) ?? {};
+
+        if (!orgId || !accessTokenEncrypted || !tokenHash)
+            return reply.status(400).send({ error: 'orgId, accessTokenEncrypted e tokenHash obrigatórios.' });
+
+        const token = await storeGoogleToken(
+            pgPool, collectorId, orgId,
+            accessTokenEncrypted, refreshTokenEncrypted ?? null,
+            tokenHash, expiresAt ? new Date(expiresAt) : null
+        );
+        return reply.status(201).send({ id: token.id, tokenHash: token.tokenHash });
+    });
+
+    // ── POST /v1/admin/shield/google/collectors/:id/fetch ─────────────────────
+    // Dispara coleta manual via Google Admin SDK Reports API.
+    // accessToken: token OAuth válido para a API (resolvido externamente).
+    fastify.post('/v1/admin/shield/google/collectors/:id/fetch', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { id: collectorId } = request.params as { id: string };
+        const { orgId, accessToken, daysBack } = (request.body as any) ?? {};
+
+        if (!orgId || !accessToken)
+            return reply.status(400).send({ error: 'orgId e accessToken obrigatórios.' });
+
+        const { activities, errors: fetchErrors } =
+            await fetchGoogleObservations(accessToken, daysBack ?? 7);
+
+        const { ingested, errors: ingestErrors } =
+            await ingestGoogleObservations(pgPool, orgId, collectorId, activities);
+
+        return reply.send({
+            fetched:  activities.length,
+            ingested,
+            errors:   [...fetchErrors, ...ingestErrors],
+        });
     });
 
     // ── POST /v1/admin/shield/collectors — configurar coletor OAuth ───────────

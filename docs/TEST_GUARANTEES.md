@@ -90,12 +90,56 @@ Auditores externos podem executar `DATABASE_URL=postgresql://... npx vitest run 
 | `recordShieldObservation` persiste `tool_name_normalized` e hash | `shield.core.test.ts` | T2 | INSERT + SELECT no banco real | DB real |
 | `processShieldObservations` cria entrada em `shield_tools` | `shield.core.test.ts` | T3 | Upsert no banco real | DB real |
 | Rollup diário UNIQUE por (org, tool, period_start) | `shield.core.test.ts` | T4 | ON CONFLICT UPDATE no banco real | DB real |
-| `generateShieldFindings` cria finding open para ferramenta unknown | `shield.core.test.ts` | T5 | INSERT/UPDATE no banco real | DB real |
-| `acknowledgeShieldFinding` atualiza status + timestamps | `shield.core.test.ts` | T6 | UPDATE no banco real | DB real |
+| `generateShieldFindings` preenche `risk_score` e `risk_dimensions` (5 dim) | `shield.core.test.ts` | T5 | INSERT/UPDATE no banco real + validação de JSON | DB real |
+| `acknowledgeShieldFinding` atualiza status + gera `shield_finding_actions` | `shield.core.test.ts` | T6 | UPDATE + INSERT no banco real | DB real |
 | `promoteShieldFindingToCatalog` cria assistant draft + promoted | `shield.core.test.ts` | T7 | INSERT assistants + UPDATE findings | DB real |
 | Promoção gera `evidence_record` com hash de integridade | `shield.core.test.ts` | T8 | `recordEvidence` + `linkEvidence` | DB real |
 | RLS: org A vê finding; org errada recebe 0 rows | `shield.core.test.ts` | T9 | SET LOCAL ROLE govai_app + set_config | DB real |
 | Endpoint GET /findings responde 200 com auth válida | `shield.core.test.ts` | T10 | Fastify inject real | API real |
+| `acceptRisk` transiciona finding + campos + action log inserido | `shield.core.test.ts` | T11 | UPDATE + INSERT no banco real | DB real |
+| `resolveFinding` transiciona finding + action log inserido | `shield.core.test.ts` | T12 | UPDATE + INSERT no banco real | DB real |
+| `generateExecutivePosture` persiste `shield_posture_snapshots` | `shield.core.test.ts` | T13 | INSERT no banco real + SELECT de validação | DB real |
+| Endpoint POST /accept-risk responde 200 | `shield.core.test.ts` | T20 | Fastify inject real | API real |
+| Endpoint POST /resolve responde 200 | `shield.core.test.ts` | T21 | Fastify inject real | API real |
+| Endpoint GET /posture responde 200 | `shield.core.test.ts` | T22 | Fastify inject real | API real |
+| Endpoint POST /posture/generate responde 200 | `shield.core.test.ts` | T23 | Fastify inject real | API real |
+
+---
+
+## Garantias do Shield Risk Engine (Lógica pura)
+
+> Testes na suíte padrão — executam sem `DATABASE_URL`.
+
+| Garantia | Arquivo de Teste | Caso | Mecanismo | Tipo |
+|----------|-----------------|------|-----------|------|
+| Score mínimo > 0 para app desconhecido | `shield.risk-engine.test.ts` | T1 | 5 dimensões auditáveis | Lógica pura |
+| Scopes sensíveis aumentam `exposure` | `shield.risk-engine.test.ts` | T2 | `Mail.Read` vs sem scopes | Lógica pura |
+| 50 usuários únicos → `businessContext` ≥ 18 | `shield.risk-engine.test.ts` | T3 | Dimensão `businessContext` | Lógica pura |
+| `isSanctioned=false` aumenta `baseRisk` | `shield.risk-engine.test.ts` | T4 | Penalidade de não-sanção | Lógica pura |
+| 3+ fontes de sinal → `confidence` ≥ 18 | `shield.risk-engine.test.ts` | T5 | Dimensão `confidence` | Lógica pura |
+| `total` ≥ 85 → `severity = 'critical'` | `shield.risk-engine.test.ts` | T6 | Threshold crítico | Lógica pura |
+| `total` < 30 → `severity = 'informational'` | `shield.risk-engine.test.ts` | T7 | Threshold informacional | Lógica pura |
+| `promotionCandidate = true` quando score ≥ 50 e !isSanctioned | `shield.risk-engine.test.ts` | T8 | Critério de promoção | Lógica pura |
+| Score sancionado < não-sancionado (mesmo perfil) | `shield.risk-engine.test.ts` | T9 | Diferença delta mensurável | Lógica pura |
+| Score é determinístico para mesmo input | `shield.risk-engine.test.ts` | T10 | SHA-256-like determinismo | Lógica pura |
+| `recommendedAction` retornado e válido; `scoreVersion = '1.1'` | `shield.risk-engine.test.ts` | T11 | 4 valores válidos + versão | Lógica pura |
+
+---
+
+## Garantias do Shield Collector (Microsoft + Google)
+
+> Testes T3–T8 requerem `DATABASE_URL`.
+
+| Garantia | Arquivo de Teste | Caso | Mecanismo | Tipo |
+|----------|-----------------|------|-----------|------|
+| `collectMicrosoftOAuthGrants` retorna `{ collected, normalized, errors }` | `shield.collector.test.ts` | T1 | fetch mockado | Lógica pura |
+| `user_identifier_hash` = SHA-256 (64 chars), nunca email plain | `shield.collector.test.ts` | T2 | Hash verificado vs principalId | Lógica pura |
+| `shield_oauth_collectors` INSERT/SELECT no banco real | `shield.collector.test.ts` | T3 | Banco real | DB real |
+| `generateExecutiveReport` persiste `shield_executive_reports` | `shield.collector.test.ts` | T4 | INSERT + SELECT banco real | DB real |
+| `storeGoogleCollector` armazena `admin_email_hash` (SHA-256, 64 chars) | `shield.collector.test.ts` | T5 | Hash verificado vs admin email | DB real |
+| `ingestGoogleObservations` armazena `user_identifier_hash` SHA-256 | `shield.collector.test.ts` | T6 | Hash verificado + ausência de plain email | DB real |
+| Atividades sem `actor.email` ignoradas sem lançar exceção | `shield.collector.test.ts` | T7 | Input inválido parcial | DB real |
+| Nenhum campo de identificador primário contém email plain (`@`) | `shield.collector.test.ts` | T8 | SELECT de todos os hashes no banco | DB real |
 
 ---
 

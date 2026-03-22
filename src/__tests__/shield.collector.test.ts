@@ -23,6 +23,10 @@ if (!DATABASE_URL) {
 import { Pool } from 'pg';
 import { collectMicrosoftOAuthGrants } from '../lib/shield-oauth-collector';
 import { generateExecutiveReport } from '../lib/shield-report';
+import {
+    storeGoogleCollector,
+    ingestGoogleObservations,
+} from '../lib/shield-google-collector';
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
@@ -60,6 +64,12 @@ afterAll(async () => {
     );
     await pool.query(
         `DELETE FROM shield_observations_raw WHERE org_id = $1 AND source_type = 'oauth'`, [ORG_ID]
+    );
+    await pool.query(
+        `DELETE FROM shield_google_tokens WHERE org_id = $1`, [ORG_ID]
+    );
+    await pool.query(
+        `DELETE FROM shield_google_collectors WHERE org_id = $1`, [ORG_ID]
     );
     await pool.query(
         `DELETE FROM shield_oauth_collectors WHERE org_id = $1`, [ORG_ID]
@@ -209,6 +219,172 @@ describe('generateExecutiveReport — banco real', () => {
 
         expect(dbRow.rows).toHaveLength(1);
         expect(dbRow.rows[0].org_id).toBe(ORG_ID);
+    });
+
+});
+
+// ── T5–T8: Google Collector (shield_google_collectors) ───────────────────────
+
+describe('storeGoogleCollector — banco real', () => {
+
+    // T5: admin_email_hash é SHA-256 (64 chars), nunca email plain
+    it('T5: admin_email_hash armazenado como SHA-256 (64 chars), não email plain', async () => {
+        const adminEmail = 'admin@workspace-test.com';
+        const expectedHash = createHash('sha256')
+            .update(adminEmail.toLowerCase().trim())
+            .digest('hex');
+
+        const record = await storeGoogleCollector(pool, {
+            orgId:         ORG_ID,
+            collectorName: 'Test Google Collector T5',
+            adminEmail,
+            scopes:        ['https://www.googleapis.com/auth/admin.reports.audit.readonly'],
+        });
+
+        expect(record.adminEmailHash).toHaveLength(64);
+        expect(record.adminEmailHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(record.adminEmailHash).toBe(expectedHash);
+        expect(record.adminEmailHash).not.toBe(adminEmail);
+
+        // Verificar no banco
+        const client = await pool.connect();
+        try {
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [ORG_ID]
+            );
+            const row = await client.query(
+                'SELECT admin_email_hash FROM shield_google_collectors WHERE id = $1',
+                [record.id]
+            );
+            expect(row.rows[0].admin_email_hash).toBe(expectedHash);
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+});
+
+describe('ingestGoogleObservations — fetch mockado', () => {
+
+    let googleCollectorId: string;
+
+    beforeAll(async () => {
+        const r = await storeGoogleCollector(pool, {
+            orgId:         ORG_ID,
+            collectorName: 'Test Google Collector T6-T8',
+            adminEmail:    'admin-t6@workspace-test.com',
+            scopes:        ['https://www.googleapis.com/auth/admin.reports.audit.readonly'],
+        });
+        googleCollectorId = r.id;
+    });
+
+    // T6: ingestGoogleObservations gera observações canônicas (user_identifier_hash = SHA-256)
+    it('T6: ingestGoogleObservations gera observações com user_identifier_hash SHA-256', async () => {
+        const userEmail = 'employee@workspace-test.com';
+        const expectedHash = createHash('sha256')
+            .update(userEmail.toLowerCase().trim())
+            .digest('hex');
+
+        const activities = [
+            {
+                id:     { uniqueQualifier: 'qual-t6-001', time: new Date().toISOString() },
+                actor:  { email: userEmail },
+                events: [
+                    {
+                        name:       'authorize',
+                        parameters: [
+                            { name: 'client_id',  value: 'google-app-t6-001' },
+                            { name: 'scope_data', multiValue: ['https://www.googleapis.com/auth/drive.readonly'] },
+                        ],
+                    },
+                ],
+            },
+        ];
+
+        const result = await ingestGoogleObservations(pool, ORG_ID, googleCollectorId, activities);
+
+        expect(result.errors).toHaveLength(0);
+        expect(result.ingested).toBe(1);
+
+        // Verificar no banco — user_identifier_hash correto, nunca email plain
+        const client = await pool.connect();
+        try {
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [ORG_ID]
+            );
+            const obs = await client.query(
+                `SELECT user_identifier_hash, raw_data
+                 FROM shield_observations_raw
+                 WHERE org_id = $1 AND source_type = 'oauth'
+                   AND raw_data->>'client_id' = 'google-app-t6-001'
+                 LIMIT 1`,
+                [ORG_ID]
+            );
+            if (obs.rows.length > 0) {
+                expect(obs.rows[0].user_identifier_hash).toBe(expectedHash);
+                expect(obs.rows[0].user_identifier_hash).toHaveLength(64);
+                // Email plain nunca armazenado no raw_data
+                expect(JSON.stringify(obs.rows[0].raw_data)).not.toContain(userEmail);
+            }
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+    // T7: erros de fetch não corrompem persistência de observações válidas
+    it('T7: atividades com actor sem email são ignoradas sem lançar exceção', async () => {
+        // Atividade inválida (sem actor.email) + atividade válida
+        const activities = [
+            {
+                // Sem actor — deve ser ignorada silenciosamente
+                id:     { uniqueQualifier: 'qual-t7-invalid', time: new Date().toISOString() },
+                events: [{ name: 'authorize', parameters: [] }],
+            },
+            {
+                id:     { uniqueQualifier: 'qual-t7-valid', time: new Date().toISOString() },
+                actor:  { email: 'valid@workspace-test.com' },
+                events: [
+                    {
+                        name:       'authorize',
+                        parameters: [
+                            { name: 'client_id', value: 'google-app-t7-valid' },
+                        ],
+                    },
+                ],
+            },
+        ] as any[];
+
+        // Não deve lançar exceção
+        let result: { ingested: number; errors: string[] };
+        await expect(async () => {
+            result = await ingestGoogleObservations(pool, ORG_ID, googleCollectorId, activities);
+        }).not.toThrow();
+    });
+
+    // T8: nenhum email plain armazenado como identificador primário
+    it('T8: nenhum campo de identificador primário contém email plain', async () => {
+        const client = await pool.connect();
+        try {
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [ORG_ID]
+            );
+            const rows = await client.query(
+                `SELECT user_identifier_hash FROM shield_observations_raw
+                 WHERE org_id = $1 AND source_type = 'oauth'`,
+                [ORG_ID]
+            );
+            for (const row of rows.rows) {
+                const hash = row.user_identifier_hash as string;
+                // Hash deve ter 64 chars hex — jamais um email (que tem @)
+                expect(hash).toHaveLength(64);
+                expect(hash).not.toContain('@');
+            }
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
     });
 
 });

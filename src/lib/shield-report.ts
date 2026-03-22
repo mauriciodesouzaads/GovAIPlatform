@@ -11,6 +11,7 @@
 
 import { Pool } from 'pg';
 import { calculateOrgRiskPosture } from './shield-risk-engine';
+import { generateExecutivePosture } from './shield';
 
 export interface ExecutiveReportData {
     org: { id: string; name: string };
@@ -93,7 +94,10 @@ export async function generateExecutiveReport(
         if (recommendations.length === 0)
             recommendations.push('Nenhuma ação crítica pendente. Manter monitoramento.');
 
-        // Persistir relatório para auditoria
+        // Gerar posture snapshot
+        await generateExecutivePosture(pgPool, orgId, generatedBy).catch(() => {});
+
+        // Persistir relatório legado para auditoria
         await client.query(
             `INSERT INTO shield_executive_reports
              (org_id, period_start, period_end, summary_json, generated_by)

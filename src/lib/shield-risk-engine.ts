@@ -33,6 +33,9 @@ export interface RiskScore {
     dimensions: RiskDimensions;
     recommendation: string;
     promotionCandidate: boolean;
+    recommendedAction: string;
+    category: string;          // 'ai_assistant' | 'ide_plugin' | 'saas_embedded' | 'unknown'
+    scoreVersion: string;      // para auditabilidade — versão do algoritmo
 }
 
 /**
@@ -123,12 +126,27 @@ export function calculateRiskScore(params: {
         total >= 30 ? 'Monitorar e avaliar necessidade de catalogação.'                    :
                       'Manter monitoramento. Risco informacional.';
 
+    const recommendedAction =
+        total >= 70 ? 'restrict_and_catalog' :
+        total >= 50 ? 'catalog_and_review'   :
+        total >= 30 ? 'monitor'              : 'observe';
+
+    // Inferência de categoria baseada em sinais
+    const category = signalSources.includes('oauth')
+        ? 'ai_assistant'
+        : scopes.some(s => s.includes('drive') || s.includes('files'))
+            ? 'saas_embedded'
+            : 'unknown';
+
     return {
         total,
         severity,
         dimensions: { baseRisk, exposure, businessContext, persistence, confidence },
         recommendation,
         promotionCandidate: total >= 50 && !isSanctioned,
+        recommendedAction,
+        category,
+        scoreVersion: '1.1',
     };
 }
 
