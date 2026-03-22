@@ -43,10 +43,10 @@ docker logs govaigrcplatform-api-1 --tail=50 -f
 # Validar todas as migrations em banco limpo (pré-deploy)
 ./scripts/test-migrations-clean.sh
 
-# Suíte padrão (554 testes, 50 arquivos, sem banco)
+# Suíte padrão (542 testes, 49 arquivos, sem banco)
 npx vitest run
 
-# Suíte completa com banco (554 padrão + 39 garantias DB real)
+# Suíte completa com banco (542 padrão + 51 garantias DB real)
 DATABASE_URL=postgresql://postgres:GovAI2026@Admin@localhost:5432/govai_platform npx vitest run
 
 # Health check da API

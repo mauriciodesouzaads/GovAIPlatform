@@ -4,11 +4,11 @@
 
 | Métrica | Valor |
 |---------|-------|
-| **Suíte padrão (sem DATABASE_URL)** | 554 testes · 50 arquivos |
+| **Suíte padrão (sem DATABASE_URL)** | 542 testes · 50 arquivos |
 | **Suíte de integração (DATABASE_URL)** | +36 garantias com banco real |
-| **Total com banco** | 590+ (554 + 36 garantias confirmadas) |
+| **Total com banco** | 593+ (542 + 36 garantias confirmadas) |
 | **Total de arquivos** | 57 (50 padrão + 7 integração) |
-| **Status** | ✅ Suíte padrão: 554 passando |
+| **Status** | ✅ Suíte padrão: 542 passando |
 | **Última execução** | 2026-03-22 |
 | **Comando (suíte padrão)** | `npx vitest run` |
 | **Comando (suíte completa)** | `DATABASE_URL=postgresql://... npx vitest run` |
@@ -26,10 +26,10 @@
 | Sprint E-FIX | rewrite | 19 mock → 19 DB real (movidos para integrationTestPatterns) |
 | Sprint Pre-F | +1 | T6b: is_active=false excluído da query de auth |
 | Sprint F | +10 DB real | Shield Core (normalização, rollups, findings, promote, RLS, endpoint) |
-| Sprint F2a | +3 padrão | Risk engine (scoreVersion, recommendedAction, category) |
-| **Sprint Shield Complete** | **+3 padrão / +13 integração** | Finding workflow, Google collector, posture snapshot, rotas novas |
-| **Suíte padrão** | **554** | |
-| **Com banco (+garantias)** | **590+** | |
+| Sprint F2a | +12 DB real | Risk engine (scoreVersion, recommendedAction, category) — movido para integrationTestPatterns em CI fix #86 |
+| **Sprint Shield Complete** | **+43 integração** | Finding workflow, Google collector, posture snapshot, rotas novas |
+| **Suíte padrão** | **542** | |
+| **Com banco (+garantias)** | **593+** | |
 
 ## Separação por tipo de execução
 
@@ -42,18 +42,19 @@
 | DB + API real | `consultant.plane.test.ts` | **Sim** | 8 |
 | DB + API real | `shield.core.test.ts` | **Sim** | 23 (T1–T13, T20–T23) |
 | DB + API real | `shield.collector.test.ts` | **Sim** | 8 (T1–T8 incl. Google) |
+| DB real | `shield.risk-engine.test.ts` | **Sim** | 12 (T1–T11, requer DATABASE_URL) |
 | DB real | `governance.flow.test.ts` | **Sim** | — |
 | DB real | `governance.integration.test.ts` | **Sim** | — |
 | DB real | `security.tenant-isolation.test.ts` | **Sim** | — |
-| Unitário (incl. risk-engine) | demais 47 arquivos | Não | 527 |
-| **Suíte padrão total** | **50 arquivos** | | **554** |
+| Unitário | demais 46 arquivos | Não | 542 |
+| **Suíte padrão total** | **49 arquivos** | | **542** |
 
 > Nota: `governance.flow`, `governance.integration` e `security.tenant-isolation` não têm
 > contagem de testes exibida pois requerem infraestrutura completa (DB + Redis) para execução.
 
 ## Arquivos de teste (57 arquivos)
 
-### Suíte padrão (50 arquivos — `npx vitest run`)
+### Suíte padrão (49 arquivos — `npx vitest run`)
 
 ```
 src/__tests__/
@@ -105,17 +106,17 @@ src/__tests__/
 ├── security.rbac.test.ts
 ├── security.rls.test.ts
 ├── security.sso.test.ts
-├── session.model.test.ts
-└── shield.risk-engine.test.ts          ← Sprint F2a + Shield Complete (T1–T11)
+└── session.model.test.ts
 ```
 
-### Integração com banco (7 arquivos — requerem DATABASE_URL)
+### Integração com banco (8 arquivos — requerem DATABASE_URL)
 
 ```
 src/__tests__/
 ├── compliance.guarantees.test.ts       ← Sprint E-FIX + Pre-F (11 testes)
 ├── shield.core.test.ts                 ← Sprint Shield Complete (23 testes T1–T13, T20–T23)
 ├── shield.collector.test.ts            ← Sprint Shield Complete (8 testes T1–T8)
+├── shield.risk-engine.test.ts          ← Sprint F2a / CI fix #86 (12 testes T1–T11)
 ├── consultant.plane.test.ts            ← Sprint E-FIX (8 testes)
 ├── governance.flow.test.ts             ← integração completa
 ├── governance.integration.test.ts      ← integração completa
@@ -141,10 +142,10 @@ src/__tests__/
 ## Comando completo
 
 ```bash
-# Suíte padrão (sem banco — 554 testes, 50 arquivos)
+# Suíte padrão (sem banco — 542 testes, 49 arquivos)
 npx vitest run
 
-# Suíte completa com banco (590+ testes)
+# Suíte completa com banco (593+ testes)
 DATABASE_URL=postgresql://postgres:GovAI2026@Admin@localhost:5432/govai_platform npx vitest run
 
 # Com coverage
