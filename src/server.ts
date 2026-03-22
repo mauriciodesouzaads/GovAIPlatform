@@ -472,9 +472,12 @@ fastify.get('/health', async (_request, reply) => {
 fastify.register(oidcRoutes, { pgPool }); // GA-005/GA-006: unified OIDC with JIT provisioning + Bearer-only session
 
 import { adminRoutes } from './routes/admin.routes';
+import { consultantRoutes } from './routes/consultant.routes';
 
 fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, requireRole: requireTenantRole, requirePlatformAdmin });
 // assistantsRoutes, approvalsRoutes, reportsRoutes registered internally by adminRoutes
+
+fastify.register(consultantRoutes, { pgPool, requireTenantRole });
 
 // ---------------------------------------------------------------------------
 // Global error handler — captures unhandled 500s to Sentry
