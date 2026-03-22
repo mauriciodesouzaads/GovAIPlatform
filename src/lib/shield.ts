@@ -23,6 +23,7 @@
 import { Pool, PoolClient } from 'pg';
 import { createHash } from 'crypto';
 import { recordEvidence, linkEvidence } from './evidence';
+import { calculateRiskScore, updateFindingRiskScore } from './shield-risk-engine';
 
 type DbClient = Pool | PoolClient;
 
@@ -285,49 +286,66 @@ export async function generateShieldFindings(
             [orgId]
         );
 
-        // Rollups dos últimos 30 dias
+        // Rollups dos últimos 30 dias — inclui dados de risco da ferramenta
         const rollups = await client.query(
             `SELECT r.tool_name_normalized,
-                    SUM(r.observation_count)::int AS total_obs,
-                    MAX(r.unique_users)::int       AS max_users,
-                    MAX(r.last_seen_at)            AS last_seen,
-                    MIN(r.period_start)            AS first_seen,
-                    t.approval_status
+                    SUM(r.observation_count)::int  AS total_obs,
+                    MAX(r.unique_users)::int        AS max_users,
+                    MAX(r.last_seen_at)             AS last_seen,
+                    MIN(r.period_start)             AS first_seen,
+                    t.id                            AS tool_id,
+                    t.tool_name,
+                    t.approval_status,
+                    t.data_exposure_risk,
+                    t.vendor_risk,
+                    t.risk_level
              FROM shield_rollups r
              LEFT JOIN shield_tools t
                ON t.org_id = r.org_id AND t.tool_name_normalized = r.tool_name_normalized
              WHERE r.org_id = $1
                AND r.period_start > NOW() - INTERVAL '30 days'
-             GROUP BY r.tool_name_normalized, t.approval_status`,
+             GROUP BY r.tool_name_normalized, t.id, t.tool_name,
+                      t.approval_status, t.data_exposure_risk, t.vendor_risk, t.risk_level`,
             [orgId]
         );
 
         for (const row of rollups.rows) {
-            const normalized   = row.tool_name_normalized as string;
-            const totalObs     = row.total_obs as number;
-            const maxUsers     = row.max_users as number;
-            const lastSeen     = row.last_seen;
-            const firstSeen    = row.first_seen;
+            const normalized     = row.tool_name_normalized as string;
+            const totalObs       = row.total_obs as number;
+            const maxUsers       = row.max_users as number;
+            const lastSeen       = row.last_seen;
+            const firstSeen      = row.first_seen;
             const approvalStatus = (row.approval_status as string | null) ?? 'unknown';
 
             // Ferramentas aprovadas não geram findings abertos
             if (approvalStatus === 'approved') continue;
+            // Volume mínimo para gerar finding
+            if (totalObs < 5) continue;
 
-            // Calcular severidade
-            let severity = 'medium';
-            if (totalObs >= 20) severity = 'high';
-            else if (totalObs < 5) continue; // volume insuficiente
+            // isSanctioned vem do approval_status real do banco — NÃO hardcoded
+            const isSanctioned  = approvalStatus === 'approved';
+            const toolId        = (row.tool_id as string | null) ?? null;
+            const toolName      = (row.tool_name as string | null) ?? normalized;
+            const dataExposureRisk = (row.data_exposure_risk as number | null) ?? 5;
+            const riskLevelStr  = (row.risk_level as string | null) ?? 'unknown';
 
-            const rationale = `Ferramenta '${normalized}' detectada com ${totalObs} observações (${maxUsers} usuários únicos) nos últimos 30 dias. Status de aprovação: ${approvalStatus}.`;
+            // Score provisório para gerar rationale e severity iniciais
+            const toolBaseRisk =
+                riskLevelStr === 'critical' ? 18 :
+                riskLevelStr === 'high'     ? 14 :
+                riskLevelStr === 'medium'   ? 8  : 4;
 
-            // Buscar ferramenta real no dicionário
-            const toolRow = await client.query(
-                `SELECT id, tool_name FROM shield_tools
-                 WHERE org_id = $1 AND tool_name_normalized = $2 LIMIT 1`,
-                [orgId, normalized]
-            );
-            const toolId   = toolRow.rows[0]?.id ?? null;
-            const toolName = toolRow.rows[0]?.tool_name ?? normalized;
+            const score = calculateRiskScore({
+                toolBaseRisk,
+                dataExposureRisk,
+                observationCount: totalObs,
+                uniqueUsers:      maxUsers,
+                isSanctioned,
+                isKnownTool:      !!toolId,
+                signalSources:    ['network'],
+            });
+
+            const rationale = `Ferramenta '${normalized}' detectada com ${totalObs} observações (${maxUsers} usuários únicos) nos últimos 30 dias. Risk score: ${score.total}. Status: ${approvalStatus}.`;
 
             // Verificar finding existente (open ou acknowledged)
             const existing = await client.query(
@@ -339,8 +357,10 @@ export async function generateShieldFindings(
                 [orgId, normalized]
             );
 
+            let findingId: string;
+
             if (existing.rows.length > 0) {
-                // Atualizar finding existente
+                findingId = existing.rows[0].id as string;
                 await client.query(
                     `UPDATE shield_findings
                      SET observation_count = $1,
@@ -350,21 +370,40 @@ export async function generateShieldFindings(
                          rationale         = $5,
                          tool_id           = COALESCE(tool_id, $6)
                      WHERE id = $7`,
-                    [totalObs, maxUsers, lastSeen, severity, rationale, toolId, existing.rows[0].id]
+                    [totalObs, maxUsers, lastSeen, score.severity, rationale, toolId, findingId]
                 );
                 updated++;
             } else {
-                // Criar novo finding
-                await client.query(
+                const ins = await client.query(
                     `INSERT INTO shield_findings
                      (org_id, tool_name, tool_name_normalized, tool_id, severity,
                       rationale, first_seen_at, last_seen_at, observation_count, unique_users)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-                    [orgId, toolName, normalized, toolId, severity,
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                     RETURNING id`,
+                    [orgId, toolName, normalized, toolId, score.severity,
                      rationale, firstSeen, lastSeen, totalObs, maxUsers]
                 );
+                findingId = ins.rows[0].id as string;
                 generated++;
             }
+
+            // Aplicar risk score detalhado (5 dimensões) no finding
+            await client.query(
+                `UPDATE shield_findings
+                 SET risk_score          = $1,
+                     risk_dimensions     = $2,
+                     recommendation      = $3,
+                     promotion_candidate = $4,
+                     updated_at          = NOW()
+                 WHERE id = $5`,
+                [
+                    score.total,
+                    JSON.stringify(score.dimensions),
+                    score.recommendation,
+                    score.promotionCandidate,
+                    findingId,
+                ]
+            );
         }
 
         await client.query('COMMIT');

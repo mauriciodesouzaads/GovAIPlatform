@@ -72,6 +72,7 @@ MIGRATIONS=(
     "045_catalog_registry.sql"
     "046_consultant_plane.sql"
     "047_shield_core.sql"
+    "048_shield_f2a.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

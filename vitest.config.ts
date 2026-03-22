@@ -29,6 +29,8 @@ const integrationTestPatterns = [
     'src/__tests__/consultant.plane.test.ts',
     // Sprint F: Shield Core com banco real
     'src/__tests__/shield.core.test.ts',
+    // Sprint F2a: Collector + Executive Report com banco real
+    'src/__tests__/shield.collector.test.ts',
 ];
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
