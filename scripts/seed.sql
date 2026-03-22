@@ -42,13 +42,18 @@ INSERT INTO users (
     password_hash = EXCLUDED.password_hash,
     requires_password_change = EXCLUDED.requires_password_change;
 
--- 3. Published demo assistant
-INSERT INTO assistants (id, org_id, name, status)
+-- 3. Published demo assistant (lifecycle_state = 'official' for published assistants)
+INSERT INTO assistants (id, org_id, name, status, lifecycle_state, description, risk_level)
 VALUES (
     '00000000-0000-0000-0000-000000000002',
     '00000000-0000-0000-0000-000000000001',
     'Assistente GovAI Demo',
-    'published'
-) ON CONFLICT (id) DO NOTHING;
+    'published',
+    'official',
+    'Assistente de demonstração da plataforma GovAI com governança completa.',
+    'low'
+) ON CONFLICT (id) DO UPDATE SET
+    lifecycle_state = 'official',
+    status = 'published';
 
 COMMIT;

@@ -116,6 +116,10 @@ function createSuccessClient() {
             if (sql.includes('FROM assistant_versions') && sql.includes('already_published')) {
                 return { rows: [{ id: VER_ID, status: 'draft', already_published: false }], rowCount: 1 };
             }
+            // D3 Guardrail: lifecycle_state check before publish
+            if (sql.includes('lifecycle_state') && sql.includes('FROM assistants')) {
+                return { rows: [{ lifecycle_state: 'approved' }], rowCount: 1 };
+            }
             // fallback for old format
             if (sql.includes('SELECT id, status FROM assistant_versions')) {
                 return { rows: [{ id: VER_ID, status: 'draft', already_published: false }], rowCount: 1 };

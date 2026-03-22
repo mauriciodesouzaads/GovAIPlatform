@@ -314,11 +314,24 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                 });
             }
 
+            // D3 Guardrail: publicação exige lifecycle_state = 'approved'
+            const lifecycleRes = await client.query(
+                `SELECT lifecycle_state FROM assistants WHERE id = $1 AND org_id = $2`,
+                [assistantId, orgId]
+            );
+            if (lifecycleRes.rows[0]?.lifecycle_state !== 'approved') {
+                return reply.status(400).send({
+                    error: 'Publicação só é permitida para assistentes com lifecycle_state = approved. '
+                         + 'Use o fluxo de revisão de catálogo antes de publicar.',
+                    currentLifecycleState: lifecycleRes.rows[0]?.lifecycle_state ?? null,
+                });
+            }
+
             await client.query('BEGIN');
 
-            // Update main assistant pointer (assistants table only — never assistant_versions)
+            // Update main assistant pointer + promote to official
             await client.query(
-                `UPDATE assistants SET current_version_id = $1, status = 'published' WHERE id = $2 AND org_id = $3`,
+                `UPDATE assistants SET current_version_id = $1, status = 'published', lifecycle_state = 'official' WHERE id = $2 AND org_id = $3`,
                 [versionId, assistantId, orgId]
             );
 
@@ -408,6 +421,376 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         } catch (error: any) {
             app.log.error(error, "Error ingesting document");
             reply.status(500).send({ error: "Erro ao ingerir documento", details: error.message });
+        }
+    });
+
+    // --- CATALOG REGISTRY ---
+
+    // D2a — GET /v1/admin/catalog — full catalog listing with lifecycle metadata
+    app.get('/v1/admin/catalog', { preHandler: requireTenantRole(['admin', 'operator', 'auditor', 'dpo']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { lifecycle_state, risk_level, owner_id, search } = request.query as {
+            lifecycle_state?: string; risk_level?: string; owner_id?: string; search?: string;
+        };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            const conditions: string[] = ['a.org_id = $1'];
+            const params: unknown[] = [orgId];
+
+            if (lifecycle_state) { params.push(lifecycle_state); conditions.push(`a.lifecycle_state = $${params.length}`); }
+            if (risk_level) { params.push(risk_level); conditions.push(`a.risk_level = $${params.length}`); }
+            if (owner_id) { params.push(owner_id); conditions.push(`a.owner_id = $${params.length}`); }
+            if (search) {
+                params.push(`%${search}%`);
+                conditions.push(`(a.name ILIKE $${params.length} OR a.description ILIKE $${params.length} OR $${params.length - 1} ILIKE ANY(a.capability_tags))`);
+            }
+
+            const res = await client.query(
+                `SELECT
+                    a.id, a.name, a.description, a.lifecycle_state, a.risk_level,
+                    a.risk_justification, a.capability_tags, a.owner_email,
+                    a.reviewed_at, a.suspended_at, a.archived_at, a.created_at, a.updated_at,
+                    COUNT(DISTINCT av.id)::int AS version_count,
+                    MAX(av.created_at) AS last_version_at
+                 FROM assistants a
+                 LEFT JOIN assistant_versions av ON av.assistant_id = a.id
+                 WHERE ${conditions.join(' AND ')}
+                 GROUP BY a.id
+                 ORDER BY a.created_at DESC
+                 LIMIT 50`,
+                params
+            );
+            return reply.send({ total: res.rowCount, assistants: res.rows });
+        } catch (error) {
+            app.log.error(error, 'Error fetching catalog');
+            return reply.status(500).send({ error: 'Erro ao buscar catálogo de assistentes.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // D2b — PUT /v1/admin/assistants/:id/metadata — update catalog metadata (not lifecycle)
+    app.put('/v1/admin/assistants/:id/metadata', { preHandler: requireTenantRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { id } = request.params as { id: string };
+        const { description, riskLevel, riskJustification, capabilityTags, ownerEmail } =
+            request.body as { description?: string; riskLevel?: string; riskJustification?: string; capabilityTags?: string[]; ownerEmail?: string };
+
+        const VALID_RISK = ['low', 'medium', 'high', 'critical'];
+        if (riskLevel && !VALID_RISK.includes(riskLevel)) {
+            return reply.status(400).send({ error: `riskLevel deve ser um de: ${VALID_RISK.join(', ')}.` });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            const sets: string[] = [];
+            const params: unknown[] = [id, orgId];
+            if (description !== undefined) { params.push(description); sets.push(`description = $${params.length}`); }
+            if (riskLevel !== undefined) { params.push(riskLevel); sets.push(`risk_level = $${params.length}`); }
+            if (riskJustification !== undefined) { params.push(riskJustification); sets.push(`risk_justification = $${params.length}`); }
+            if (capabilityTags !== undefined) { params.push(capabilityTags); sets.push(`capability_tags = $${params.length}`); }
+            if (ownerEmail !== undefined) { params.push(ownerEmail); sets.push(`owner_email = $${params.length}`); }
+
+            if (sets.length === 0) return reply.status(400).send({ error: 'Nenhum campo fornecido para atualização.' });
+
+            sets.push(`updated_at = now()`);
+            const res = await client.query(
+                `UPDATE assistants SET ${sets.join(', ')} WHERE id = $1 AND org_id = $2 RETURNING id, name, lifecycle_state, risk_level, capability_tags, owner_email, description, updated_at`,
+                params
+            );
+            if (res.rows.length === 0) return reply.status(404).send({ error: 'Assistente não encontrado.' });
+            return reply.send(res.rows[0]);
+        } catch (error) {
+            app.log.error(error, 'Error updating assistant metadata');
+            return reply.status(500).send({ error: 'Erro ao atualizar metadados.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // D2c — POST /v1/admin/assistants/:id/submit-for-review — draft → under_review
+    app.post('/v1/admin/assistants/:id/submit-for-review', { preHandler: requireTenantRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const authUser = request.user as { userId?: string; email?: string };
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { id } = request.params as { id: string };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            const res = await client.query(
+                `UPDATE assistants
+                 SET lifecycle_state = 'under_review', updated_at = now()
+                 WHERE id = $1 AND org_id = $2 AND lifecycle_state = 'draft'
+                 RETURNING id, name, lifecycle_state`,
+                [id, orgId]
+            );
+            if (res.rows.length === 0) {
+                return reply.status(409).send({ error: 'Assistente não encontrado ou não está em estado draft.' });
+            }
+
+            await recordEvidence(client, {
+                orgId, category: 'publication', eventType: 'REVIEW_SUBMITTED',
+                actorId: authUser.userId ?? null, actorEmail: authUser.email ?? null,
+                resourceType: 'assistant', resourceId: id,
+                metadata: { previousState: 'draft', newState: 'under_review' },
+            });
+
+            return reply.send({ success: true, assistant: res.rows[0] });
+        } catch (error) {
+            app.log.error(error, 'Error submitting for review');
+            return reply.status(500).send({ error: 'Erro ao submeter para revisão.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // D2d — POST /v1/admin/assistants/:id/catalog-review — reviewer registers decision
+    app.post('/v1/admin/assistants/:id/catalog-review', { preHandler: requireTenantRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const authUser = request.user as { userId?: string; email?: string };
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { id } = request.params as { id: string };
+        const { decision, comments } = request.body as { decision: string; comments?: string };
+
+        const VALID_DECISIONS = ['approved', 'rejected', 'needs_changes'];
+        if (!decision || !VALID_DECISIONS.includes(decision)) {
+            return reply.status(400).send({ error: `decision deve ser um de: ${VALID_DECISIONS.join(', ')}.` });
+        }
+
+        const newState = decision === 'approved' ? 'approved' : 'draft';
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            await client.query('BEGIN');
+
+            const res = await client.query(
+                `UPDATE assistants
+                 SET lifecycle_state = $1, reviewed_by = $2, reviewed_at = now(), updated_at = now()
+                 WHERE id = $3 AND org_id = $4 AND lifecycle_state = 'under_review'
+                 RETURNING id, name, lifecycle_state`,
+                [newState, authUser.userId ?? null, id, orgId]
+            );
+            if (res.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return reply.status(409).send({ error: 'Assistente não encontrado ou não está em under_review.' });
+            }
+
+            await client.query(
+                `INSERT INTO catalog_reviews
+                 (org_id, assistant_id, reviewer_id, reviewer_email, previous_state, new_state, decision, comments)
+                 VALUES ($1, $2, $3, $4, 'under_review', $5, $6, $7)`,
+                [orgId, id, authUser.userId ?? null, authUser.email ?? null, newState, decision, comments ?? null]
+            );
+
+            await client.query('COMMIT');
+
+            await recordEvidence(client, {
+                orgId, category: 'publication', eventType: 'CATALOG_REVIEWED',
+                actorId: authUser.userId ?? null, actorEmail: authUser.email ?? null,
+                resourceType: 'assistant', resourceId: id,
+                metadata: { decision, newState, comments: comments ?? null },
+            });
+
+            return reply.send({ success: true, decision, newLifecycleState: newState, assistant: res.rows[0] });
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            app.log.error(error, 'Error processing catalog review');
+            return reply.status(500).send({ error: 'Erro ao processar revisão de catálogo.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // D2e — POST /v1/admin/assistants/:id/suspend — approved|official → suspended
+    app.post('/v1/admin/assistants/:id/suspend', { preHandler: requireTenantRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const authUser = request.user as { userId?: string; email?: string };
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { id } = request.params as { id: string };
+        const { reason } = request.body as { reason: string };
+        if (!reason || reason.trim().length < 5) {
+            return reply.status(400).send({ error: "Campo 'reason' obrigatório (mínimo 5 caracteres)." });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            const res = await client.query(
+                `UPDATE assistants
+                 SET lifecycle_state = 'suspended', suspended_at = now(),
+                     suspend_reason = $1, updated_at = now()
+                 WHERE id = $2 AND org_id = $3
+                   AND lifecycle_state IN ('approved', 'official')
+                 RETURNING id, name, lifecycle_state, suspended_at`,
+                [reason.trim(), id, orgId]
+            );
+            if (res.rows.length === 0) {
+                return reply.status(409).send({ error: 'Assistente não encontrado ou não está em estado approved/official.' });
+            }
+
+            await recordEvidence(client, {
+                orgId, category: 'publication', eventType: 'CAPABILITY_SUSPENDED',
+                actorId: authUser.userId ?? null, actorEmail: authUser.email ?? null,
+                resourceType: 'assistant', resourceId: id,
+                metadata: { reason: reason.trim() },
+            });
+
+            return reply.send({ success: true, assistant: res.rows[0] });
+        } catch (error) {
+            app.log.error(error, 'Error suspending assistant');
+            return reply.status(500).send({ error: 'Erro ao suspender assistente.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // D2f — POST /v1/admin/assistants/:id/archive — suspended|draft → archived
+    app.post('/v1/admin/assistants/:id/archive', { preHandler: requireTenantRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const authUser = request.user as { userId?: string; email?: string };
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { id } = request.params as { id: string };
+        const { reason } = request.body as { reason: string };
+        if (!reason || reason.trim().length < 5) {
+            return reply.status(400).send({ error: "Campo 'reason' obrigatório (mínimo 5 caracteres)." });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            const res = await client.query(
+                `UPDATE assistants
+                 SET lifecycle_state = 'archived', archived_at = now(),
+                     archive_reason = $1, updated_at = now()
+                 WHERE id = $2 AND org_id = $3
+                   AND lifecycle_state IN ('suspended', 'draft')
+                 RETURNING id, name, lifecycle_state, archived_at`,
+                [reason.trim(), id, orgId]
+            );
+            if (res.rows.length === 0) {
+                return reply.status(409).send({ error: 'Assistente não encontrado ou não está em estado suspended/draft.' });
+            }
+
+            await recordEvidence(client, {
+                orgId, category: 'publication', eventType: 'CAPABILITY_ARCHIVED',
+                actorId: authUser.userId ?? null, actorEmail: authUser.email ?? null,
+                resourceType: 'assistant', resourceId: id,
+                metadata: { reason: reason.trim() },
+            });
+
+            return reply.send({ success: true, assistant: res.rows[0] });
+        } catch (error) {
+            app.log.error(error, 'Error archiving assistant');
+            return reply.status(500).send({ error: 'Erro ao arquivar assistente.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // D2g — Runtime bindings CRUD
+
+    // GET /v1/admin/assistants/:id/runtime-bindings
+    app.get('/v1/admin/assistants/:id/runtime-bindings', { preHandler: requireTenantRole(['admin', 'operator']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { id } = request.params as { id: string };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `SELECT id, runtime_type, runtime_config, is_active, created_at
+                 FROM capability_runtime_bindings
+                 WHERE assistant_id = $1 AND org_id = $2
+                 ORDER BY created_at DESC`,
+                [id, orgId]
+            );
+            return reply.send({ total: res.rowCount, bindings: res.rows });
+        } catch (error) {
+            app.log.error(error, 'Error fetching runtime bindings');
+            return reply.status(500).send({ error: 'Erro ao buscar runtime bindings.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // POST /v1/admin/assistants/:id/runtime-bindings
+    app.post('/v1/admin/assistants/:id/runtime-bindings', { preHandler: requireTenantRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const authUser = request.user as { userId?: string };
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { id } = request.params as { id: string };
+        const { runtimeType, runtimeConfig } = request.body as { runtimeType: string; runtimeConfig?: Record<string, unknown> };
+
+        if (!runtimeType || runtimeType.trim().length === 0) {
+            return reply.status(400).send({ error: "Campo 'runtimeType' obrigatório." });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `INSERT INTO capability_runtime_bindings
+                 (org_id, assistant_id, runtime_type, runtime_config, created_by)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (assistant_id, runtime_type)
+                 DO UPDATE SET runtime_config = EXCLUDED.runtime_config, is_active = true
+                 RETURNING id, runtime_type, runtime_config, is_active, created_at`,
+                [orgId, id, runtimeType.trim(), JSON.stringify(runtimeConfig ?? {}), authUser.userId ?? null]
+            );
+            return reply.status(201).send(res.rows[0]);
+        } catch (error) {
+            app.log.error(error, 'Error creating runtime binding');
+            return reply.status(500).send({ error: 'Erro ao criar runtime binding.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // DELETE /v1/admin/assistants/:id/runtime-bindings/:bindingId
+    app.delete('/v1/admin/assistants/:id/runtime-bindings/:bindingId', { preHandler: requireTenantRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { id, bindingId } = request.params as { id: string; bindingId: string };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `UPDATE capability_runtime_bindings
+                 SET is_active = false
+                 WHERE id = $1 AND assistant_id = $2 AND org_id = $3
+                 RETURNING id, runtime_type, is_active`,
+                [bindingId, id, orgId]
+            );
+            if (res.rows.length === 0) return reply.status(404).send({ error: 'Runtime binding não encontrado.' });
+            return reply.send({ success: true, binding: res.rows[0] });
+        } catch (error) {
+            app.log.error(error, 'Error deactivating runtime binding');
+            return reply.status(500).send({ error: 'Erro ao desativar runtime binding.' });
+        } finally {
+            client.release();
         }
     });
 
