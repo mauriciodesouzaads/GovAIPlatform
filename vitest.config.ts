@@ -15,13 +15,18 @@ import { defineConfig } from 'vitest/config';
  *   DATABASE_URL=postgresql://... npx vitest run --reporter=verbose \
  *     src/__tests__/governance.flow.test.ts \
  *     src/__tests__/governance.integration.test.ts \
- *     src/__tests__/security.tenant-isolation.test.ts
+ *     src/__tests__/security.tenant-isolation.test.ts \
+ *     src/__tests__/compliance.guarantees.test.ts \
+ *     src/__tests__/consultant.plane.test.ts
  */
 
 const integrationTestPatterns = [
     'src/__tests__/governance.flow.test.ts',
     'src/__tests__/governance.integration.test.ts',
     'src/__tests__/security.tenant-isolation.test.ts',
+    // Sprint E-FIX: testes de garantia com banco real (requerem DATABASE_URL)
+    'src/__tests__/compliance.guarantees.test.ts',
+    'src/__tests__/consultant.plane.test.ts',
 ];
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);

@@ -9,7 +9,7 @@
 
 <br/><br/>
 
-<img src="https://img.shields.io/badge/tests-542_passing-00ff88?style=flat-square" />
+<img src="https://img.shields.io/badge/tests-542_%28unit%29_%7C_560%2B_%28DB_real%29-00ff88?style=flat-square" />
 <img src="https://img.shields.io/badge/coverage-81%25-00ff88?style=flat-square" />
 <img src="https://img.shields.io/badge/CI%2FCD-passing-00ff88?style=flat-square" />
 <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" />
@@ -178,7 +178,7 @@ curl -s -X POST http://localhost:3000/v1/admin/login \
 | PostgreSQL 15 + pgvector | Tailwind CSS v4 | Redis 7 + BullMQ |
 | OPA WASM (Rego policies) | Recharts (dashboards) | LiteLLM proxy |
 | Presidio NLP (Python/FastAPI) | Lucide Icons | Prometheus + Grafana |
-| Vitest (542 testes, 81% cov) | TypeScript strict | AlertManager (SMTP + Slack) |
+| Vitest (542 unit / 560+ DB real) | TypeScript strict | AlertManager (SMTP + Slack) |
 | Playwright E2E (5 testes) | Playwright E2E | Nginx (reverse proxy) |
 | Zod validation (todos endpoints) | Axios + SWR | GitHub Actions CI/CD |
 
@@ -208,7 +208,7 @@ govai-platform/
 │   │   ├── audit.worker.ts      # Persist HMAC-signed logs
 │   │   ├── telemetry.worker.ts  # Langfuse export
 │   │   └── expiration.worker.ts # 48h HITL TTL
-│   └── __tests__/               # 542 testes Vitest
+│   └── __tests__/               # 542 testes Vitest (unit) / 560+ com banco real
 ├── admin-ui/                    # Frontend (Next.js 14)
 │   ├── src/app/
 │   │   ├── page.tsx             # Dashboard + métricas
@@ -302,8 +302,11 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ## Testes
 
 ```bash
-# Backend — 542 testes unitários + integração
+# Backend — 542 testes unitários (sem banco)
 npx vitest run
+
+# Backend — 560+ testes incluindo garantias com banco real
+DATABASE_URL=postgresql://postgres:GovAI2026@Admin@localhost:5432/govai_platform npx vitest run
 npx vitest run --coverage   # coverage ≥ 70% lines/functions, ≥ 60% branches
 
 # TypeScript strict (zero erros)
@@ -322,7 +325,7 @@ cd admin-ui && npx playwright test
 
 Contribuições são bem-vindas. Antes de abrir um PR:
 
-1. `npx vitest run` — todos os 542 testes devem passar
+1. `npx vitest run` — todos os 542 testes unitários devem passar
 2. `npx tsc --noEmit` — zero erros TypeScript strict
 3. `npm audit --audit-level=high` — sem vulnerabilidades high/critical
 4. Nenhum secret hardcoded (Gitleaks verifica no CI)

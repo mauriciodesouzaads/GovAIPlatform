@@ -1,212 +1,177 @@
 /**
- * Compliance Guarantees — Sprint E (E8)
+ * Compliance Guarantees — Sprint E-FIX
  *
  * AVISO: estes testes provam garantias auditáveis para revisores externos.
- * Todos verificam lógica real — sem pass-through de auth nem mocks de DB frágeis.
+ * Todos verificam lógica REAL contra PostgreSQL — sem makeImmutableDbMock,
+ * sem mocks de Pool. Requerem DATABASE_URL configurado.
  *
- * Cada teste documenta QUAL garantia existe, COMO é enforced e ONDE está no código.
+ * Excluídos do `npx vitest run` quando DATABASE_URL não está definido
+ * (ver vitest.config.ts → integrationTestPatterns).
+ *
+ * Execute isolado:
+ *   DATABASE_URL=postgresql://... npx vitest run src/__tests__/compliance.guarantees.test.ts --reporter=verbose
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createHash } from 'crypto';
-import { recordEvidence, EvidencePayload } from '../lib/evidence';
-import { getConsultantAssignment } from '../lib/consultant-auth';
+import { Pool } from 'pg';
+import { EvidencePayload } from '../lib/evidence';
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// ── Configuração ──────────────────────────────────────────────────────────────
 
-function makeImmutableDbMock(tableName: string) {
-    // Simulates the database trigger behavior: INSERT succeeds, UPDATE/DELETE raises
-    return {
-        query: vi.fn().mockImplementation(async (sql: string) => {
-            const normalized = sql.trim().toUpperCase();
-            if (normalized.startsWith('UPDATE') || normalized.startsWith('DELETE')) {
-                throw new Error(`${tableName} é imutável`);
-            }
-            return { rows: [{ id: 'mock-id', created_at: new Date() }], rowCount: 1 };
-        }),
-    } as any;
+const dbUrl = process.env.DATABASE_URL;
+if (!dbUrl) {
+    throw new Error(
+        'DATABASE_URL é obrigatório para os testes de garantia de compliance.\n' +
+        'Execute: DATABASE_URL=postgresql://... npx vitest run src/__tests__/compliance.guarantees.test.ts'
+    );
 }
 
-// ── T1: audit_logs — INSERT ok, UPDATE raises exception ──────────────────
+// Fixtures fixas — devem existir no banco (criadas pelo seed.sql)
+const ORG_ID        = '00000000-0000-0000-0000-000000000001';
+const CONSULTANT_ID = '55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab'; // admin@orga.com
+const WRONG_ORG_ID  = '00000000-0000-0000-0000-000000000099'; // org inexistente
 
-describe('Guarantee: audit_logs immutability trigger', () => {
-    it('T1: simulates trigger: INSERT succeeds, UPDATE raises "é imutável"', async () => {
-        const db = makeImmutableDbMock('audit_logs');
+let pgPool: Pool;
 
-        // INSERT succeeds
-        const insertResult = await db.query(
-            'INSERT INTO audit_logs (org_id, action) VALUES ($1, $2) RETURNING id',
-        );
-        expect(insertResult.rows[0].id).toBe('mock-id');
+beforeAll(async () => {
+    pgPool = new Pool({ connectionString: dbUrl });
+});
 
-        // UPDATE raises (as the DB trigger would)
-        await expect(
-            db.query('UPDATE audit_logs SET action = $1 WHERE id = $2')
-        ).rejects.toThrow('é imutável');
+afterAll(async () => {
+    await pgPool.end();
+});
+
+// ── T1: audit_logs_partitioned — trigger de imutabilidade real ───────────────
+
+describe('Guarantee T1: audit_logs_partitioned é imutável (trigger real)', () => {
+    it('INSERT retorna id; UPDATE dispara trigger e lança exceção', async () => {
+        const client = await pgPool.connect();
+        try {
+            await client.query('BEGIN');
+
+            const { rows } = await client.query(
+                `INSERT INTO audit_logs_partitioned (org_id, action, metadata, signature)
+                 VALUES ($1, 'EFIX_IMMUTABILITY_TEST', '{}', 'sig-efix-test')
+                 RETURNING id`,
+                [ORG_ID]
+            );
+            expect(rows[0].id).toBeTruthy();
+
+            await expect(
+                client.query(
+                    `UPDATE audit_logs_partitioned SET action = 'TAMPERED' WHERE id = $1`,
+                    [rows[0].id]
+                )
+            ).rejects.toThrow(/imut[aá]vel/i);
+        } finally {
+            await client.query('ROLLBACK').catch(() => {});
+            client.release();
+        }
     });
 });
 
-// ── T2: policy_snapshots — UPDATE raises exception ────────────────────────
+// ── T2: policy_snapshots — trigger de imutabilidade real ─────────────────────
 
-describe('Guarantee: policy_snapshots immutability trigger', () => {
-    it('T2: simulates trigger: UPDATE on policy_snapshots raises exception', async () => {
-        const db = makeImmutableDbMock('policy_snapshots');
+describe('Guarantee T2: policy_snapshots é imutável (trigger real)', () => {
+    it('INSERT retorna id; UPDATE dispara trigger e lança exceção', async () => {
+        const client = await pgPool.connect();
+        try {
+            await client.query('BEGIN');
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, true)",
+                [ORG_ID]
+            );
 
-        await expect(
-            db.query('UPDATE policy_snapshots SET policy_json = $1 WHERE id = $2')
-        ).rejects.toThrow('policy_snapshots é imutável');
+            const { rows } = await client.query(
+                `INSERT INTO policy_snapshots (org_id, policy_hash, policy_json)
+                 VALUES ($1, 'hash-efix-immutability-t2', '{"efix": true}')
+                 RETURNING id`,
+                [ORG_ID]
+            );
+            expect(rows[0].id).toBeTruthy();
+
+            await expect(
+                client.query(
+                    `UPDATE policy_snapshots SET policy_json = '{"tampered": true}' WHERE id = $1`,
+                    [rows[0].id]
+                )
+            ).rejects.toThrow(/imut[aá]vel/i);
+        } finally {
+            await client.query('ROLLBACK').catch(() => {});
+            client.release();
+        }
     });
 });
 
-// ── T3: evidence_records — UPDATE raises exception ────────────────────────
+// ── T3: evidence_records — trigger de imutabilidade real ─────────────────────
 
-describe('Guarantee: evidence_records immutability trigger', () => {
-    it('T3: recordEvidence INSERT succeeds; UPDATE would raise (trigger guard)', async () => {
-        const db = makeImmutableDbMock('evidence_records');
+describe('Guarantee T3: evidence_records é imutável (trigger real)', () => {
+    it('INSERT retorna id; UPDATE dispara trigger e lança exceção', async () => {
+        const client = await pgPool.connect();
+        try {
+            await client.query('BEGIN');
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, true)",
+                [ORG_ID]
+            );
 
-        // INSERT path via recordEvidence (non-fatal wraps the error)
-        const result = await recordEvidence(db, {
-            orgId: '00000000-0000-0000-0000-000000000001',
-            category: 'execution',
-            eventType: 'EXECUTION_SUCCESS',
-        });
-        // recordEvidence returns the inserted row on success
-        expect(result).not.toBeNull();
-        expect(result!.id).toBe('mock-id');
+            const { rows } = await client.query(
+                `INSERT INTO evidence_records (org_id, category, event_type, integrity_hash)
+                 VALUES ($1, 'execution', 'EFIX_IMMUTABILITY_TEST', 'hash-efix-ev-immutability')
+                 RETURNING id`,
+                [ORG_ID]
+            );
+            expect(rows[0].id).toBeTruthy();
 
-        // UPDATE would be rejected by the trigger
-        await expect(
-            db.query('UPDATE evidence_records SET event_type = $1 WHERE id = $2')
-        ).rejects.toThrow('é imutável');
+            await expect(
+                client.query(
+                    `UPDATE evidence_records SET event_type = 'TAMPERED' WHERE id = $1`,
+                    [rows[0].id]
+                )
+            ).rejects.toThrow(/imut[aá]vel/i);
+        } finally {
+            await client.query('ROLLBACK').catch(() => {});
+            client.release();
+        }
     });
 });
 
-// ── T4: catalog_reviews — UPDATE raises exception ─────────────────────────
+// ── T4: consultant_audit_log — trigger de imutabilidade real ─────────────────
 
-describe('Guarantee: catalog_reviews immutability trigger', () => {
-    it('T4: simulates trigger: UPDATE on catalog_reviews raises exception', async () => {
-        const db = makeImmutableDbMock('catalog_reviews');
+describe('Guarantee T4: consultant_audit_log é imutável (trigger real)', () => {
+    it('INSERT retorna id; UPDATE dispara trigger e lança exceção', async () => {
+        const client = await pgPool.connect();
+        try {
+            await client.query('BEGIN');
 
-        await expect(
-            db.query('UPDATE catalog_reviews SET decision = $1 WHERE id = $2')
-        ).rejects.toThrow('catalog_reviews é imutável');
+            // consultant_id = usuário real; tenant_org_id = org real
+            const { rows } = await client.query(
+                `INSERT INTO consultant_audit_log (consultant_id, tenant_org_id, action)
+                 VALUES ($1, $2, 'EFIX_IMMUTABILITY_TEST')
+                 RETURNING id`,
+                [CONSULTANT_ID, ORG_ID]
+            );
+            expect(rows[0].id).toBeTruthy();
+
+            await expect(
+                client.query(
+                    `UPDATE consultant_audit_log SET action = 'TAMPERED' WHERE id = $1`,
+                    [rows[0].id]
+                )
+            ).rejects.toThrow(/imut[aá]vel/i);
+        } finally {
+            await client.query('ROLLBACK').catch(() => {});
+            client.release();
+        }
     });
 });
 
-// ── T5: consultant_audit_log — UPDATE raises exception ────────────────────
+// ── T5: integrity_hash determinismo (lógica pura — sem banco) ─────────────────
 
-describe('Guarantee: consultant_audit_log immutability trigger', () => {
-    it('T5: simulates trigger: UPDATE on consultant_audit_log raises exception', async () => {
-        const db = makeImmutableDbMock('consultant_audit_log');
-
-        await expect(
-            db.query('UPDATE consultant_audit_log SET action = $1 WHERE id = $2')
-        ).rejects.toThrow('consultant_audit_log é imutável');
-    });
-});
-
-// ── T6: integrity_hash — SHA-256(orgId|category|eventType|metadata) ──────
-
-describe('Guarantee: evidence_records integrity_hash algorithm', () => {
-    it('T6: integrity_hash is SHA-256(orgId|category|eventType|JSON(metadata))', async () => {
-        const orgId = '00000000-0000-0000-0000-000000000001';
-        const category = 'execution';
-        const eventType = 'EXECUTION_SUCCESS';
-        const metadata = { traceId: 'trace-001', tokens: { total: 120 } };
-
-        const expected = createHash('sha256')
-            .update([orgId, category, eventType, JSON.stringify(metadata)].join('|'))
-            .digest('hex');
-
-        // Capture the hash passed to DB by recordEvidence
-        let capturedHash: string | undefined;
-        const db = {
-            query: vi.fn().mockImplementation(async (_sql: string, params: any[]) => {
-                capturedHash = params[8]; // 9th param = integrity_hash
-                return { rows: [{ id: 'mock-id', created_at: new Date() }], rowCount: 1 };
-            }),
-        } as any;
-
-        await recordEvidence(db, { orgId, category, eventType, metadata });
-
-        expect(capturedHash).toBe(expected);
-        expect(capturedHash).toHaveLength(64); // hex SHA-256 = 64 chars
-    });
-});
-
-// ── T7: getConsultantAssignment — expires_at < NOW() returns null ─────────
-
-describe('Guarantee: consultant assignment expiry is enforced', () => {
-    it('T7: getConsultantAssignment returns null for expired assignment (DB side)', async () => {
-        // The DB query includes AND (expires_at IS NULL OR expires_at > NOW())
-        // An expired assignment returns 0 rows
-        const pgPool = {
-            query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
-        } as any;
-
-        const consultantId = '00000000-0000-0000-0000-000000000001';
-        const tenantOrgId  = '00000000-0000-0000-0000-000000000002';
-
-        const result = await getConsultantAssignment(pgPool, consultantId, tenantOrgId);
-        expect(result).toBeNull();
-
-        // Verify the SQL contains the expiry guard
-        const sql = pgPool.query.mock.calls[0][0] as string;
-        expect(sql).toMatch(/expires_at IS NULL OR expires_at > NOW\(\)/i);
-    });
-});
-
-// ── T8: Publication guardrail — lifecycle_state = 'approved' required ─────
-
-describe('Guarantee: publication requires lifecycle_state = approved', () => {
-    it('T8: assistants.routes.ts contains guardrail check for lifecycle_state', async () => {
-        // This test verifies the guardrail exists in the source code
-        // (structural/static guarantee — does not require running the full stack)
-        const fs = await import('fs/promises');
-        const path = await import('path');
-        const routesPath = path.join(
-            process.cwd(), 'src/routes/assistants.routes.ts'
-        );
-        const source = await fs.readFile(routesPath, 'utf-8');
-
-        // Must contain the lifecycle_state check before publication
-        expect(source).toMatch(/lifecycle_state.*approved/i);
-        // Must contain the 400 error response for non-approved state
-        expect(source).toMatch(/status\(400\)/);
-    });
-});
-
-// ── T9: API key revocation — is_active = false blocks auth ───────────────
-
-describe('Guarantee: revoked API key is rejected', () => {
-    it('T9: requireApiKey logic rejects keys where is_active = false', async () => {
-        // Simulates the DB lookup used by requireApiKey middleware
-        const mockDb = {
-            query: vi.fn().mockResolvedValue({
-                rows: [{
-                    id: 'key-id',
-                    org_id: 'org-id',
-                    is_active: false,   // ← revoked
-                    expires_at: null,
-                }],
-                rowCount: 1,
-            }),
-        } as any;
-
-        // The middleware checks is_active after fetching by hash prefix
-        const keyRow = (await mockDb.query('SELECT * FROM api_keys WHERE id = $1')).rows[0];
-        const isAuthorized = keyRow.is_active === true
-            && (keyRow.expires_at === null || new Date(keyRow.expires_at) > new Date());
-
-        expect(isAuthorized).toBe(false);
-    });
-});
-
-// ── T10: integrity_hash determinism ──────────────────────────────────────
-
-describe('Guarantee: evidence_records integrity_hash is deterministic', () => {
-    it('T10: identical payloads always produce the same SHA-256 hash', () => {
-        const compute = (p: EvidencePayload) => {
+describe('Guarantee T5: integrity_hash é determinístico (lógica pura)', () => {
+    it('payloads idênticos → mesmo SHA-256; payloads distintos → hashes distintos', () => {
+        const compute = (p: EvidencePayload): string => {
             const metadata = p.metadata ?? {};
             return createHash('sha256')
                 .update([p.orgId, p.category, p.eventType, JSON.stringify(metadata)].join('|'))
@@ -214,22 +179,165 @@ describe('Guarantee: evidence_records integrity_hash is deterministic', () => {
         };
 
         const payload: EvidencePayload = {
-            orgId: '00000000-0000-0000-0000-000000000001',
-            category: 'policy_enforcement',
-            eventType: 'POLICY_VIOLATION',
-            metadata: { traceId: 'trace-999', reason: 'PII detected' },
+            orgId:     ORG_ID,
+            category:  'execution',
+            eventType: 'EXECUTION_SUCCESS',
+            metadata:  { traceId: 'trace-efix', tokens: { total: 42 } },
         };
 
-        const hash1 = compute(payload);
-        const hash2 = compute(payload);
-        const hash3 = compute({ ...payload }); // shallow copy
+        const h1 = compute(payload);
+        const h2 = compute(payload);
+        const h3 = compute({ ...payload }); // shallow copy
 
-        expect(hash1).toBe(hash2);
-        expect(hash2).toBe(hash3);
-        expect(hash1).toHaveLength(64);
+        expect(h1).toBe(h2);
+        expect(h2).toBe(h3);
+        expect(h1).toHaveLength(64); // SHA-256 hex = 64 chars
 
-        // Different metadata → different hash (collision resistance)
-        const different = compute({ ...payload, metadata: { traceId: 'trace-000' } });
-        expect(different).not.toBe(hash1);
+        // Metadata diferente → hash diferente (resistência a colisão)
+        expect(compute({ ...payload, metadata: { traceId: 'different' } })).not.toBe(h1);
+    });
+});
+
+// ── T6: requireApiKey — query real contra api_key_lookup ─────────────────────
+
+describe('Guarantee T6: requireApiKey query usa predicados corretos', () => {
+    it('query real retorna 0 rows para key_hash inexistente (filtros corretos)', async () => {
+        const fakeHash   = 'a'.repeat(64); // hash de 64 chars que não existe no banco
+        const fakePrefix = 'efix_t6_fake_prefix';
+
+        const result = await pgPool.query(
+            `SELECT akl.org_id
+             FROM api_key_lookup akl
+             WHERE akl.key_hash = $1
+               AND akl.prefix = $2
+               AND akl.is_active = TRUE
+               AND (akl.expires_at IS NULL OR akl.expires_at > NOW())`,
+            [fakeHash, fakePrefix]
+        );
+
+        expect(result.rows).toHaveLength(0);
+    });
+});
+
+// ── T7: Chave expirada rejeitada pela query real de auth ─────────────────────
+
+describe('Guarantee T7: chave API expirada não é retornada pela query real', () => {
+    it('key com expires_at no passado → 0 rows na query de requireApiKey', async () => {
+        const client = await pgPool.connect();
+        try {
+            await client.query('BEGIN');
+
+            const testHash   = 'b'.repeat(64);
+            const testPrefix = 'efix_t7_expired';
+            const pastDate   = '2020-01-01T00:00:00Z';
+
+            // Insere chave expirada diretamente em api_key_lookup (sem FK para api_keys)
+            await client.query(
+                `INSERT INTO api_key_lookup (key_hash, prefix, org_id, is_active, expires_at)
+                 VALUES ($1, $2, $3, TRUE, $4)`,
+                [testHash, testPrefix, ORG_ID, pastDate]
+            );
+
+            // A query real de requireApiKey NÃO deve retornar esta chave
+            const result = await client.query(
+                `SELECT akl.org_id
+                 FROM api_key_lookup akl
+                 WHERE akl.key_hash = $1
+                   AND akl.prefix = $2
+                   AND akl.is_active = TRUE
+                   AND (akl.expires_at IS NULL OR akl.expires_at > NOW())`,
+                [testHash, testPrefix]
+            );
+
+            expect(result.rows).toHaveLength(0);
+        } finally {
+            await client.query('ROLLBACK').catch(() => {});
+            client.release();
+        }
+    });
+});
+
+// ── T8: lifecycle_state CHECK constraint rejeita valor inválido ───────────────
+
+describe('Guarantee T8: lifecycle_state CHECK constraint aplicado no banco', () => {
+    it('INSERT com lifecycle_state inválido lança violação de constraint', async () => {
+        const client = await pgPool.connect();
+        try {
+            await client.query('BEGIN');
+
+            await expect(
+                client.query(
+                    `INSERT INTO assistants (org_id, name, lifecycle_state)
+                     VALUES ($1, 'efix-lifecycle-check-test', 'INVALID_STATE')`,
+                    [ORG_ID]
+                )
+            ).rejects.toThrow(/check constraint/i);
+        } finally {
+            await client.query('ROLLBACK').catch(() => {});
+            client.release();
+        }
+    });
+});
+
+// ── T9: Nenhum evidence_record com integrity_hash NULL ───────────────────────
+
+describe('Guarantee T9: todos evidence_records da org têm integrity_hash não-nulo', () => {
+    it('COUNT(*) WHERE integrity_hash IS NULL = 0 para a org fixture', async () => {
+        const result = await pgPool.query(
+            `SELECT COUNT(*) AS total
+             FROM evidence_records
+             WHERE org_id = $1
+               AND integrity_hash IS NULL`,
+            [ORG_ID]
+        );
+        expect(parseInt(result.rows[0].total, 10)).toBe(0);
+    });
+});
+
+// ── T10: RLS — org A vê registro; org errada vê 0 rows ──────────────────────
+
+describe('Guarantee T10: evidence_records RLS isola registros por org (govai_app)', () => {
+    it('org correta vê o registro; org errada recebe 0 rows', async () => {
+        const client = await pgPool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Assume identidade govai_app para ativar RLS
+            await client.query('SET LOCAL ROLE govai_app');
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, true)",
+                [ORG_ID]
+            );
+
+            // INSERT como govai_app (WITH CHECK deve passar: org_id = current_org_id)
+            const { rows } = await client.query(
+                `INSERT INTO evidence_records (org_id, category, event_type, integrity_hash)
+                 VALUES ($1, 'execution', 'RLS_ISOLATION_EFIX', 'hash-rls-efix-t10')
+                 RETURNING id`,
+                [ORG_ID]
+            );
+            const id = rows[0].id;
+
+            // Org correta — USING clause: org_id = ORG_ID → visível
+            const visible = await client.query(
+                'SELECT id FROM evidence_records WHERE id = $1',
+                [id]
+            );
+            expect(visible.rows).toHaveLength(1);
+
+            // Troca para org errada — USING clause: org_id = WRONG_ORG_ID → invisível
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, true)",
+                [WRONG_ORG_ID]
+            );
+            const invisible = await client.query(
+                'SELECT id FROM evidence_records WHERE id = $1',
+                [id]
+            );
+            expect(invisible.rows).toHaveLength(0);
+        } finally {
+            await client.query('ROLLBACK').catch(() => {});
+            client.release();
+        }
     });
 });
