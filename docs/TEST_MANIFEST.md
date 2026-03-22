@@ -5,8 +5,8 @@
 | Métrica | Valor |
 |---------|-------|
 | **Suíte padrão (sem DATABASE_URL)** | 542 testes · 49 arquivos |
-| **Suíte de integração (DATABASE_URL)** | +19 garantias com banco real |
-| **Total com banco** | 561+ (542 + 19 garantias confirmadas) |
+| **Suíte de integração (DATABASE_URL)** | +29 garantias com banco real |
+| **Total com banco** | 571+ (542 + 29 garantias confirmadas) |
 | **Total de arquivos** | 54 (49 padrão + 5 integração) |
 | **Status** | ✅ Suíte padrão: 542 passando |
 | **Última execução** | 2026-03-22 |
@@ -25,8 +25,9 @@
 | Sprint E | +19 mock | Consultant Plane + compliance guarantees (mock pool) |
 | Sprint E-FIX | rewrite | 19 mock → 19 DB real (movidos para integrationTestPatterns) |
 | Sprint Pre-F | +1 | T6b: is_active=false excluído da query de auth |
+| Sprint F | +10 DB real | Shield Core (normalização, rollups, findings, promote, RLS, endpoint) |
 | **Suíte padrão** | **542** | |
-| **Com banco (+garantias)** | **561+** | |
+| **Com banco (+garantias)** | **571+** | |
 
 ## Separação por tipo de execução
 
@@ -37,6 +38,7 @@
 | Lógica pura | `catalog.lifecycle.test.ts` | Não | 8 |
 | DB + API real | `compliance.guarantees.test.ts` | **Sim** | 11 (T1–T10 + T6b) |
 | DB + API real | `consultant.plane.test.ts` | **Sim** | 8 |
+| DB + API real | `shield.core.test.ts` | **Sim** | 10 (T1–T10) |
 | DB real | `governance.flow.test.ts` | **Sim** | — |
 | DB real | `governance.integration.test.ts` | **Sim** | — |
 | DB real | `security.tenant-isolation.test.ts` | **Sim** | — |
@@ -88,7 +90,7 @@ src/__tests__/
 ├── rag.isolation.test.ts
 ├── rag.test.ts
 ├── rate-limit.test.ts
-├── routes.coverage.test.ts
+├── routes.smoke.test.ts
 ├── security.audit-crypto.test.ts
 ├── security.authorization.test.ts
 ├── security.crypto.test.ts
@@ -108,6 +110,7 @@ src/__tests__/
 ```
 src/__tests__/
 ├── compliance.guarantees.test.ts       ← Sprint E-FIX + Pre-F (11 testes)
+├── shield.core.test.ts                 ← Sprint F (banco real, 10 testes)
 ├── consultant.plane.test.ts            ← Sprint E-FIX (8 testes)
 ├── governance.flow.test.ts             ← integração completa
 ├── governance.integration.test.ts      ← integração completa

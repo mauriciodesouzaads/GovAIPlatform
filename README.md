@@ -9,7 +9,7 @@
 
 <br/><br/>
 
-<img src="https://img.shields.io/badge/tests-542_passing_%2B_19_DB_real-00ff88?style=flat-square" />
+<img src="https://img.shields.io/badge/tests-542_passing_%2B_29_DB_real-00ff88?style=flat-square" />
 <img src="https://img.shields.io/badge/coverage-81%25-00ff88?style=flat-square" />
 <img src="https://img.shields.io/badge/CI%2FCD-passing-00ff88?style=flat-square" />
 <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" />
@@ -178,7 +178,7 @@ curl -s -X POST http://localhost:3000/v1/admin/login \
 | PostgreSQL 15 + pgvector | Tailwind CSS v4 | Redis 7 + BullMQ |
 | OPA WASM (Rego policies) | Recharts (dashboards) | LiteLLM proxy |
 | Presidio NLP (Python/FastAPI) | Lucide Icons | Prometheus + Grafana |
-| Vitest (542 padrão + 19 DB real) | TypeScript strict | AlertManager (SMTP + Slack) |
+| Vitest (542 padrão + 29 DB real) | TypeScript strict | AlertManager (SMTP + Slack) |
 | Playwright E2E (5 testes) | Playwright E2E | Nginx (reverse proxy) |
 | Zod validation (todos endpoints) | Axios + SWR | GitHub Actions CI/CD |
 
@@ -208,7 +208,7 @@ govai-platform/
 │   │   ├── audit.worker.ts      # Persist HMAC-signed logs
 │   │   ├── telemetry.worker.ts  # Langfuse export
 │   │   └── expiration.worker.ts # 48h HITL TTL
-│   └── __tests__/               # 542 testes padrão + 19 garantias com banco real
+│   └── __tests__/               # 542 testes padrão + 29 garantias com banco real
 ├── admin-ui/                    # Frontend (Next.js 14)
 │   ├── src/app/
 │   │   ├── page.tsx             # Dashboard + métricas
@@ -305,7 +305,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 # Suíte padrão — 542 testes (sem banco)
 npx vitest run
 
-# Suíte completa — 561+ testes (inclui 19 garantias com banco real)
+# Suíte completa — 571+ testes (inclui 29 garantias com banco real)
 DATABASE_URL=postgresql://postgres:GovAI2026@Admin@localhost:5432/govai_platform npx vitest run
 npx vitest run --coverage   # coverage ≥ 70% lines/functions, ≥ 60% branches
 

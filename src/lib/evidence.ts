@@ -114,14 +114,15 @@ export async function linkEvidence(
 /**
  * Returns the full evidence chain for a resource, ordered chronologically.
  * Caller must ensure app.current_org_id is set on the pool connection (RLS).
+ * Accepts Pool or PoolClient to allow transactional callers (e.g. Shield promote).
  */
 export async function getEvidenceChain(
-  db: Pool,
+  db: DbClient,
   orgId: string,
   resourceType: string,
   resourceId: string
 ): Promise<EvidenceRecord[]> {
-  const result = await db.query(
+  const result = await (db as Pool).query(
     `SELECT id, category, event_type, actor_email,
             resource_type, resource_id, metadata, created_at
      FROM evidence_records

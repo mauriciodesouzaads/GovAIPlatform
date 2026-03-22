@@ -27,6 +27,8 @@ const integrationTestPatterns = [
     // Sprint E-FIX: testes de garantia com banco real (requerem DATABASE_URL)
     'src/__tests__/compliance.guarantees.test.ts',
     'src/__tests__/consultant.plane.test.ts',
+    // Sprint F: Shield Core com banco real
+    'src/__tests__/shield.core.test.ts',
 ];
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);

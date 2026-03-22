@@ -80,6 +80,25 @@ Auditores externos podem executar `DATABASE_URL=postgresql://... npx vitest run 
 
 ---
 
+## Garantias do Shield Core (Detection Foundation)
+
+> Todos os testes requerem `DATABASE_URL` — excluídos da suíte padrão.
+
+| Garantia | Arquivo de Teste | Caso | Mecanismo | Tipo |
+|----------|-----------------|------|-----------|------|
+| `normalizeToolName` produz chave estável | `shield.core.test.ts` | T1 | Lógica pura (trim, lower, colapso) | Lógica pura |
+| `recordShieldObservation` persiste `tool_name_normalized` e hash | `shield.core.test.ts` | T2 | INSERT + SELECT no banco real | DB real |
+| `processShieldObservations` cria entrada em `shield_tools` | `shield.core.test.ts` | T3 | Upsert no banco real | DB real |
+| Rollup diário UNIQUE por (org, tool, period_start) | `shield.core.test.ts` | T4 | ON CONFLICT UPDATE no banco real | DB real |
+| `generateShieldFindings` cria finding open para ferramenta unknown | `shield.core.test.ts` | T5 | INSERT/UPDATE no banco real | DB real |
+| `acknowledgeShieldFinding` atualiza status + timestamps | `shield.core.test.ts` | T6 | UPDATE no banco real | DB real |
+| `promoteShieldFindingToCatalog` cria assistant draft + promoted | `shield.core.test.ts` | T7 | INSERT assistants + UPDATE findings | DB real |
+| Promoção gera `evidence_record` com hash de integridade | `shield.core.test.ts` | T8 | `recordEvidence` + `linkEvidence` | DB real |
+| RLS: org A vê finding; org errada recebe 0 rows | `shield.core.test.ts` | T9 | SET LOCAL ROLE govai_app + set_config | DB real |
+| Endpoint GET /findings responde 200 com auth válida | `shield.core.test.ts` | T10 | Fastify inject real | API real |
+
+---
+
 ## Legenda dos Tipos
 
 | Tipo | Descrição |
@@ -114,7 +133,7 @@ DATABASE_URL=postgresql://... npx vitest run --reporter=verbose
 |-------|-------|
 | Versão da plataforma | v1.1.1 |
 | Suíte padrão (sem DATABASE_URL) | 542 testes · 49 arquivos |
-| Garantias com banco (DATABASE_URL) | +19 testes (compliance.guarantees T1–T10+T6b + consultant.plane T1–T8) |
-| Total confirmado com banco | 561+ (542 + 19 garantias; governance tests adicionais) |
+| Garantias com banco (DATABASE_URL) | +29 testes (19 anteriores + 10 Shield Core) |
+| Total confirmado com banco | 571+ (542 + 29 garantias) |
 | Última atualização | 2026-03-22 |
-| Sprint | E-FIX — Testes de Garantia Reais (Pre-F) |
+| Sprint | F — Shield Core / Detection Foundation |

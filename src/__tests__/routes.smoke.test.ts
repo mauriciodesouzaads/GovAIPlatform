@@ -1,3 +1,8 @@
+// AVISO:
+// este arquivo testa apenas que as rotas respondem (smoke tests)
+// NÃO testa autorização.
+// Para autorização e isolamento, ver testes de segurança e integração.
+
 /**
  * P-15: Coverage for assistants.routes.ts and approvals.routes.ts
  *
