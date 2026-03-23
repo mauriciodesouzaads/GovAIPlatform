@@ -13,6 +13,8 @@
  *   - deduplicação e correlação multissinal (Sprint S1-R)
  *   - sync de approval_status com Catálogo (Sprint S1-R)
  *   - owner/team candidate por heurística (Sprint S1-R)
+ *   - workflow operacional: assign-owner, comment (Sprint S2)
+ *   - listShieldFindingActions, listShieldPostureForConsultant (Sprint S2)
  *
  * Coleta disponível: manual + Microsoft Graph OAuth + Google Workspace + Network/SWG.
  * Workers/BullMQ: não implementado — coleta admin-triggered nesta sprint.
@@ -430,13 +432,19 @@ async function insertFindingAction(
     findingId: string,
     actionType: string,
     actorUserId: string | null,
-    note?: string | null
+    note?: string | null,
+    metadata?: Record<string, unknown>
 ): Promise<void> {
     await (db as Pool).query(
         `INSERT INTO shield_finding_actions
-         (org_id, finding_id, action_type, actor_user_id, note)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [orgId, findingId, actionType, actorUserId, note ?? null]
+         (org_id, finding_id, action_type, actor_user_id, note, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [orgId, findingId, actionType, actorUserId, note ?? null, JSON.stringify(metadata ?? {})]
+    );
+    // Bump last_action_at on finding for every workflow action
+    await (db as Pool).query(
+        `UPDATE shield_findings SET last_action_at = NOW() WHERE id = $1`,
+        [findingId]
     );
 }
 
@@ -622,8 +630,11 @@ export async function acceptRisk(
     pool: Pool,
     findingId: string,
     actorUserId: string,
-    note?: string
+    note: string   // obrigatório — justificativa de aceite de risco
 ): Promise<void> {
+    if (!note?.trim()) {
+        throw new Error('Justificativa obrigatória para aceite de risco (acceptRisk.note).');
+    }
     const client = await pool.connect();
     try {
         const row = await client.query(
@@ -662,26 +673,30 @@ export async function dismissFinding(
     pool: Pool,
     findingId: string,
     actorUserId: string,
-    note?: string
+    reason: string  // obrigatório — motivo do dismiss
 ): Promise<void> {
+    if (!reason?.trim()) {
+        throw new Error('Motivo obrigatório para dismiss de finding (dismissFinding.reason).');
+    }
     const client = await pool.connect();
     try {
         const row = await client.query(
             `UPDATE shield_findings
-             SET status       = 'dismissed',
-                 dismissed_at = NOW(),
-                 dismissed_by = $2
+             SET status           = 'dismissed',
+                 dismissed_at     = NOW(),
+                 dismissed_by     = $2,
+                 dismissed_reason = $3
              WHERE id = $1
                AND status IN ('open','acknowledged')
              RETURNING org_id`,
-            [findingId, actorUserId]
+            [findingId, actorUserId, reason]
         );
         if (row.rows.length > 0) {
             const orgId = row.rows[0].org_id as string;
             await client.query(
                 "SELECT set_config('app.current_org_id', $1, false)", [orgId]
             );
-            await insertFindingAction(client, orgId, findingId, 'dismiss', actorUserId, note);
+            await insertFindingAction(client, orgId, findingId, 'dismiss', actorUserId, reason);
         }
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
@@ -751,11 +766,13 @@ export async function reopenFinding(
                  dismissed_at     = NULL,
                  dismissed_by     = NULL,
                  resolved_at      = NULL,
-                 resolved_by      = NULL
+                 resolved_by      = NULL,
+                 reopened_at      = NOW(),
+                 reopened_by      = $2
              WHERE id = $1
                AND status IN ('dismissed','resolved','accepted_risk')
              RETURNING org_id`,
-            [findingId]
+            [findingId, actorUserId]
         );
         if (row.rows.length > 0) {
             const orgId = row.rows[0].org_id as string;
@@ -789,6 +806,7 @@ export async function generateExecutivePosture(
     openFindings: number;
     promotedFindings: number;
     acceptedRisk: number;
+    unresolvedCritical: number;
     topTools: Array<{ toolName: string; score: number; severity: string }>;
     recommendations: string[];
 }> {
@@ -807,6 +825,10 @@ export async function generateExecutivePosture(
                COUNT(*) FILTER (WHERE status = 'accepted_risk') AS accepted_count,
                COUNT(*) FILTER (WHERE severity = 'critical')    AS critical_count,
                COUNT(*) FILTER (WHERE severity = 'high')        AS high_count,
+               COUNT(*) FILTER (
+                   WHERE severity = 'critical'
+                     AND status NOT IN ('dismissed','resolved','promoted')
+               ) AS unresolved_critical_count,
                COALESCE(AVG(risk_score), 0)::int                AS avg_score
              FROM shield_findings
              WHERE org_id = $1 AND status IN ('open','acknowledged','accepted_risk')`,
@@ -814,12 +836,13 @@ export async function generateExecutivePosture(
         );
 
         const c = counts.rows[0];
-        const openFindings     = parseInt(c.open_count ?? '0') + parseInt(c.ack_count ?? '0');
-        const promotedFindings = parseInt(c.promoted_count ?? '0');
-        const acceptedRisk     = parseInt(c.accepted_count ?? '0');
-        const summaryScore     = c.avg_score ?? 0;
-        const criticalCount    = parseInt(c.critical_count ?? '0');
-        const highCount        = parseInt(c.high_count ?? '0');
+        const openFindings       = parseInt(c.open_count ?? '0') + parseInt(c.ack_count ?? '0');
+        const promotedFindings   = parseInt(c.promoted_count ?? '0');
+        const acceptedRisk       = parseInt(c.accepted_count ?? '0');
+        const unresolvedCritical = parseInt(c.unresolved_critical_count ?? '0');
+        const summaryScore       = c.avg_score ?? 0;
+        const criticalCount      = parseInt(c.critical_count ?? '0');
+        const highCount          = parseInt(c.high_count ?? '0');
 
         // Top tools por risk_score
         const topToolsResult = await client.query(
@@ -851,8 +874,9 @@ export async function generateExecutivePosture(
         const snap = await client.query(
             `INSERT INTO shield_posture_snapshots
              (org_id, posture, summary_score, open_findings,
-              promoted_findings, accepted_risk, top_tools, recommendations)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              promoted_findings, accepted_risk, top_tools, recommendations,
+              unresolved_critical)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              RETURNING id`,
             [
                 orgId,
@@ -863,11 +887,12 @@ export async function generateExecutivePosture(
                 acceptedRisk,
                 JSON.stringify(topTools),
                 JSON.stringify(recommendations),
+                unresolvedCritical,
             ]
         );
         const snapshotId = snap.rows[0].id as string;
 
-        return { snapshotId, summaryScore, openFindings, promotedFindings, acceptedRisk, topTools, recommendations };
+        return { snapshotId, summaryScore, openFindings, promotedFindings, acceptedRisk, unresolvedCritical, topTools, recommendations };
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
         client.release();
@@ -1245,4 +1270,180 @@ export async function computeOwnerCandidate(
         ownerCandidateHash:   row.user_identifier_hash as string,
         ownerCandidateSource: source,
     };
+}
+
+// ── assignShieldFindingOwner (Sprint S2) ──────────────────────────────────────
+
+/**
+ * Atribui um owner candidate a um finding e registra action log.
+ * ownerCandidateHash: SHA-256 do identificador do owner (nunca plain).
+ * Gera action log 'assign_owner'.
+ */
+export async function assignShieldFindingOwner(
+    pool: Pool,
+    findingId: string,
+    ownerCandidateHash: string,
+    actorUserId: string,
+    note?: string
+): Promise<void> {
+    const client = await pool.connect();
+    try {
+        const row = await client.query(
+            `UPDATE shield_findings
+             SET owner_candidate_hash = $2,
+                 owner_assigned_at    = NOW(),
+                 owner_assigned_by    = $3,
+                 owner_note           = $4,
+                 updated_at           = NOW()
+             WHERE id = $1
+             RETURNING org_id`,
+            [findingId, ownerCandidateHash, actorUserId, note ?? null]
+        );
+        if (row.rows.length > 0) {
+            const orgId = row.rows[0].org_id as string;
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+            );
+            await insertFindingAction(
+                client, orgId, findingId, 'assign_owner', actorUserId, note,
+                { ownerCandidateHash }
+            );
+        }
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── appendShieldFindingComment (Sprint S2) ────────────────────────────────────
+
+/**
+ * Adiciona comentário ao action log de um finding.
+ * Não altera status. Note é obrigatório.
+ */
+export async function appendShieldFindingComment(
+    pool: Pool,
+    findingId: string,
+    actorUserId: string,
+    note: string
+): Promise<void> {
+    if (!note?.trim()) {
+        throw new Error('Comentário não pode ser vazio (appendShieldFindingComment.note).');
+    }
+    const client = await pool.connect();
+    try {
+        const row = await client.query(
+            `SELECT org_id FROM shield_findings WHERE id = $1`,
+            [findingId]
+        );
+        if (row.rows.length === 0) return;
+        const orgId = row.rows[0].org_id as string;
+        await client.query(
+            "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+        );
+        await insertFindingAction(client, orgId, findingId, 'comment', actorUserId, note);
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── listShieldFindingActions (Sprint S2) ──────────────────────────────────────
+
+/**
+ * Lista o action log de um finding, ordenado por created_at ASC.
+ * Requer que o orgId seja fornecido pelo caller (já validado).
+ */
+export async function listShieldFindingActions(
+    pool: Pool,
+    orgId: string,
+    findingId: string
+): Promise<any[]> {
+    const client = await pool.connect();
+    try {
+        await client.query(
+            "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+        );
+        const result = await client.query(
+            `SELECT id, action_type, actor_user_id, note, metadata, created_at
+             FROM shield_finding_actions
+             WHERE org_id = $1 AND finding_id = $2
+             ORDER BY created_at ASC`,
+            [orgId, findingId]
+        );
+        return result.rows;
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── listShieldPostureForConsultant (Sprint S2) ────────────────────────────────
+
+/**
+ * Retorna postura Shield de um tenant para visualização consultiva.
+ * Requer que o caller já tenha validado o consultant assignment (403 se nulo).
+ * Usa set_config(tenantOrgId, false) internamente — limpa no finally.
+ */
+export async function listShieldPostureForConsultant(
+    pool: Pool,
+    tenantOrgId: string
+): Promise<{
+    openFindings: number;
+    criticalFindings: number;
+    promotedFindings: number;
+    acceptedRiskFindings: number;
+    topTools: Array<{ toolName: string; score: number; severity: string }>;
+    latestSnapshotAt: Date | null;
+}> {
+    const client = await pool.connect();
+    try {
+        await client.query(
+            "SELECT set_config('app.current_org_id', $1, false)", [tenantOrgId]
+        );
+
+        const counts = await client.query(
+            `SELECT
+               COUNT(*) FILTER (WHERE status IN ('open','acknowledged'))   AS open_count,
+               COUNT(*) FILTER (WHERE severity = 'critical'
+                                  AND status IN ('open','acknowledged'))    AS critical_count,
+               COUNT(*) FILTER (WHERE status = 'promoted')                 AS promoted_count,
+               COUNT(*) FILTER (WHERE status = 'accepted_risk')            AS accepted_count
+             FROM shield_findings
+             WHERE org_id = $1`,
+            [tenantOrgId]
+        );
+        const c = counts.rows[0];
+
+        const topToolsResult = await client.query(
+            `SELECT tool_name, COALESCE(risk_score, 0) AS risk_score, severity
+             FROM shield_findings
+             WHERE org_id = $1 AND status IN ('open','acknowledged')
+             ORDER BY risk_score DESC NULLS LAST
+             LIMIT 5`,
+            [tenantOrgId]
+        );
+
+        const snapResult = await client.query(
+            `SELECT generated_at FROM shield_posture_snapshots
+             WHERE org_id = $1 ORDER BY generated_at DESC LIMIT 1`,
+            [tenantOrgId]
+        );
+
+        return {
+            openFindings:        parseInt(c.open_count     ?? '0'),
+            criticalFindings:    parseInt(c.critical_count ?? '0'),
+            promotedFindings:    parseInt(c.promoted_count ?? '0'),
+            acceptedRiskFindings: parseInt(c.accepted_count ?? '0'),
+            topTools: topToolsResult.rows.map(r => ({
+                toolName: r.tool_name as string,
+                score:    r.risk_score as number,
+                severity: r.severity as string,
+            })),
+            latestSnapshotAt: snapResult.rows[0]?.generated_at ?? null,
+        };
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
 }

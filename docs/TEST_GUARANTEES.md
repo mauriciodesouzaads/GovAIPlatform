@@ -143,6 +143,34 @@ Auditores externos podem executar `DATABASE_URL=postgresql://... npx vitest run 
 
 ---
 
+## Garantias do Shield Workflow Operacional (S2)
+
+> Todos os testes requerem `DATABASE_URL`. T13–T17 usam Fastify inject real.
+
+| Garantia | Arquivo de Teste | Caso | Mecanismo | Tipo |
+|----------|-----------------|------|-----------|------|
+| `assignShieldFindingOwner` preenche `owner_assigned_at/by` e cria action log `assign_owner` | `shield.workflow.test.ts` | T1 | UPDATE + INSERT no banco real | DB real |
+| `acceptRisk` lança erro se `note` vazio | `shield.workflow.test.ts` | T2 | Validação de domínio antes de UPDATE | Lógica pura |
+| `acceptRisk` transiciona para `accepted_risk` + cria action log + `last_action_at` atualizado | `shield.workflow.test.ts` | T2 | UPDATE + INSERT no banco real | DB real |
+| `dismissFinding` lança erro se `reason` vazio | `shield.workflow.test.ts` | T3 | Validação de domínio antes de UPDATE | Lógica pura |
+| `dismissFinding` persiste `dismissed_reason` na linha do finding + cria action log | `shield.workflow.test.ts` | T3 | UPDATE + INSERT no banco real | DB real |
+| `resolveFinding` transiciona para `resolved` + `last_action_at` atualizado | `shield.workflow.test.ts` | T4 | UPDATE + INSERT no banco real | DB real |
+| `reopenFinding` transiciona para `open` + persiste `reopened_at/by` | `shield.workflow.test.ts` | T5 | UPDATE + INSERT no banco real | DB real |
+| `promoteShieldFindingToCatalog` continua funcional após migração S2 | `shield.workflow.test.ts` | T6 | INSERT assistants + UPDATE findings | DB real |
+| `last_action_at` é NULL antes de qualquer ação e preenchido após assign-owner | `shield.workflow.test.ts` | T7 | SELECT antes + ação + SELECT depois | DB real |
+| `accepted_risk` NÃO fecha finding implicitamente (status ≠ resolved/dismissed) | `shield.workflow.test.ts` | T8 | SELECT status após acceptRisk | DB real |
+| Consultant sem assignment → 403 em `/consultant/tenants/:id/shield/findings` e `/posture` | `shield.workflow.test.ts` | T9 | `getConsultantAssignment` retorna null → 403 | API real |
+| Consultant com assignment → 200 em `/consultant/tenants/:id/shield/findings` | `shield.workflow.test.ts` | T10 | Assignment ativo → listShieldFindings | API real |
+| `generateExecutivePosture` persiste `unresolved_critical` em `shield_posture_snapshots` | `shield.workflow.test.ts` | T11 | INSERT com campo novo + SELECT | DB real |
+| RLS: `shield_finding_actions` isolado — org errada vê 0 actions | `shield.workflow.test.ts` | T12 | set_config org errada + SELECT | DB real |
+| `POST /accept-risk` → 200 com note; → 400 sem note | `shield.workflow.test.ts` | T13 | Fastify inject real | API real |
+| `POST /dismiss` → 200 com reason; → 400 sem reason | `shield.workflow.test.ts` | T14 | Fastify inject real | API real |
+| `GET /findings/:id/actions` → 200 com array de actions | `shield.workflow.test.ts` | T15 | Fastify inject real | API real |
+| `GET /consultant/tenants/:id/shield/findings` → 200 com assignment | `shield.workflow.test.ts` | T16 | Fastify inject real + assignment DB | API real |
+| `GET /consultant/tenants/:id/shield/findings` → 403 sem assignment | `shield.workflow.test.ts` | T17 | Fastify inject real + sem assignment | API real |
+
+---
+
 ## Garantias do Shield Network Collector (S1-R)
 
 > Testes T3–T6 requerem `DATABASE_URL`.
@@ -218,9 +246,9 @@ DATABASE_URL=postgresql://... npx vitest run --reporter=verbose
 
 | Campo | Valor |
 |-------|-------|
-| Versão da plataforma | v1.3.0 |
+| Versão da plataforma | v1.4.0 |
 | Suíte padrão (sem DATABASE_URL) | 542 testes · 49 arquivos |
-| Garantias com banco (DATABASE_URL) | +62 testes DB integration confirmados |
-| Total confirmado com banco | 604 (542 + 62 garantias DB) |
+| Garantias com banco (DATABASE_URL) | +79 testes DB integration confirmados |
+| Total confirmado com banco | 621 (542 + 79 garantias DB) |
 | Última atualização | 2026-03-22 |
-| Sprint | S1-R — Shield Multisource Resolution + Baseline Sanity |
+| Sprint | S2 — Shield Finding Workflow & Consultant Value |

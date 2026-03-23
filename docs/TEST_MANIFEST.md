@@ -5,13 +5,13 @@
 | Métrica | Valor |
 |---------|-------|
 | **Suíte padrão (sem DATABASE_URL)** | 542 testes · 49 arquivos |
-| **Suíte de integração (DATABASE_URL)** | +55 garantias (62 testes DB real confirmados) |
-| **Total de arquivos** | 59 (49 padrão + 10 integração) |
+| **Suíte de integração (DATABASE_URL)** | +79 garantias (79 testes DB real confirmados) |
+| **Total de arquivos** | 60 (49 padrão + 11 integração) |
 | **Status** | ✅ Suíte padrão: 542 passando (DATABASE_URL='' npx vitest run) |
 | **Última execução** | 2026-03-22 |
 | **Comando (suíte padrão)** | `DATABASE_URL='' npx vitest run` |
 | **Comando (suíte completa)** | `DATABASE_URL=postgresql://... npx vitest run` |
-| **Versão** | v1.3.0 (Sprint Shield S1-R) |
+| **Versão** | v1.4.0 (Sprint Shield S2) |
 
 ## Cobertura por sprint
 
@@ -28,8 +28,9 @@
 | Sprint F2a | +12 DB real | Risk engine (scoreVersion, recommendedAction, category) — movido para integrationTestPatterns em CI fix #86 |
 | **Sprint Shield Complete** | **+43 integração** | Finding workflow, Google collector, posture snapshot, rotas novas |
 | **Sprint S1-R** | **+19 integração** | Network collector, multisource correlation, dedupe, catalog sync, owner candidate |
+| **Sprint S2** | **+17 integração** | Finding workflow (assign-owner, accept-risk, dismiss, resolve, reopen), consultant Shield views, posture unresolved_critical |
 | **Suíte padrão** | **542** | |
-| **Com banco (+garantias)** | **604** (542 + 62 DB integration confirmados) | |
+| **Com banco (+garantias)** | **621** (542 + 79 DB integration confirmados) | |
 
 ## Separação por tipo de execução
 
@@ -45,6 +46,7 @@
 | DB real | `shield.risk-engine.test.ts` | **Sim** | 12 (T1–T11, requer DATABASE_URL) |
 | DB + API real | `shield.network-collector.test.ts` | **Sim** | 6 (T1–T2 pura, T3–T6 DB real) |
 | DB + API real | `shield.multisource-resolution.test.ts` | **Sim** | 13 (T1–T2 pura, T3–T13 DB + rota real) |
+| DB + API real | `shield.workflow.test.ts` | **Sim** | 17 (T1–T12 banco real, T13–T17 API real) |
 | DB real | `governance.flow.test.ts` | **Sim** | — |
 | DB real | `governance.integration.test.ts` | **Sim** | — |
 | DB real | `security.tenant-isolation.test.ts` | **Sim** | — |
@@ -111,7 +113,7 @@ src/__tests__/
 └── session.model.test.ts
 ```
 
-### Integração com banco (10 arquivos — requerem DATABASE_URL)
+### Integração com banco (11 arquivos — requerem DATABASE_URL)
 
 ```
 src/__tests__/
@@ -121,13 +123,14 @@ src/__tests__/
 ├── shield.risk-engine.test.ts             ← Sprint F2a / CI fix #86 (12 testes T1–T11)
 ├── shield.network-collector.test.ts       ← Sprint S1-R (6 testes T1–T6)
 ├── shield.multisource-resolution.test.ts  ← Sprint S1-R (13 testes T1–T13)
+├── shield.workflow.test.ts                ← Sprint S2 (17 testes T1–T17)
 ├── consultant.plane.test.ts               ← Sprint E-FIX (8 testes)
 ├── governance.flow.test.ts                ← integração completa
 ├── governance.integration.test.ts         ← integração completa
 └── security.tenant-isolation.test.ts      ← integração completa
 ```
 
-## Tabelas Shield (11 tabelas — migration 047–049)
+## Tabelas Shield (11 tabelas — migration 047–052)
 
 | Tabela | Migration | Descrição |
 |--------|-----------|-----------|
@@ -149,7 +152,7 @@ src/__tests__/
 # Suíte padrão (sem banco — 542 testes, 49 arquivos)
 npx vitest run
 
-# Suíte completa com banco (593+ testes)
+# Suíte completa com banco (621 testes — 542 padrão + 79 DB integration)
 DATABASE_URL=postgresql://postgres:GovAI2026@Admin@localhost:5432/govai_platform npx vitest run
 
 # Com coverage

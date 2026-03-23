@@ -29,7 +29,14 @@ import {
     generateExecutivePosture,
     dedupeFindings,
     syncShieldToolsWithCatalog,
+    assignShieldFindingOwner,
+    listShieldFindingActions,
+    listShieldPostureForConsultant,
 } from '../lib/shield';
+import {
+    getConsultantAssignment,
+    logConsultantAction,
+} from '../lib/consultant-auth';
 import { collectMicrosoftOAuthGrants } from '../lib/shield-oauth-collector';
 import { generateExecutiveReport } from '../lib/shield-report';
 import {
@@ -201,6 +208,7 @@ export async function shieldRoutes(
         const { userId } = request.user ?? {};
         const { note } = (request.body as any) ?? {};
         if (!userId) return reply.status(401).send({ error: 'Não autenticado.' });
+        if (!note?.trim()) return reply.status(400).send({ error: 'Justificativa obrigatória (note).' });
         await acceptRisk(pgPool, id, userId, note);
         return reply.send({ success: true, findingId: id });
     });
@@ -211,9 +219,11 @@ export async function shieldRoutes(
     }, async (request: any, reply) => {
         const { id } = request.params as { id: string };
         const { userId } = request.user ?? {};
-        const { note } = (request.body as any) ?? {};
+        const { reason, note } = (request.body as any) ?? {};
+        const dismissReason = reason ?? note;  // aceita ambos os nomes de campo
         if (!userId) return reply.status(401).send({ error: 'Não autenticado.' });
-        await dismissFinding(pgPool, id, userId, note);
+        if (!dismissReason?.trim()) return reply.status(400).send({ error: 'Motivo obrigatório (reason).' });
+        await dismissFinding(pgPool, id, userId, dismissReason);
         return reply.send({ success: true, findingId: id });
     });
 
@@ -520,5 +530,116 @@ export async function shieldRoutes(
 
         const result = await syncShieldToolsWithCatalog(pgPool, orgId);
         return reply.send(result);
+    });
+
+    // ── POST /v1/admin/shield/findings/:id/assign-owner (Sprint S2) ───────────
+    fastify.post('/v1/admin/shield/findings/:id/assign-owner', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { id } = request.params as { id: string };
+        const { userId } = request.user ?? {};
+        const { ownerCandidateHash, note } = (request.body as any) ?? {};
+        if (!userId) return reply.status(401).send({ error: 'Não autenticado.' });
+        if (!ownerCandidateHash) return reply.status(400).send({ error: 'ownerCandidateHash obrigatório.' });
+        await assignShieldFindingOwner(pgPool, id, ownerCandidateHash, userId, note);
+        return reply.send({ success: true, findingId: id });
+    });
+
+    // ── GET /v1/admin/shield/findings/:id/actions (Sprint S2) ────────────────
+    fastify.get('/v1/admin/shield/findings/:id/actions', {
+        preHandler: requireRole(['admin', 'auditor', 'dpo']),
+    }, async (request: any, reply) => {
+        const { id } = request.params as { id: string };
+        // Buscar org_id sem RLS (lookup de controle)
+        const findingRow = await pgPool.query(
+            'SELECT org_id FROM shield_findings WHERE id = $1', [id]
+        );
+        if (findingRow.rows.length === 0) {
+            return reply.status(404).send({ error: 'Finding não encontrado.' });
+        }
+        const orgId = findingRow.rows[0].org_id as string;
+        const actions = await listShieldFindingActions(pgPool, orgId, id);
+        return reply.send({ actions, total: actions.length });
+    });
+
+    // ── Consultant Shield Views (Sprint S2) ───────────────────────────────────
+    //
+    // Todas as rotas consultant requerem:
+    //   1. Usuário autenticado (userId presente em request.user)
+    //   2. Assignment ativo em consultant_assignments → 403 rigoroso se ausente
+    //
+    // Nota: testa rota real + banco real + autorização de domínio via
+    // getConsultantAssignment. Não testa emissão/validação de JWT.
+
+    // ── GET /v1/consultant/tenants/:tenantOrgId/shield/posture ────────────────
+    fastify.get('/v1/consultant/tenants/:tenantOrgId/shield/posture', {
+        preHandler: requireRole(['admin', 'operator']),
+    }, async (request: any, reply) => {
+        const { tenantOrgId } = request.params as { tenantOrgId: string };
+        const { userId } = request.user ?? {};
+        if (!userId) return reply.status(401).send({ error: 'Não autenticado.' });
+
+        const assignment = await getConsultantAssignment(pgPool, userId, tenantOrgId);
+        if (!assignment) {
+            return reply.status(403).send({ error: 'Acesso negado. Sem atribuição ativa para este tenant.' });
+        }
+
+        const posture = await listShieldPostureForConsultant(pgPool, tenantOrgId);
+        await logConsultantAction(pgPool, userId, tenantOrgId, 'SHIELD_POSTURE_VIEW', {
+            openFindings: posture.openFindings,
+        });
+        return reply.send(posture);
+    });
+
+    // ── GET /v1/consultant/tenants/:tenantOrgId/shield/findings ──────────────
+    fastify.get('/v1/consultant/tenants/:tenantOrgId/shield/findings', {
+        preHandler: requireRole(['admin', 'operator']),
+    }, async (request: any, reply) => {
+        const { tenantOrgId } = request.params as { tenantOrgId: string };
+        const { userId } = request.user ?? {};
+        const { status, severity, limit } = request.query as any;
+        if (!userId) return reply.status(401).send({ error: 'Não autenticado.' });
+
+        const assignment = await getConsultantAssignment(pgPool, userId, tenantOrgId);
+        if (!assignment) {
+            return reply.status(403).send({ error: 'Acesso negado. Sem atribuição ativa para este tenant.' });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(
+                "SELECT set_config('app.current_org_id', $1, false)", [tenantOrgId]
+            );
+            const findings = await listShieldFindings(client, {
+                orgId:    tenantOrgId,
+                status:   status   ?? undefined,
+                severity: severity ?? undefined,
+                limit:    limit ? parseInt(limit, 10) : 50,
+            });
+            await logConsultantAction(pgPool, userId, tenantOrgId, 'SHIELD_FINDINGS_VIEW', {
+                count: findings.length,
+            });
+            return reply.send({ findings, total: findings.length });
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+    // ── GET /v1/consultant/tenants/:tenantOrgId/shield/findings/:id/actions ──
+    fastify.get('/v1/consultant/tenants/:tenantOrgId/shield/findings/:id/actions', {
+        preHandler: requireRole(['admin', 'operator']),
+    }, async (request: any, reply) => {
+        const { tenantOrgId, id } = request.params as { tenantOrgId: string; id: string };
+        const { userId } = request.user ?? {};
+        if (!userId) return reply.status(401).send({ error: 'Não autenticado.' });
+
+        const assignment = await getConsultantAssignment(pgPool, userId, tenantOrgId);
+        if (!assignment) {
+            return reply.status(403).send({ error: 'Acesso negado. Sem atribuição ativa para este tenant.' });
+        }
+
+        const actions = await listShieldFindingActions(pgPool, tenantOrgId, id);
+        return reply.send({ actions, total: actions.length });
     });
 }

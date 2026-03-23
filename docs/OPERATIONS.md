@@ -46,7 +46,7 @@ docker logs govaigrcplatform-api-1 --tail=50 -f
 # Suíte padrão (542 testes, 49 arquivos, sem banco)
 npx vitest run
 
-# Suíte completa com banco (542 padrão + 62 garantias DB real)
+# Suíte completa com banco (542 padrão + 79 garantias DB real = 621 total)
 DATABASE_URL=postgresql://postgres:GovAI2026@Admin@localhost:5432/govai_platform npx vitest run
 
 # Health check da API
@@ -84,7 +84,7 @@ docker compose up -d --no-deps --force-recreate api
 
 ## Migrations
 
-Todas as migrations são numeradas (`011_*.sql` … `051_*.sql`) e aplicadas em ordem pelo `scripts/migrate.sh`. Total: **40 migrations** (011–051, excluindo 050).
+Todas as migrations são numeradas (`011_*.sql` … `052_*.sql`) e aplicadas em ordem pelo `scripts/migrate.sh`. Total: **41 migrations** (011–052, excluindo 050).
 
 ```bash
 # Ver migrations aplicadas

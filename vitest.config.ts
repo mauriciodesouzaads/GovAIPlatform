@@ -35,6 +35,8 @@ const integrationTestPatterns = [
     // Sprint S1-R: Network Collector + Multisource Resolution
     'src/__tests__/shield.network-collector.test.ts',
     'src/__tests__/shield.multisource-resolution.test.ts',
+    // Sprint S2: Finding Workflow & Consultant Value
+    'src/__tests__/shield.workflow.test.ts',
 ];
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
