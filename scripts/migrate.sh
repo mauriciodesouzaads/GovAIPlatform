@@ -74,6 +74,7 @@ MIGRATIONS=(
     "047_shield_core.sql"
     "048_shield_f2a.sql"
     "049_shield_complete.sql"
+    "051_shield_multisource_resolution.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

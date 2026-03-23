@@ -4,15 +4,14 @@
 
 | Métrica | Valor |
 |---------|-------|
-| **Suíte padrão (sem DATABASE_URL)** | 542 testes · 50 arquivos |
-| **Suíte de integração (DATABASE_URL)** | +36 garantias com banco real |
-| **Total com banco** | 593+ (542 + 36 garantias confirmadas) |
-| **Total de arquivos** | 57 (50 padrão + 7 integração) |
-| **Status** | ✅ Suíte padrão: 542 passando |
+| **Suíte padrão (sem DATABASE_URL)** | 542 testes · 49 arquivos |
+| **Suíte de integração (DATABASE_URL)** | +55 garantias (62 testes DB real confirmados) |
+| **Total de arquivos** | 59 (49 padrão + 10 integração) |
+| **Status** | ✅ Suíte padrão: 542 passando (DATABASE_URL='' npx vitest run) |
 | **Última execução** | 2026-03-22 |
-| **Comando (suíte padrão)** | `npx vitest run` |
+| **Comando (suíte padrão)** | `DATABASE_URL='' npx vitest run` |
 | **Comando (suíte completa)** | `DATABASE_URL=postgresql://... npx vitest run` |
-| **Versão** | v1.2.0 (Sprint Shield Complete) |
+| **Versão** | v1.3.0 (Sprint Shield S1-R) |
 
 ## Cobertura por sprint
 
@@ -28,8 +27,9 @@
 | Sprint F | +10 DB real | Shield Core (normalização, rollups, findings, promote, RLS, endpoint) |
 | Sprint F2a | +12 DB real | Risk engine (scoreVersion, recommendedAction, category) — movido para integrationTestPatterns em CI fix #86 |
 | **Sprint Shield Complete** | **+43 integração** | Finding workflow, Google collector, posture snapshot, rotas novas |
+| **Sprint S1-R** | **+19 integração** | Network collector, multisource correlation, dedupe, catalog sync, owner candidate |
 | **Suíte padrão** | **542** | |
-| **Com banco (+garantias)** | **593+** | |
+| **Com banco (+garantias)** | **604** (542 + 62 DB integration confirmados) | |
 
 ## Separação por tipo de execução
 
@@ -43,6 +43,8 @@
 | DB + API real | `shield.core.test.ts` | **Sim** | 23 (T1–T13, T20–T23) |
 | DB + API real | `shield.collector.test.ts` | **Sim** | 8 (T1–T8 incl. Google) |
 | DB real | `shield.risk-engine.test.ts` | **Sim** | 12 (T1–T11, requer DATABASE_URL) |
+| DB + API real | `shield.network-collector.test.ts` | **Sim** | 6 (T1–T2 pura, T3–T6 DB real) |
+| DB + API real | `shield.multisource-resolution.test.ts` | **Sim** | 13 (T1–T2 pura, T3–T13 DB + rota real) |
 | DB real | `governance.flow.test.ts` | **Sim** | — |
 | DB real | `governance.integration.test.ts` | **Sim** | — |
 | DB real | `security.tenant-isolation.test.ts` | **Sim** | — |
@@ -109,18 +111,20 @@ src/__tests__/
 └── session.model.test.ts
 ```
 
-### Integração com banco (8 arquivos — requerem DATABASE_URL)
+### Integração com banco (10 arquivos — requerem DATABASE_URL)
 
 ```
 src/__tests__/
-├── compliance.guarantees.test.ts       ← Sprint E-FIX + Pre-F (11 testes)
-├── shield.core.test.ts                 ← Sprint Shield Complete (23 testes T1–T13, T20–T23)
-├── shield.collector.test.ts            ← Sprint Shield Complete (8 testes T1–T8)
-├── shield.risk-engine.test.ts          ← Sprint F2a / CI fix #86 (12 testes T1–T11)
-├── consultant.plane.test.ts            ← Sprint E-FIX (8 testes)
-├── governance.flow.test.ts             ← integração completa
-├── governance.integration.test.ts      ← integração completa
-└── security.tenant-isolation.test.ts   ← integração completa
+├── compliance.guarantees.test.ts          ← Sprint E-FIX + Pre-F (11 testes)
+├── shield.core.test.ts                    ← Sprint Shield Complete (23 testes T1–T13, T20–T23)
+├── shield.collector.test.ts               ← Sprint Shield Complete (8 testes T1–T8)
+├── shield.risk-engine.test.ts             ← Sprint F2a / CI fix #86 (12 testes T1–T11)
+├── shield.network-collector.test.ts       ← Sprint S1-R (6 testes T1–T6)
+├── shield.multisource-resolution.test.ts  ← Sprint S1-R (13 testes T1–T13)
+├── consultant.plane.test.ts               ← Sprint E-FIX (8 testes)
+├── governance.flow.test.ts                ← integração completa
+├── governance.integration.test.ts         ← integração completa
+└── security.tenant-isolation.test.ts      ← integração completa
 ```
 
 ## Tabelas Shield (11 tabelas — migration 047–049)

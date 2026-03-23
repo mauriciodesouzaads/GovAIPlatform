@@ -143,6 +143,43 @@ Auditores externos podem executar `DATABASE_URL=postgresql://... npx vitest run 
 
 ---
 
+## Garantias do Shield Network Collector (S1-R)
+
+> Testes T3–T6 requerem `DATABASE_URL`.
+
+| Garantia | Arquivo de Teste | Caso | Mecanismo | Tipo |
+|----------|-----------------|------|-----------|------|
+| `normalizeNetworkSignal` produz `tool_name_normalized` estável e hash SHA-256 | `shield.network-collector.test.ts` | T1 | Lógica pura (trim, lower, sha256) | Lógica pura |
+| `toolNameNormalized` de `normalizeNetworkSignal` é idêntico ao de `normalizeToolName` | `shield.network-collector.test.ts` | T2 | Consistência de normalização | Lógica pura |
+| `storeNetworkCollector` persiste collector com `status=active` | `shield.network-collector.test.ts` | T3 | INSERT no banco real + SELECT | DB real |
+| `ingestNetworkBatch` persiste `user_identifier_hash` SHA-256 (64 chars), nunca email plain | `shield.network-collector.test.ts` | T4 | Hash verificado + ausência de `@` | DB real |
+| Eventos de rede alimentam `shield_observations_raw` com `source_type='network'` | `shield.network-collector.test.ts` | T5 | SELECT no pipeline principal do Shield | DB real |
+| RLS: `shield_network_events_raw` isolado — org errada vê 0 rows | `shield.network-collector.test.ts` | T6 | SET LOCAL ROLE govai_app + set_config | DB real |
+
+---
+
+## Garantias do Shield Multisource Resolution (S1-R)
+
+> Testes T3–T13 requerem `DATABASE_URL`.
+
+| Garantia | Arquivo de Teste | Caso | Mecanismo | Tipo |
+|----------|-----------------|------|-----------|------|
+| `mergeOrUpdateFinding` (1ª fonte) cria finding com `source_types=['oauth']`, `correlation_count=1` | `shield.multisource-resolution.test.ts` | T1 | Lógica pura (mock pool) | Lógica pura |
+| Segunda fonte faz merge: `source_types=['oauth','network']`, `correlation_count=2`, `risk_score` elevado | `shield.multisource-resolution.test.ts` | T2 | Lógica pura (mock pool) | Lógica pura |
+| `mergeOrUpdateFinding` no banco real cria + atualiza finding com múltiplas fontes | `shield.multisource-resolution.test.ts` | T3 | INSERT/UPDATE no banco real | DB real |
+| `dedupeFindings` consolida duplicatas: mantém oldest, fecha outros como `resolved` | `shield.multisource-resolution.test.ts` | T4 | INSERT forçado + dedupeFindings + SELECT | DB real |
+| `syncShieldToolsWithCatalog` mapeia `lifecycle_state=published` → `approval_status=approved`, `sanctioned=true` | `shield.multisource-resolution.test.ts` | T5 | INSERT assistant + syncShieldToolsWithCatalog | DB real |
+| `generateShieldFindings` não cria finding para ferramenta aprovada (`sanctioned=true`) | `shield.multisource-resolution.test.ts` | T6 | `approval_status` real do catálogo | DB real |
+| `computeOwnerCandidate` retorna hash dominante (≥3 obs); retorna `null` quando dados insuficientes | `shield.multisource-resolution.test.ts` | T7 | SELECT frequency no banco real | DB real |
+| `promoteShieldFindingToCatalog` funciona com finding multissinal; cria evidence + action log | `shield.multisource-resolution.test.ts` | T8 | INSERT assistants + evidence + action log | DB real |
+| RLS: `shield_findings` isolado — org errada vê 0 findings da org correta | `shield.multisource-resolution.test.ts` | T9 | SET LOCAL ROLE govai_app + set_config | DB real |
+| `listShieldFindings` retorna array para a org correta | `shield.multisource-resolution.test.ts` | T10 | SELECT no banco real | DB real |
+| Endpoint `POST /network/collectors` → 201 com collector record | `shield.multisource-resolution.test.ts` | T11 | Fastify inject real | API real |
+| Endpoint `POST /network/collectors/:id/ingest` → 200 com `ingested=1` | `shield.multisource-resolution.test.ts` | T12 | Fastify inject real | API real |
+| Endpoint `GET /findings` → 200 com array | `shield.multisource-resolution.test.ts` | T13 | Fastify inject real | API real |
+
+---
+
 ## Legenda dos Tipos
 
 | Tipo | Descrição |
@@ -165,6 +202,12 @@ DATABASE_URL=postgresql://... npx vitest run src/__tests__/compliance.guarantees
 # Apenas Consultant Plane (requer banco)
 DATABASE_URL=postgresql://... npx vitest run src/__tests__/consultant.plane.test.ts --reporter=verbose
 
+# Shield Network Collector (requer banco — 6 testes)
+DATABASE_URL=postgresql://... npx vitest run src/__tests__/shield.network-collector.test.ts --reporter=verbose
+
+# Shield Multisource Resolution (requer banco — 13 testes)
+DATABASE_URL=postgresql://... npx vitest run src/__tests__/shield.multisource-resolution.test.ts --reporter=verbose
+
 # Todos os testes de integração (requer banco)
 DATABASE_URL=postgresql://... npx vitest run --reporter=verbose
 ```
@@ -175,9 +218,9 @@ DATABASE_URL=postgresql://... npx vitest run --reporter=verbose
 
 | Campo | Valor |
 |-------|-------|
-| Versão da plataforma | v1.1.1 |
+| Versão da plataforma | v1.3.0 |
 | Suíte padrão (sem DATABASE_URL) | 542 testes · 49 arquivos |
-| Garantias com banco (DATABASE_URL) | +29 testes (19 anteriores + 10 Shield Core) |
-| Total confirmado com banco | 571+ (542 + 29 garantias) |
+| Garantias com banco (DATABASE_URL) | +62 testes DB integration confirmados |
+| Total confirmado com banco | 604 (542 + 62 garantias DB) |
 | Última atualização | 2026-03-22 |
-| Sprint | F — Shield Core / Detection Foundation |
+| Sprint | S1-R — Shield Multisource Resolution + Baseline Sanity |

@@ -32,6 +32,9 @@ const integrationTestPatterns = [
     // Sprint F2a / Shield Complete: Collector + Risk Engine requerem DATABASE_URL
     'src/__tests__/shield.collector.test.ts',
     'src/__tests__/shield.risk-engine.test.ts',
+    // Sprint S1-R: Network Collector + Multisource Resolution
+    'src/__tests__/shield.network-collector.test.ts',
+    'src/__tests__/shield.multisource-resolution.test.ts',
 ];
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);

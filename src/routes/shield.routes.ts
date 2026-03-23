@@ -27,6 +27,8 @@ import {
     promoteShieldFindingToCatalog,
     listShieldFindings,
     generateExecutivePosture,
+    dedupeFindings,
+    syncShieldToolsWithCatalog,
 } from '../lib/shield';
 import { collectMicrosoftOAuthGrants } from '../lib/shield-oauth-collector';
 import { generateExecutiveReport } from '../lib/shield-report';
@@ -36,6 +38,10 @@ import {
     fetchGoogleObservations,
     ingestGoogleObservations,
 } from '../lib/shield-google-collector';
+import {
+    storeNetworkCollector,
+    ingestNetworkBatch,
+} from '../lib/shield-network-collector';
 
 export async function shieldRoutes(
     fastify: FastifyInstance,
@@ -457,5 +463,62 @@ export async function shieldRoutes(
 
         const report = await generateExecutiveReport(pgPool, orgId, userId);
         return reply.send(report);
+    });
+
+    // ── POST /v1/admin/shield/network/collectors — registrar collector ────────
+    fastify.post('/v1/admin/shield/network/collectors', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { orgId, collectorName, sourceKind } = request.body as any;
+
+        if (!orgId || !collectorName || !sourceKind) {
+            return reply.status(400).send({ error: 'orgId, collectorName e sourceKind são obrigatórios.' });
+        }
+        if (!['proxy', 'swg', 'network'].includes(sourceKind)) {
+            return reply.status(400).send({ error: 'sourceKind deve ser proxy|swg|network.' });
+        }
+
+        const collector = await storeNetworkCollector(pgPool, { orgId, collectorName, sourceKind });
+        return reply.status(201).send(collector);
+    });
+
+    // ── POST /v1/admin/shield/network/collectors/:id/ingest — ingerir lote ───
+    fastify.post('/v1/admin/shield/network/collectors/:id/ingest', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const collectorId = (request.params as any).id as string;
+        const { orgId, events } = request.body as any;
+
+        if (!orgId || !Array.isArray(events)) {
+            return reply.status(400).send({ error: 'orgId e events[] são obrigatórios.' });
+        }
+        if (events.length === 0) {
+            return reply.status(400).send({ error: 'events[] não pode ser vazio.' });
+        }
+
+        const result = await ingestNetworkBatch(pgPool, orgId, collectorId, events);
+        return reply.send(result);
+    });
+
+    // ── POST /v1/admin/shield/dedupe — deduplicar findings ───────────────────
+    fastify.post('/v1/admin/shield/dedupe', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { orgId } = request.body as any;
+        if (!orgId) return reply.status(400).send({ error: 'orgId é obrigatório.' });
+
+        const result = await dedupeFindings(pgPool, orgId);
+        return reply.send(result);
+    });
+
+    // ── POST /v1/admin/shield/sync-catalog — sync approval_status ────────────
+    fastify.post('/v1/admin/shield/sync-catalog', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { orgId } = request.body as any;
+        if (!orgId) return reply.status(400).send({ error: 'orgId é obrigatório.' });
+
+        const result = await syncShieldToolsWithCatalog(pgPool, orgId);
+        return reply.send(result);
     });
 }

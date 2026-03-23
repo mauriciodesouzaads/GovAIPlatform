@@ -10,8 +10,11 @@
  *   - workflow completo de findings:
  *       acknowledge / accept_risk / dismiss / resolve / reopen / promote
  *   - postura executiva persistida em shield_posture_snapshots
+ *   - deduplicação e correlação multissinal (Sprint S1-R)
+ *   - sync de approval_status com Catálogo (Sprint S1-R)
+ *   - owner/team candidate por heurística (Sprint S1-R)
  *
- * Coleta disponível: manual (via API) + Microsoft Graph OAuth + Google Workspace.
+ * Coleta disponível: manual + Microsoft Graph OAuth + Google Workspace + Network/SWG.
  * Workers/BullMQ: não implementado — coleta admin-triggered nesta sprint.
  * SSE/CASB/browser extension: ver ADR-004 para roadmap.
  *
@@ -33,7 +36,9 @@ export interface ShieldObservationPayload {
     orgId: string;
     sourceType: 'manual' | 'oauth' | 'network' | 'browser' | 'api';
     toolName: string;
+    toolNameNormalized?: string;     // opcional: se não fornecido, derivado de normalizeToolName
     userIdentifier?: string | null;  // nunca armazenar cru — será hashed
+    userIdentifierHash?: string | null; // pré-hashed — usado pelo network collector
     departmentHint?: string | null;
     observedAt: Date | string;
     rawData?: Record<string, unknown>;
@@ -90,10 +95,10 @@ export async function recordShieldObservation(
     db: DbClient,
     payload: ShieldObservationPayload
 ): Promise<{ id: string }> {
-    const toolNameNormalized = normalizeToolName(payload.toolName);
-    const userIdentifierHash = payload.userIdentifier
-        ? hashUserIdentifier(payload.userIdentifier)
-        : null;
+    const toolNameNormalized = payload.toolNameNormalized ?? normalizeToolName(payload.toolName);
+    // userIdentifierHash: aceita pré-hashed (do network collector) ou deriva de userIdentifier
+    const userIdentifierHash = payload.userIdentifierHash
+        ?? (payload.userIdentifier ? hashUserIdentifier(payload.userIdentifier) : null);
 
     const result = await (db as Pool).query(
         `INSERT INTO shield_observations_raw
@@ -867,4 +872,377 @@ export async function generateExecutivePosture(
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
         client.release();
     }
+}
+
+// ── mergeOrUpdateFinding ───────────────────────────────────────────────────────
+
+/**
+ * Consolida sinais de múltiplas fontes em um finding coerente.
+ *
+ * Se já existe finding open/acknowledged para (org_id, tool_name_normalized):
+ *   - incrementa correlation_count
+ *   - atualiza source_types com a nova fonte (sem duplicatas)
+ *   - recalcula severity se o novo score for mais alto
+ *   - atualiza observation_count e unique_users
+ *
+ * Caso contrário, cria novo finding.
+ *
+ * NUNCA gera dois findings independentes para a mesma ferramenta sem justificativa.
+ * Deduplicação é determinística: chave = (org_id, tool_name_normalized, status IN ('open','acknowledged')).
+ */
+export async function mergeOrUpdateFinding(
+    pool: Pool,
+    orgId: string,
+    toolNameNormalized: string,
+    toolName: string,
+    sourceType: string,
+    newScore: {
+        total: number;
+        severity: string;
+        dimensions: Record<string, number>;
+        recommendation: string;
+        promotionCandidate: boolean;
+        recommendedAction: string;
+        category: string;
+        scoreVersion: string;
+    },
+    observationCount: number,
+    uniqueUsers: number,
+    firstSeen: Date | string,
+    lastSeen: Date | string,
+    ownerCandidateHash?: string | null,
+    ownerCandidateSource?: string | null
+): Promise<{ findingId: string; action: 'created' | 'merged' }> {
+    const client = await pool.connect();
+    try {
+        await client.query(
+            "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+        );
+
+        // Verificar finding existente
+        const existing = await client.query(
+            `SELECT id, correlation_count, source_types, risk_score, observation_count, unique_users
+             FROM shield_findings
+             WHERE org_id = $1
+               AND tool_name_normalized = $2
+               AND status IN ('open', 'acknowledged')
+             ORDER BY created_at ASC
+             LIMIT 1`,
+            [orgId, toolNameNormalized]
+        );
+
+        if (existing.rows.length > 0) {
+            const row = existing.rows[0];
+            const findingId = row.id as string;
+            const existingSources: string[] = (row.source_types as string[]) ?? [];
+            const updatedSources = Array.from(new Set([...existingSources, sourceType]));
+            const newCorrelation = (row.correlation_count as number) + (existingSources.includes(sourceType) ? 0 : 1);
+            const newObsCount = (row.observation_count as number) + observationCount;
+            const newUniqueUsers = Math.max(row.unique_users as number, uniqueUsers);
+            // Elevar severity se o novo score for mais alto
+            const newRiskScore = Math.max(row.risk_score as number, newScore.total);
+
+            await client.query(
+                `UPDATE shield_findings
+                 SET source_types       = $1,
+                     correlation_count  = $2,
+                     observation_count  = $3,
+                     unique_users       = $4,
+                     last_seen_at       = $5,
+                     risk_score         = $6,
+                     severity           = $7,
+                     owner_candidate_hash   = COALESCE(owner_candidate_hash, $8),
+                     owner_candidate_source = COALESCE(owner_candidate_source, $9),
+                     updated_at         = NOW()
+                 WHERE id = $10`,
+                [
+                    JSON.stringify(updatedSources),
+                    newCorrelation,
+                    newObsCount,
+                    newUniqueUsers,
+                    lastSeen,
+                    newRiskScore,
+                    newScore.severity,
+                    ownerCandidateHash ?? null,
+                    ownerCandidateSource ?? null,
+                    findingId,
+                ]
+            );
+
+            return { findingId, action: 'merged' };
+        }
+
+        // Criar novo finding
+        const ins = await client.query(
+            `INSERT INTO shield_findings
+             (org_id, tool_name, tool_name_normalized, severity, rationale,
+              first_seen_at, last_seen_at, observation_count, unique_users,
+              risk_score, risk_dimensions, recommendation, promotion_candidate,
+              source_types, correlation_count,
+              owner_candidate_hash, owner_candidate_source,
+              recommended_action, category)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+             RETURNING id`,
+            [
+                orgId, toolName, toolNameNormalized,
+                newScore.severity,
+                `Ferramenta '${toolNameNormalized}' detectada via ${sourceType}. Score: ${newScore.total}.`,
+                firstSeen, lastSeen, observationCount, uniqueUsers,
+                newScore.total,
+                JSON.stringify(newScore.dimensions),
+                newScore.recommendation,
+                newScore.promotionCandidate,
+                JSON.stringify([sourceType]),
+                1,
+                ownerCandidateHash ?? null,
+                ownerCandidateSource ?? null,
+                newScore.recommendedAction,
+                newScore.category,
+            ]
+        );
+
+        return { findingId: ins.rows[0].id as string, action: 'created' };
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── dedupeFindings ────────────────────────────────────────────────────────────
+
+/**
+ * Varre findings open/acknowledged e consolida duplicatas da mesma ferramenta.
+ *
+ * Caso improvável mas defensivo: se dois findings foram criados
+ * para a mesma ferramenta (race condition), mantém o mais antigo
+ * e merge os counters/sources no mais recente, depois fecha o duplicado.
+ */
+export async function dedupeFindings(
+    pool: Pool,
+    orgId: string
+): Promise<{ deduped: number }> {
+    const client = await pool.connect();
+    let deduped = 0;
+    try {
+        await client.query(
+            "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+        );
+
+        // Agrupar findings ativos por tool_name_normalized, ordenado por created_at
+        const groups = await client.query(
+            `SELECT tool_name_normalized,
+                    array_agg(id ORDER BY created_at ASC) AS finding_ids
+             FROM shield_findings
+             WHERE org_id = $1
+               AND status IN ('open', 'acknowledged')
+             GROUP BY tool_name_normalized
+             HAVING COUNT(*) > 1`,
+            [orgId]
+        );
+
+        for (const row of groups.rows) {
+            const ids = row.finding_ids as string[];
+            const keepId = ids[0]; // mais antigo
+            const dupeIds = ids.slice(1);
+
+            // Agregar sources e counts dos duplicados
+            const dupesData = await client.query(
+                `SELECT source_types, correlation_count, observation_count, unique_users
+                 FROM shield_findings WHERE id = ANY($1::uuid[])`,
+                [dupeIds]
+            );
+
+            let allSources: string[] = [];
+            let totalObs = 0;
+            let maxUsers = 0;
+            for (const d of dupesData.rows) {
+                allSources = [...allSources, ...((d.source_types as string[]) ?? [])];
+                totalObs += d.observation_count as number;
+                maxUsers = Math.max(maxUsers, d.unique_users as number);
+            }
+
+            // Buscar dados do finding a manter
+            const keepRow = await client.query(
+                `SELECT source_types, correlation_count, observation_count, unique_users
+                 FROM shield_findings WHERE id = $1`,
+                [keepId]
+            );
+            const keepData = keepRow.rows[0];
+            const mergedSources = Array.from(new Set([
+                ...((keepData.source_types as string[]) ?? []),
+                ...allSources,
+            ]));
+
+            await client.query(
+                `UPDATE shield_findings
+                 SET source_types      = $1,
+                     correlation_count = $2,
+                     observation_count = $3,
+                     unique_users      = $4,
+                     updated_at        = NOW()
+                 WHERE id = $5`,
+                [
+                    JSON.stringify(mergedSources),
+                    mergedSources.length,
+                    (keepData.observation_count as number) + totalObs,
+                    Math.max(keepData.unique_users as number, maxUsers),
+                    keepId,
+                ]
+            );
+
+            // Fechar duplicatas como resolved (não deletar — audit trail)
+            await client.query(
+                `UPDATE shield_findings
+                 SET status = 'resolved',
+                     resolved_at = NOW(),
+                     updated_at = NOW()
+                 WHERE id = ANY($1::uuid[])`,
+                [dupeIds]
+            );
+
+            deduped += dupeIds.length;
+        }
+
+        return { deduped };
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── syncShieldToolsWithCatalog ────────────────────────────────────────────────
+
+/**
+ * Reflete em shield_tools o estado real do Catálogo (assistants + approval_status).
+ *
+ * Para cada ferramenta em shield_tools, busca o assistant correspondente
+ * pelo tool_name_normalized e atualiza approval_status e sanctioned.
+ *
+ * - approval_status vem do lifecycle_state do Catálogo:
+ *     published → approved
+ *     deprecated/archived/suspended → restricted
+ *     draft → unknown (não alterar)
+ * - sanctioned = (approval_status === 'approved')
+ * - NÃO hardcoded — usa dados reais do banco
+ *
+ * Nota: a correspondência é por tool_name_normalized ↔ assistants.name_normalized
+ * (ou assistants.name ILIKE). Best-effort: sem correspondência = sem alteração.
+ */
+export async function syncShieldToolsWithCatalog(
+    pool: Pool,
+    orgId: string
+): Promise<{ synced: number }> {
+    const client = await pool.connect();
+    let synced = 0;
+    try {
+        await client.query(
+            "SELECT set_config('app.current_org_id', $1, false)", [orgId]
+        );
+
+        // Buscar ferramentas ainda sem status definitivo
+        const tools = await client.query(
+            `SELECT id, tool_name_normalized FROM shield_tools
+             WHERE org_id = $1`,
+            [orgId]
+        );
+
+        for (const tool of tools.rows) {
+            const normalized = tool.tool_name_normalized as string;
+
+            // Buscar assistant correspondente no Catálogo por nome normalizado
+            const match = await client.query(
+                `SELECT lifecycle_state
+                 FROM assistants
+                 WHERE org_id = $1
+                   AND LOWER(REGEXP_REPLACE(name, '[^a-z0-9]', ' ', 'gi')) = $2
+                 ORDER BY created_at DESC
+                 LIMIT 1`,
+                [orgId, normalized]
+            );
+
+            if (match.rows.length === 0) continue;
+
+            const lifecycleState = match.rows[0].lifecycle_state as string;
+            let approvalStatus: string;
+            let sanctioned: boolean;
+
+            switch (lifecycleState) {
+                case 'published':
+                    approvalStatus = 'approved';
+                    sanctioned = true;
+                    break;
+                case 'deprecated':
+                case 'archived':
+                case 'suspended':
+                    approvalStatus = 'restricted';
+                    sanctioned = false;
+                    break;
+                default:
+                    // draft, under_review etc → manter como está
+                    continue;
+            }
+
+            await client.query(
+                `UPDATE shield_tools
+                 SET approval_status = $1,
+                     sanctioned      = $2,
+                     updated_at      = NOW()
+                 WHERE id = $3`,
+                [approvalStatus, sanctioned, tool.id as string]
+            );
+            synced++;
+        }
+
+        return { synced };
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── computeOwnerCandidate ──────────────────────────────────────────────────────
+
+/**
+ * Heurística mínima para owner/team candidate de um finding.
+ *
+ * Estratégia:
+ *   1. Busca o user_identifier_hash mais frequente nas observações da ferramenta
+ *   2. Se há department_hint disponível, usa como source
+ *   3. Retorna null se não há base mínima (< 3 observações do mesmo hash)
+ *
+ * É apenas um candidate — não uma verdade.
+ * Sem IA, sem overengineering.
+ */
+export async function computeOwnerCandidate(
+    pool: Pool,
+    orgId: string,
+    toolNameNormalized: string
+): Promise<{ ownerCandidateHash: string | null; ownerCandidateSource: string | null }> {
+    const result = await pool.query(
+        `SELECT user_identifier_hash,
+                COUNT(*)            AS freq,
+                MAX(department_hint) AS department_hint
+         FROM shield_observations_raw
+         WHERE org_id = $1
+           AND tool_name_normalized = $2
+           AND user_identifier_hash IS NOT NULL
+         GROUP BY user_identifier_hash
+         ORDER BY freq DESC
+         LIMIT 1`,
+        [orgId, toolNameNormalized]
+    );
+
+    if (result.rows.length === 0 || (result.rows[0].freq as number) < 3) {
+        return { ownerCandidateHash: null, ownerCandidateSource: null };
+    }
+
+    const row = result.rows[0];
+    const source = row.department_hint
+        ? `department:${row.department_hint}`
+        : 'frequency_heuristic';
+
+    return {
+        ownerCandidateHash:   row.user_identifier_hash as string,
+        ownerCandidateSource: source,
+    };
 }
