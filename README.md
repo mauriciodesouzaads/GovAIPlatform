@@ -9,7 +9,7 @@
 
 <br/><br/>
 
-<img src="https://img.shields.io/badge/tests-542_passing_%2B_79_DB_real-00ff88?style=flat-square" />
+<img src="https://img.shields.io/badge/tests-542_passing_%2B_14_integration_suites-00ff88?style=flat-square" />
 <img src="https://img.shields.io/badge/coverage-81%25-00ff88?style=flat-square" />
 <img src="https://img.shields.io/badge/CI%2FCD-passing-00ff88?style=flat-square" />
 <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" />
@@ -178,7 +178,7 @@ curl -s -X POST http://localhost:3000/v1/admin/login \
 | PostgreSQL 15 + pgvector | Tailwind CSS v4 | Redis 7 + BullMQ |
 | OPA WASM (Rego policies) | Recharts (dashboards) | LiteLLM proxy |
 | Presidio NLP (Python/FastAPI) | Lucide Icons | Prometheus + Grafana |
-| Vitest (542 padrão + 79 DB real) | TypeScript strict | AlertManager (SMTP + Slack) |
+| Vitest (542 padrão · 49 arquivos + 14 integration suites) | TypeScript strict | AlertManager (SMTP + Slack) |
 | Playwright E2E (5 testes) | Playwright E2E | Nginx (reverse proxy) |
 | Zod validation (todos endpoints) | Axios + SWR | GitHub Actions CI/CD |
 
@@ -208,7 +208,7 @@ govai-platform/
 │   │   ├── audit.worker.ts      # Persist HMAC-signed logs
 │   │   ├── telemetry.worker.ts  # Langfuse export
 │   │   └── expiration.worker.ts # 48h HITL TTL
-│   └── __tests__/               # 542 testes padrão + 79 garantias com banco real
+│   └── __tests__/               # 63 arquivos: 542 testes padrão (49 arq) + 14 suítes integração
 ├── admin-ui/                    # Frontend (Next.js 14)
 │   ├── src/app/
 │   │   ├── page.tsx             # Dashboard + métricas
@@ -232,7 +232,7 @@ govai-platform/
 ├── litellm-config.yaml          # LiteLLM proxy config (Groq llama-3.3-70b-versatile)
 ├── .env.example                 # Template de variáveis de dev
 ├── .env.prod.example            # Template de variáveis de produção
-└── 011–045_*.sql                # Migrations numeradas (35 total)
+└── 011–053_*.sql                # Migrations numeradas (42 total, excl. 050)
 ```
 
 ---
@@ -302,18 +302,20 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ## Testes
 
 ```bash
-# Suíte padrão — 542 testes, 49 arquivos (sem banco)
-npx vitest run
+# Suíte padrão — 542 testes · 49 arquivos (sem banco)
+DATABASE_URL='' npx vitest run
 
-# Suíte completa — 621 testes (inclui 79 garantias com banco real)
+# Suíte de integração — 14 suítes com banco PostgreSQL real
 DATABASE_URL=postgresql://postgres:GovAI2026@Admin@localhost:5432/govai_platform npx vitest run
-npx vitest run --coverage   # coverage ≥ 70% lines/functions, ≥ 60% branches
 
 # TypeScript strict (zero erros)
 npx tsc --noEmit
 
-# Admin UI — build (zero erros TS)
-cd admin-ui && npm run build
+# Admin UI — build (zero erros TS, requer Node ≥ 20)
+cd admin-ui && npm ci && npm run build
+
+# Auditoria do estado do repositório (regenera números canônicos)
+bash scripts/audit_project_state.sh
 
 # E2E Playwright (requer stack rodando em :3000 e :3001)
 cd admin-ui && npx playwright test
@@ -325,7 +327,7 @@ cd admin-ui && npx playwright test
 
 Contribuições são bem-vindas. Antes de abrir um PR:
 
-1. `npx vitest run` — todos os 542 testes devem passar
+1. `DATABASE_URL='' npx vitest run` — todos os 542 testes padrão devem passar
 2. `npx tsc --noEmit` — zero erros TypeScript strict
 3. `npm audit --audit-level=high` — sem vulnerabilidades high/critical
 4. Nenhum secret hardcoded (Gitleaks verifica no CI)

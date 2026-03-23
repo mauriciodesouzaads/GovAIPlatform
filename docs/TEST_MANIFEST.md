@@ -1,64 +1,56 @@
 # GovAI Platform — Test Manifest
 
+> **Gerado por auditoria** — números derivados do repositório via `bash scripts/audit_project_state.sh`.
+> Não editar manualmente. Regenerar após cada sprint.
+
 ## Contagem verificada
 
 | Métrica | Valor |
 |---------|-------|
+| **Total de arquivos de teste** | 63 arquivos |
 | **Suíte padrão (sem DATABASE_URL)** | 542 testes · 49 arquivos |
-| **Suíte de integração (DATABASE_URL)** | +79 garantias (79 testes DB real confirmados) |
-| **Total de arquivos** | 60 (49 padrão + 11 integração) |
-| **Status** | ✅ Suíte padrão: 542 passando (DATABASE_URL='' npx vitest run) |
-| **Última execução** | 2026-03-22 |
+| **Suítes de integração (DATABASE_URL)** | 14 arquivos (requerem banco PostgreSQL real) |
+| **Status suíte padrão** | ✅ 542 passando |
+| **Última execução verificada** | 2026-03-22 |
 | **Comando (suíte padrão)** | `DATABASE_URL='' npx vitest run` |
-| **Comando (suíte completa)** | `DATABASE_URL=postgresql://... npx vitest run` |
-| **Versão** | v1.4.0 (Sprint Shield S2) |
+| **Comando (suíte integração)** | `DATABASE_URL=postgresql://... npx vitest run` |
+| **Versão** | v1.5.0 (Sprint Shield S3) |
 
 ## Cobertura por sprint
 
-| Sprint | Testes adicionados | Área coberta |
-|--------|--------------------|--------------|
-| Baseline | ~460 | Auth, HITL, DLP, OPA, FinOps, RAG, API Keys, Orgs |
-| Sprint B | +10 | Policy snapshots, policy exceptions |
-| Sprint C | +8 | Evidence domain (recordEvidence, linkEvidence, getEvidenceChain) |
-| Sprint D | +8 | Catalog lifecycle (submit-review, catalog-review, suspend, archive) |
-| Sprint E | +19 mock | Consultant Plane + compliance guarantees (mock pool) |
-| Sprint E-FIX | rewrite | 19 mock → 19 DB real (movidos para integrationTestPatterns) |
-| Sprint Pre-F | +1 | T6b: is_active=false excluído da query de auth |
-| Sprint F | +10 DB real | Shield Core (normalização, rollups, findings, promote, RLS, endpoint) |
-| Sprint F2a | +12 DB real | Risk engine (scoreVersion, recommendedAction, category) — movido para integrationTestPatterns em CI fix #86 |
-| **Sprint Shield Complete** | **+43 integração** | Finding workflow, Google collector, posture snapshot, rotas novas |
-| **Sprint S1-R** | **+19 integração** | Network collector, multisource correlation, dedupe, catalog sync, owner candidate |
-| **Sprint S2** | **+17 integração** | Finding workflow (assign-owner, accept-risk, dismiss, resolve, reopen), consultant Shield views, posture unresolved_critical |
-| **Suíte padrão** | **542** | |
-| **Com banco (+garantias)** | **621** (542 + 79 DB integration confirmados) | |
+| Sprint | Arquivos integração | Área coberta |
+|--------|---------------------|--------------|
+| Baseline | — | Auth, HITL, DLP, OPA, FinOps, RAG, API Keys, Orgs (542 padrão) |
+| Sprint B | — | Policy snapshots, policy exceptions |
+| Sprint C | — | Evidence domain |
+| Sprint D | — | Catalog lifecycle |
+| Sprint E / E-FIX | `compliance.guarantees.test.ts`, `consultant.plane.test.ts` | Consultant Plane + compliance guarantees |
+| Sprint F / F2a | `governance.flow.test.ts`, `governance.integration.test.ts`, `security.tenant-isolation.test.ts`, `shield.core.test.ts`, `shield.collector.test.ts`, `shield.risk-engine.test.ts` | Shield Core + Risk Engine |
+| Sprint S1-R | `shield.network-collector.test.ts`, `shield.multisource-resolution.test.ts` | Network collector, multisource correlation |
+| Sprint S2 | `shield.workflow.test.ts` | Finding workflow, consultant Shield views, posture unresolved_critical |
+| **Sprint S3** | **`shield.collector-health.test.ts`, `shield.posture-history.test.ts`, `shield.export.test.ts`** | **Collector health SLOs, posture history, export JSON/CSV, métricas** |
 
-## Separação por tipo de execução
+## Suítes de integração (14 arquivos — requerem DATABASE_URL)
 
-| Tipo | Arquivo | Requer DB | Testes |
-|------|---------|-----------|--------|
-| Lógica pura | `evidence.domain.test.ts` | Não | 8 |
-| Lógica pura | `policy.snapshot.test.ts` | Não | 5 |
-| Lógica pura | `catalog.lifecycle.test.ts` | Não | 8 |
-| DB + API real | `compliance.guarantees.test.ts` | **Sim** | 11 (T1–T10 + T6b) |
-| DB + API real | `consultant.plane.test.ts` | **Sim** | 8 |
-| DB + API real | `shield.core.test.ts` | **Sim** | 23 (T1–T13, T20–T23) |
-| DB + API real | `shield.collector.test.ts` | **Sim** | 8 (T1–T8 incl. Google) |
-| DB real | `shield.risk-engine.test.ts` | **Sim** | 12 (T1–T11, requer DATABASE_URL) |
-| DB + API real | `shield.network-collector.test.ts` | **Sim** | 6 (T1–T2 pura, T3–T6 DB real) |
-| DB + API real | `shield.multisource-resolution.test.ts` | **Sim** | 13 (T1–T2 pura, T3–T13 DB + rota real) |
-| DB + API real | `shield.workflow.test.ts` | **Sim** | 17 (T1–T12 banco real, T13–T17 API real) |
-| DB real | `governance.flow.test.ts` | **Sim** | — |
-| DB real | `governance.integration.test.ts` | **Sim** | — |
-| DB real | `security.tenant-isolation.test.ts` | **Sim** | — |
-| Unitário | demais 46 arquivos | Não | 542 |
-| **Suíte padrão total** | **49 arquivos** | | **542** |
+```
+src/__tests__/
+├── governance.flow.test.ts                ← integração completa
+├── governance.integration.test.ts         ← integração completa
+├── security.tenant-isolation.test.ts      ← isolamento multi-tenant
+├── compliance.guarantees.test.ts          ← Sprint E-FIX (11 testes)
+├── consultant.plane.test.ts               ← Sprint E (8 testes)
+├── shield.core.test.ts                    ← Sprint F (23 testes T1–T13, T20–T23)
+├── shield.collector.test.ts               ← Sprint F (8 testes T1–T8)
+├── shield.risk-engine.test.ts             ← Sprint F2a (12 testes T1–T11)
+├── shield.network-collector.test.ts       ← Sprint S1-R (6 testes T1–T6)
+├── shield.multisource-resolution.test.ts  ← Sprint S1-R (13 testes T1–T13)
+├── shield.workflow.test.ts                ← Sprint S2 (17 testes T1–T17)
+├── shield.collector-health.test.ts        ← Sprint S3 (6 testes T1–T6)
+├── shield.posture-history.test.ts         ← Sprint S3 (6 testes T1–T6)
+└── shield.export.test.ts                  ← Sprint S3 (6 testes T1–T6)
+```
 
-> Nota: `governance.flow`, `governance.integration` e `security.tenant-isolation` não têm
-> contagem de testes exibida pois requerem infraestrutura completa (DB + Redis) para execução.
-
-## Arquivos de teste (57 arquivos)
-
-### Suíte padrão (49 arquivos — `npx vitest run`)
+## Suíte padrão (49 arquivos — `DATABASE_URL='' npx vitest run`)
 
 ```
 src/__tests__/
@@ -71,14 +63,14 @@ src/__tests__/
 ├── auth-oidc.test.ts
 ├── auth.reset.test.ts
 ├── b2b-pillars.test.ts
-├── catalog.lifecycle.test.ts           ← Sprint D
+├── catalog.lifecycle.test.ts
 ├── compliance-report.test.ts
 ├── crypto-service.test.ts
 ├── dlp-extended.test.ts
 ├── dlp.test.ts
 ├── e2e-pg-presidio.test.ts
 ├── e2e.test.ts
-├── evidence.domain.test.ts             ← Sprint C
+├── evidence.domain.test.ts
 ├── execution.service.test.ts
 ├── expiration.worker.test.ts
 ├── governance.test.ts
@@ -91,8 +83,8 @@ src/__tests__/
 ├── oidc.test.ts
 ├── oidc.unified.test.ts
 ├── opa-governance.test.ts
-├── policy.exceptions.test.ts           ← Sprint B
-├── policy.snapshot.test.ts             ← Sprint B
+├── policy.exceptions.test.ts
+├── policy.snapshot.test.ts
 ├── rag-dimension.test.ts
 ├── rag-extended.test.ts
 ├── rag.isolation.test.ts
@@ -113,29 +105,12 @@ src/__tests__/
 └── session.model.test.ts
 ```
 
-### Integração com banco (11 arquivos — requerem DATABASE_URL)
-
-```
-src/__tests__/
-├── compliance.guarantees.test.ts          ← Sprint E-FIX + Pre-F (11 testes)
-├── shield.core.test.ts                    ← Sprint Shield Complete (23 testes T1–T13, T20–T23)
-├── shield.collector.test.ts               ← Sprint Shield Complete (8 testes T1–T8)
-├── shield.risk-engine.test.ts             ← Sprint F2a / CI fix #86 (12 testes T1–T11)
-├── shield.network-collector.test.ts       ← Sprint S1-R (6 testes T1–T6)
-├── shield.multisource-resolution.test.ts  ← Sprint S1-R (13 testes T1–T13)
-├── shield.workflow.test.ts                ← Sprint S2 (17 testes T1–T17)
-├── consultant.plane.test.ts               ← Sprint E-FIX (8 testes)
-├── governance.flow.test.ts                ← integração completa
-├── governance.integration.test.ts         ← integração completa
-└── security.tenant-isolation.test.ts      ← integração completa
-```
-
-## Tabelas Shield (11 tabelas — migration 047–052)
+## Tabelas Shield (13 tabelas — migrations 047–053)
 
 | Tabela | Migration | Descrição |
 |--------|-----------|-----------|
 | `shield_tools` | 047 | Dicionário enriquecido de ferramentas detectadas |
-| `shield_observations_raw` | 047 | Observações brutas de uso (user_identifier_hash) |
+| `shield_observations_raw` | 047 | Observações brutas de uso (user_identifier_hash SHA-256) |
 | `shield_rollups` | 047 | Rollup diário por ferramenta + org |
 | `shield_findings` | 047 | Findings de risco (workflow: open→promoted/resolved) |
 | `shield_executive_reports` | 048 | Relatórios executivos persistidos |
@@ -145,25 +120,23 @@ src/__tests__/
 | `shield_google_tokens` | 049 | Tokens Google (criptografados, hash para dedup) |
 | `shield_finding_actions` | 049 | Log imutável de ações em findings |
 | `shield_posture_snapshots` | 049 | Snapshots executivos de postura de risco |
+| `shield_network_collectors` | 051 | Coletores Network/SWG/Proxy |
+| `shield_network_observations` | 051 | Observações de tráfego de rede |
 
-## Comando completo
+*Migrations 052 e 053 adicionam colunas a tabelas existentes (não criam tabelas novas).*
+
+## Comandos de referência
 
 ```bash
-# Suíte padrão (sem banco — 542 testes, 49 arquivos)
-npx vitest run
+# Suíte padrão (sem banco)
+DATABASE_URL='' npx vitest run
 
-# Suíte completa com banco (621 testes — 542 padrão + 79 DB integration)
+# Suíte de integração completa (banco real)
 DATABASE_URL=postgresql://postgres:GovAI2026@Admin@localhost:5432/govai_platform npx vitest run
 
-# Com coverage
-npx vitest run --coverage
+# Arquivo individual (exemplo)
+DATABASE_URL=postgresql://... npx vitest run src/__tests__/shield.export.test.ts --reporter=verbose
 
-# Shield Core (banco real — 23 testes)
-DATABASE_URL=postgresql://... npx vitest run src/__tests__/shield.core.test.ts --reporter=verbose
-
-# Shield Collector (banco real — 8 testes)
-DATABASE_URL=postgresql://... npx vitest run src/__tests__/shield.collector.test.ts --reporter=verbose
-
-# Apenas garantias de compliance (banco real — 11 testes)
-DATABASE_URL=postgresql://... npx vitest run src/__tests__/compliance.guarantees.test.ts --reporter=verbose
+# Regenerar este manifesto
+bash scripts/audit_project_state.sh
 ```

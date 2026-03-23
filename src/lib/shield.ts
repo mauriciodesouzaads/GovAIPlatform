@@ -859,6 +859,25 @@ export async function generateExecutivePosture(
             severity: r.severity as string,
         }));
 
+        // Sanctioned vs unsanctioned (Sprint S3)
+        const toolsCount = await client.query(
+            `SELECT
+               COUNT(*)                                          AS total,
+               COUNT(*) FILTER (WHERE sanctioned = true)        AS sanctioned,
+               COUNT(*) FILTER (WHERE sanctioned IS DISTINCT FROM true) AS unsanctioned,
+               COUNT(*) FILTER (WHERE approval_status != 'unknown') AS governed
+             FROM shield_tools WHERE org_id = $1`,
+            [orgId]
+        );
+        const tc = toolsCount.rows[0];
+        const sanctionedCount   = parseInt(tc?.sanctioned   ?? '0');
+        const unsanctionedCount = parseInt(tc?.unsanctioned ?? '0');
+        const totalTools        = parseInt(tc?.total        ?? '0');
+        const governedTools     = parseInt(tc?.governed     ?? '0');
+        const coverageRatio     = totalTools > 0
+            ? parseFloat((governedTools / totalTools).toFixed(4))
+            : null;
+
         // Recomendações dinâmicas
         const recommendations: string[] = [];
         if (criticalCount > 0)
@@ -867,16 +886,19 @@ export async function generateExecutivePosture(
             recommendations.push(`Iniciar catalogação para ${highCount} ferramenta(s) de alto risco.`);
         if (promotedFindings > 0)
             recommendations.push(`${promotedFindings} ferramenta(s) promovida(s) ao catálogo aguardam revisão.`);
+        if (unsanctionedCount > 0)
+            recommendations.push(`${unsanctionedCount} ferramenta(s) não sancionada(s) — revisar política de uso.`);
         if (recommendations.length === 0)
             recommendations.push('Nenhuma ação crítica pendente. Manter monitoramento.');
 
-        // Persistir snapshot
+        // Persistir snapshot (com métricas de cobertura S3)
         const snap = await client.query(
             `INSERT INTO shield_posture_snapshots
              (org_id, posture, summary_score, open_findings,
               promoted_findings, accepted_risk, top_tools, recommendations,
-              unresolved_critical)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+              unresolved_critical, sanctioned_count, unsanctioned_count,
+              total_tools, coverage_ratio)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
              RETURNING id`,
             [
                 orgId,
@@ -888,6 +910,10 @@ export async function generateExecutivePosture(
                 JSON.stringify(topTools),
                 JSON.stringify(recommendations),
                 unresolvedCritical,
+                sanctionedCount,
+                unsanctionedCount,
+                totalTools,
+                coverageRatio,
             ]
         );
         const snapshotId = snap.rows[0].id as string;

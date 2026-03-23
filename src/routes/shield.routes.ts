@@ -37,6 +37,17 @@ import {
     getConsultantAssignment,
     logConsultantAction,
 } from '../lib/consultant-auth';
+import {
+    getCollectorHealth,
+    recordCollectorSuccess,
+    recordCollectorFailure,
+} from '../lib/shield-collector-health';
+import {
+    exportFindingsAsJson,
+    exportFindingsAsCsv,
+    exportPostureAsJson,
+} from '../lib/shield-export';
+import { computeShieldMetrics } from '../lib/shield-metrics';
 import { collectMicrosoftOAuthGrants } from '../lib/shield-oauth-collector';
 import { generateExecutiveReport } from '../lib/shield-report';
 import {
@@ -641,5 +652,98 @@ export async function shieldRoutes(
 
         const actions = await listShieldFindingActions(pgPool, tenantOrgId, id);
         return reply.send({ actions, total: actions.length });
+    });
+
+    // ── Sprint S3 — Enterprise Hardening Routes ───────────────────────────────
+
+    // ── GET /v1/admin/shield/collectors/health ─────────────────────────────────
+    fastify.get('/v1/admin/shield/collectors/health', {
+        preHandler: requireRole(['admin', 'auditor', 'dpo']),
+    }, async (request: any, reply) => {
+        const { orgId } = request.query as any;
+        if (!orgId) return reply.status(400).send({ error: 'orgId obrigatório.' });
+        const health = await getCollectorHealth(pgPool, orgId);
+        return reply.send({ collectors: health, total: health.length });
+    });
+
+    // ── POST /v1/admin/shield/collectors/health/success ───────────────────────
+    // Registra execução bem-sucedida de um collector (chamado pelo próprio collector).
+    fastify.post('/v1/admin/shield/collectors/health/success', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { orgId, kind, collectorId } = request.body as any;
+        if (!orgId || !kind || !collectorId)
+            return reply.status(400).send({ error: 'orgId, kind e collectorId obrigatórios.' });
+        if (!['oauth','google','network'].includes(kind))
+            return reply.status(400).send({ error: 'kind deve ser oauth|google|network.' });
+        await recordCollectorSuccess(pgPool, kind, collectorId, orgId);
+        return reply.send({ success: true });
+    });
+
+    // ── POST /v1/admin/shield/collectors/health/failure ───────────────────────
+    fastify.post('/v1/admin/shield/collectors/health/failure', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { orgId, kind, collectorId, error: errorMsg } = request.body as any;
+        if (!orgId || !kind || !collectorId || !errorMsg)
+            return reply.status(400).send({ error: 'orgId, kind, collectorId e error obrigatórios.' });
+        if (!['oauth','google','network'].includes(kind))
+            return reply.status(400).send({ error: 'kind deve ser oauth|google|network.' });
+        await recordCollectorFailure(pgPool, kind, collectorId, orgId, errorMsg);
+        return reply.send({ success: true });
+    });
+
+    // ── GET /v1/admin/shield/metrics ──────────────────────────────────────────
+    fastify.get('/v1/admin/shield/metrics', {
+        preHandler: requireRole(['admin', 'auditor', 'dpo']),
+    }, async (request: any, reply) => {
+        const { orgId } = request.query as any;
+        if (!orgId) return reply.status(400).send({ error: 'orgId obrigatório.' });
+        const metrics = await computeShieldMetrics(pgPool, orgId);
+        return reply.send(metrics);
+    });
+
+    // ── GET /v1/admin/shield/export/findings ──────────────────────────────────
+    fastify.get('/v1/admin/shield/export/findings', {
+        preHandler: requireRole(['admin', 'auditor', 'dpo']),
+    }, async (request: any, reply) => {
+        const { orgId, status, severity, limit } = request.query as any;
+        if (!orgId) return reply.status(400).send({ error: 'orgId obrigatório.' });
+        const result = await exportFindingsAsJson(pgPool, orgId, {
+            status:   status   ?? undefined,
+            severity: severity ?? undefined,
+            limit:    limit ? parseInt(limit, 10) : 1000,
+        });
+        return reply
+            .header('Content-Type', 'application/json')
+            .send(result);
+    });
+
+    // ── GET /v1/admin/shield/export/findings.csv ──────────────────────────────
+    fastify.get('/v1/admin/shield/export/findings.csv', {
+        preHandler: requireRole(['admin', 'auditor', 'dpo']),
+    }, async (request: any, reply) => {
+        const { orgId, status, severity } = request.query as any;
+        if (!orgId) return reply.status(400).send({ error: 'orgId obrigatório.' });
+        const csv = await exportFindingsAsCsv(pgPool, orgId, {
+            status:   status   ?? undefined,
+            severity: severity ?? undefined,
+        });
+        return reply
+            .header('Content-Type', 'text/csv; charset=utf-8')
+            .header('Content-Disposition', `attachment; filename="shield-findings-${orgId}.csv"`)
+            .send(csv);
+    });
+
+    // ── GET /v1/admin/shield/export/posture ───────────────────────────────────
+    fastify.get('/v1/admin/shield/export/posture', {
+        preHandler: requireRole(['admin', 'auditor', 'dpo']),
+    }, async (request: any, reply) => {
+        const { orgId } = request.query as any;
+        if (!orgId) return reply.status(400).send({ error: 'orgId obrigatório.' });
+        const result = await exportPostureAsJson(pgPool, orgId);
+        return reply
+            .header('Content-Type', 'application/json')
+            .send(result);
     });
 }

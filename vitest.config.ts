@@ -37,6 +37,10 @@ const integrationTestPatterns = [
     'src/__tests__/shield.multisource-resolution.test.ts',
     // Sprint S2: Finding Workflow & Consultant Value
     'src/__tests__/shield.workflow.test.ts',
+    // Sprint S3: Enterprise Hardening
+    'src/__tests__/shield.collector-health.test.ts',
+    'src/__tests__/shield.posture-history.test.ts',
+    'src/__tests__/shield.export.test.ts',
 ];
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
