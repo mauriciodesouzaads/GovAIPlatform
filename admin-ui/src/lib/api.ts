@@ -41,6 +41,27 @@ export const ENDPOINTS = {
     KNOWLEDGE: '/v1/admin/knowledge',
     API_KEYS: '/v1/admin/api-keys',
     REPORTS_COMPLIANCE: '/v1/admin/reports/compliance',
+
+    // Shield Detection
+    SHIELD_POSTURE:           '/v1/admin/shield/posture',
+    SHIELD_POSTURE_GENERATE:  '/v1/admin/shield/posture/generate',
+    SHIELD_POSTURE_HISTORY:   '/v1/admin/shield/posture/history',
+    SHIELD_FINDINGS:          '/v1/admin/shield/findings',
+    SHIELD_FINDING_ACTIONS:   (id: string) => `/v1/admin/shield/findings/${id}/actions`,
+    SHIELD_ACKNOWLEDGE:       (id: string) => `/v1/admin/shield/findings/${id}/acknowledge`,
+    SHIELD_PROMOTE:           (id: string) => `/v1/admin/shield/findings/${id}/promote`,
+    SHIELD_ACCEPT_RISK:       (id: string) => `/v1/admin/shield/findings/${id}/accept-risk`,
+    SHIELD_DISMISS:           (id: string) => `/v1/admin/shield/findings/${id}/dismiss`,
+    SHIELD_SYNC_CATALOG:      '/v1/admin/shield/sync-catalog',
+    SHIELD_DEDUPE:            '/v1/admin/shield/dedupe',
+    SHIELD_METRICS:           '/v1/admin/shield/metrics',
+    SHIELD_EXPORT_JSON:       '/v1/admin/shield/export/findings',
+    SHIELD_EXPORT_CSV:        '/v1/admin/shield/export/findings.csv',
+    SHIELD_COLLECTOR_HEALTH:  '/v1/admin/shield/collectors/health',
+    SHIELD_REPORT_EXECUTIVE:  '/v1/admin/shield/reports/executive',
+
+    // Catalog Registry
+    CATALOG_ASSISTANTS:       '/v1/admin/assistants',
 };
 
 export default api;
