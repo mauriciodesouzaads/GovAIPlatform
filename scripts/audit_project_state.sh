@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # ============================================================================
-# GovAI Platform — Project State Audit
+# GovAI Platform — Project State Audit + Doc Generator
 # ============================================================================
-# Gera um relatório factual do estado atual do repositório.
-# Todos os números vêm do repositório real — nada é escrito manualmente.
+# Coleta números factuais do repositório e GERA os 4 docs canônicos:
+#   README.md, docs/CURRENT_STATE.md, docs/TEST_MANIFEST.md, docs/PRODUCT_SURFACE.md
 #
 # Uso:
-#   bash scripts/audit_project_state.sh
-#   bash scripts/audit_project_state.sh > docs/CURRENT_STATE.md  # não recomendado
+#   bash scripts/audit_project_state.sh          # gera docs + relatório stdout
+#   bash scripts/audit_project_state.sh --check  # só relatório, não gera docs
 #
-# Saída: texto legível para console e regenerável a qualquer momento.
+# Regras: todos os números do repositório real; nada hardcoded.
 # ============================================================================
 
 set -euo pipefail
@@ -18,159 +18,420 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 GEN_DATE="$(date -u '+%Y-%m-%d %H:%M UTC')"
+GEN_DATE_SHORT="$(date -u '+%Y-%m-%d')"
+GENERATE_DOCS=true
+[[ "${1:-}" == "--check" ]] && GENERATE_DOCS=false
 
+# ── COLLECT DATA ─────────────────────────────────────────────────────────────
+
+MIGRATION_COUNT=0
+[ -f scripts/migrate.sh ] && MIGRATION_COUNT=$(grep -c '\.sql"' scripts/migrate.sh || true)
+SQL_FILES=$(ls [0-9][0-9][0-9]_*.sql 2>/dev/null | sort)
+FIRST_MIG=$(echo "$SQL_FILES" | head -1 | sed 's/_.*//')
+LAST_MIG=$(echo "$SQL_FILES"  | tail -1 | sed 's/_.*//')
+
+TOTAL_TEST_FILES=$(find src/__tests__ -maxdepth 1 -name "*.test.ts" -type f | wc -l | tr -d ' ')
+INTEGRATION_FILES_LIST=$(grep -oE "'src/__tests__/[^*]+\.test\.ts'" vitest.config.ts 2>/dev/null | tr -d "'" | sort || true)
+INTEGRATION_FILE_COUNT=$(echo "$INTEGRATION_FILES_LIST" | grep -c . || echo 0)
+STANDARD_FILE_COUNT=$(( TOTAL_TEST_FILES - INTEGRATION_FILE_COUNT ))
+
+STANDARD_TEST_COUNT="(não executado)"
+if command -v npx &>/dev/null; then
+    VITEST_OUT=$(DATABASE_URL='' npx vitest run 2>&1 | tail -4 || true)
+    PARSED=$(echo "$VITEST_OUT" | grep -oE '[0-9]+ passed' | head -1 | awk '{print $1}' || true)
+    [ -n "$PARSED" ] && STANDARD_TEST_COUNT="$PARSED"
+fi
+
+ADMIN_ROUTE_COUNT=$(grep -cE 'fastify\.(get|post|put|delete|patch)\(' src/routes/shield-admin.routes.ts 2>/dev/null || echo 0)
+CONSULTANT_ROUTE_COUNT=$(grep -cE 'fastify\.(get|post|put|delete|patch)\(' src/routes/shield-consultant.routes.ts 2>/dev/null || echo 0)
+SHIELD_ROUTE_COUNT=$(( ADMIN_ROUTE_COUNT + CONSULTANT_ROUTE_COUNT ))
+
+has_file() { [ -f "$1" ] && echo "✓" || echo "✗"; }
+has_dir()  { [ -d "$1" ] && echo "✓" || echo "✗"; }
+D_CORE=$(has_file "src/lib/governance.ts")
+D_POLICY=$(has_file "042_policy_snapshot_per_execution.sql")
+D_EVIDENCE=$(has_file "src/lib/evidence.ts")
+D_CATALOG=$(has_file "045_catalog_registry.sql")
+D_CONSULTANT=$(has_file "src/lib/consultant-auth.ts")
+D_SHIELD=$(has_file "src/lib/shield.ts")
+ADMIN_UI_LOCK=$(has_file "admin-ui/package-lock.json")
+
+ADR_LIST=$(ls docs/ADR-*.md 2>/dev/null | xargs -I{} basename {} || true)
+ADR_COUNT=$(echo "$ADR_LIST" | grep -c . || echo 0)
+
+VOLATILE_FOUND=""
+for f in PROJECT_STATUS.md PROJECT_STATE.md TECHNICAL_REPORT.md AUDIT_MANIFEST.md; do
+    [ -f "$f" ] && VOLATILE_FOUND="$VOLATILE_FOUND $f"
+done
+for f in $(ls HANDOFF*.md STATUS*.md CLEANUP*.md 2>/dev/null || true); do
+    VOLATILE_FOUND="$VOLATILE_FOUND $f"
+done
+
+TSC_STATUS="✗ erro"
+npx tsc --noEmit 2>/dev/null && TSC_STATUS="✓ clean"
+
+SETCONFIG_VIOLATIONS=$(grep -rn "set_config.*true" \
+    src/lib/shield*.ts src/routes/shield*.ts 2>/dev/null | grep -v "set_config.*false" || true)
+
+# ── GENERATE DOCS ─────────────────────────────────────────────────────────────
+
+if $GENERATE_DOCS; then
+
+cat > README.md << HEREDOC
+<!-- GENERATED — bash scripts/audit_project_state.sh — ${GEN_DATE} -->
+<!-- Não editar manualmente. Regenerar após cada sprint. -->
+
+# GovAI Platform
+
+**Enterprise AI Governance Gateway** — controle, governança e conformidade para LLMs corporativos.
+
+OPA Policy Engine · DLP · HITL · Multi-tenant RLS · RAG · Shield Shadow-AI Detection
+
+---
+
+## O que é
+
+GovAI Platform é um gateway de governança para IA corporativa que intercepta _todas_ as requisições
+aos LLMs antes de chegarem ao provedor. Pipeline determinístico: DLP semântico (Presidio) →
+OPA WASM (OWASP LLM Top 10) → HITL → audit log HMAC-signed.
+
+Multi-tenant com PostgreSQL RLS. Admin UI em Next.js 14. Shield detecta shadow-AI usage.
+
+---
+
+## Domínios implementados
+
+| Domínio | Status | Módulo principal |
+|---------|--------|-----------------|
+| Gateway Core | ✅ | \`src/lib/governance.ts\` |
+| Policy Snapshots | ✅ | \`src/lib/policy-snapshots.ts\` |
+| Evidence | ✅ | \`src/lib/evidence.ts\` |
+| Catalog | ✅ | \`src/lib/catalog.ts\` |
+| Consultant Plane | ✅ | \`src/lib/consultant-auth.ts\` |
+| Shield (shadow-AI) | ✅ | \`src/lib/shield.ts\` (facade → 5 services) |
+| Architect | ✗ | não implementado |
+
+---
+
+## Migrations
+
+- **Total:** ${MIGRATION_COUNT}
+- **Intervalo:** ${FIRST_MIG}–${LAST_MIG} (excluindo 050)
+
+---
+
+## Testes
+
+| Suíte | Arquivos | Testes |
+|-------|----------|--------|
+| Padrão (sem DATABASE\_URL) | ${STANDARD_FILE_COUNT} | ${STANDARD_TEST_COUNT} |
+| Integração (requer DATABASE\_URL) | ${INTEGRATION_FILE_COUNT} | — |
+| **Total** | **${TOTAL_TEST_FILES}** | — |
+
+\`\`\`bash
+DATABASE_URL='' npx vitest run  # suíte padrão
+\`\`\`
+
+---
+
+## Como rodar
+
+\`\`\`bash
+npm install && cp .env.example .env
+docker compose up -d
+bash scripts/migrate.sh
+npm run build && npm start
+# Admin UI
+cd admin-ui && npm ci && npm run build && npm start
+\`\`\`
+
+---
+
+## Regenerar docs
+
+\`\`\`bash
+bash scripts/audit_project_state.sh
+\`\`\`
+HEREDOC
+
+cat > docs/CURRENT_STATE.md << HEREDOC
+<!-- GENERATED — bash scripts/audit_project_state.sh — ${GEN_DATE} -->
+<!-- Não editar manualmente. Regenerar após cada sprint. -->
+
+# GovAI Platform — Current State
+
+**Gerado em:** ${GEN_DATE}
+
+---
+
+## Migrations
+
+| Métrica | Valor |
+|---------|-------|
+| Total | **${MIGRATION_COUNT}** |
+| Intervalo | ${FIRST_MIG}–${LAST_MIG} (excluindo 050) |
+| Fonte | \`scripts/migrate.sh\` |
+
+---
+
+## Testes
+
+| Métrica | Valor |
+|---------|-------|
+| Total de arquivos | **${TOTAL_TEST_FILES}** |
+| Suíte padrão — arquivos | **${STANDARD_FILE_COUNT}** |
+| Suíte padrão — testes | **${STANDARD_TEST_COUNT}** |
+| Suíte integração — arquivos | **${INTEGRATION_FILE_COUNT}** |
+
+Comando: \`DATABASE_URL='' npx vitest run\`
+
+---
+
+## Domínios
+
+| Domínio | Status |
+|---------|--------|
+| Gateway Core | ${D_CORE} |
+| Policy Snapshots | ${D_POLICY} |
+| Evidence | ${D_EVIDENCE} |
+| Catalog | ${D_CATALOG} |
+| Consultant Plane | ${D_CONSULTANT} |
+| Shield | ${D_SHIELD} |
+| Architect | ✗ não implementado |
+
+---
+
+## Shield API Routes
+
+| Módulo | Rotas |
+|--------|-------|
+| Admin (\`/v1/admin/shield/*\`) | ${ADMIN_ROUTE_COUNT} |
+| Consultant (\`/v1/consultant/tenants/*/shield/*\`) | ${CONSULTANT_ROUTE_COUNT} |
+| **Total** | **${SHIELD_ROUTE_COUNT}** |
+
+---
+
+## Build
+
+| Check | Status |
+|-------|--------|
+| tsc --noEmit | ${TSC_STATUS} |
+| Admin UI lockfile | ${ADMIN_UI_LOCK} |
+
+---
+
+## ADRs (${ADR_COUNT})
+
+$(echo "$ADR_LIST" | sed 's/^/- /')
+
+---
+
+## Limitações
+
+- BullMQ workers: não implementados (coleta admin-triggered)
+- SSE / browser extension: ver ADR-004
+- Architect domain: roadmap futuro
+HEREDOC
+
+INTEGRATION_LIST_MD=$(echo "$INTEGRATION_FILES_LIST" | sed 's|src/__tests__/|- `|' | sed 's/$/.`/')
+
+cat > docs/TEST_MANIFEST.md << HEREDOC
+<!-- GENERATED — bash scripts/audit_project_state.sh — ${GEN_DATE} -->
+<!-- Não editar manualmente. Regenerar após cada sprint. -->
+
+# GovAI Platform — Test Manifest
+
+**Gerado em:** ${GEN_DATE}
+
+---
+
+## Contagem
+
+| Métrica | Valor |
+|---------|-------|
+| Total de arquivos de teste | **${TOTAL_TEST_FILES}** |
+| Suíte padrão — arquivos | **${STANDARD_FILE_COUNT}** |
+| Suíte padrão — testes | **${STANDARD_TEST_COUNT}** |
+| Suíte integração — arquivos | **${INTEGRATION_FILE_COUNT}** |
+
+---
+
+## Comandos
+
+\`\`\`bash
+# Suíte padrão (sem banco)
+DATABASE_URL='' npx vitest run
+
+# Suíte integração (requer PostgreSQL)
+DATABASE_URL=postgresql://user:pass@localhost:5432/dbname npx vitest run
+
+# Migrations clean test
+bash scripts/test-migrations-clean.sh
+\`\`\`
+
+---
+
+## Arquivos de integração (${INTEGRATION_FILE_COUNT} — requerem DATABASE_URL)
+
+${INTEGRATION_LIST_MD}
+
+---
+
+## Suíte padrão
+
+${STANDARD_FILE_COUNT} arquivos em \`src/__tests__/\` não listados acima.
+Inclui: auth, HITL, DLP, OPA, FinOps, RAG, API Keys, Orgs, policy, evidence, catalog,
+Shield unit tests, risk engine unit tests.
+
+Não requer serviços externos. Roda em CI puro.
+HEREDOC
+
+cat > docs/PRODUCT_SURFACE.md << HEREDOC
+<!-- GENERATED — bash scripts/audit_project_state.sh — ${GEN_DATE} -->
+<!-- Não editar manualmente. Regenerar após cada sprint. -->
+
+# GovAI Platform — Product Surface
+
+**Gerado em:** ${GEN_DATE}
+
+---
+
+## Gateway Core
+
+- \`POST /v1/execute/:id\` — execução de assistente com pipeline completo
+- \`GET  /v1/health\` — health check
+- Auth: JWT Bearer + API Key (\`sk-govai-...\`)
+- DLP: Presidio NLP + regex
+- OPA WASM: OWASP LLM Top 10 (LLM01–LLM10)
+- HITL: aprovação humana
+- Audit log: HMAC-SHA256 signed
+- FinOps: tokens/custo por org
+
+## Policy
+
+- \`GET/POST /v1/admin/policies\`
+- \`GET/POST /v1/admin/policy-snapshots\`
+- \`GET/POST /v1/admin/policy-exceptions\`
+
+## Evidence
+
+- \`GET/POST /v1/admin/evidence\`
+
+## Catalog
+
+- \`GET/POST /v1/admin/catalog\`
+- Lifecycle: draft → review → approved → deprecated
+
+## Consultant Plane
+
+- \`GET /v1/consultant/tenants/:tenantOrgId/*\`
+- Shield: ${CONSULTANT_ROUTE_COUNT} rotas (posture, findings, actions)
+
+## Shield — Shadow-AI Detection (${SHIELD_ROUTE_COUNT} rotas total)
+
+**Admin (${ADMIN_ROUTE_COUNT} rotas):**
+
+| Categoria | Endpoints |
+|-----------|-----------|
+| Ingestion | POST /observations, POST /process |
+| Findings | POST /generate, GET /, POST /:id/{acknowledge,accept-risk,dismiss,resolve,reopen,promote,assign-owner}, GET /:id/actions |
+| Posture | GET /, POST /generate, GET /history |
+| Collectors | POST /, POST /:id/trigger |
+| Google | POST /google/collectors, POST /google/collectors/:id/{token,fetch} |
+| Network | POST /network/collectors, POST /network/collectors/:id/ingest |
+| Health | GET /health, POST /health/{success,failure} |
+| Reports | GET /executive |
+| Metrics | GET /metrics |
+| Export | GET /findings, GET /findings.csv, GET /posture |
+| Sync | POST /dedupe, POST /sync-catalog |
+
+---
+
+## Não implementado (roadmap)
+
+- Architect domain
+- BullMQ workers (coleta automática)
+- SSE / browser extension (ADR-004)
+- CASB integration
+
+---
+
+## Admin UI (Next.js 14)
+
+Dashboard · Fila HITL · Playground · RAG Upload · Relatórios compliance
+HEREDOC
+
+fi  # end GENERATE_DOCS
+
+# ── STDOUT REPORT ─────────────────────────────────────────────────────────────
+
+echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║     GovAI Platform — Project State Audit                    ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Generated: $GEN_DATE"
+$GENERATE_DOCS && echo "Mode: GENERATE (docs written)" || echo "Mode: CHECK"
 echo ""
 
-# ── MIGRATIONS ───────────────────────────────────────────────────────────────
 echo "━━━ MIGRATIONS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-# Contar migrations no migrate.sh (fonte da verdade)
-MIGRATION_COUNT=0
-if [ -f scripts/migrate.sh ]; then
-    MIGRATION_COUNT=$(grep -c '\.sql"' scripts/migrate.sh || true)
-fi
-
-# Listar arquivos .sql de migration na raiz (excluindo init.sql)
-SQL_FILES=$(ls [0-9][0-9][0-9]_*.sql 2>/dev/null | sort)
-SQL_FILE_COUNT=$(echo "$SQL_FILES" | grep -c . || echo 0)
-
-FIRST_MIG=$(echo "$SQL_FILES" | head -1 | sed 's/_.*//')
-LAST_MIG=$(echo "$SQL_FILES" | tail -1 | sed 's/_.*//')
-
-echo "  Migrations em scripts/migrate.sh:  $MIGRATION_COUNT"
-echo "  Arquivos .sql na raiz:             $SQL_FILE_COUNT"
-echo "  Intervalo:                         $FIRST_MIG – $LAST_MIG (excluindo 050)"
+echo "  Total:      $MIGRATION_COUNT  ($FIRST_MIG – $LAST_MIG, excl. 050)"
 echo ""
 
-# ── TEST FILES ───────────────────────────────────────────────────────────────
-echo "━━━ TEST FILES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-TOTAL_TEST_FILES=$(find src/__tests__ -maxdepth 1 -type f -name '*.test.ts' | wc -l | tr -d ' ')
-
-# Integration test files (requerem DATABASE_URL) — lidos de integrationTestPatterns
-# Conta somente entradas sem glob (arquivos concretos, não wildcards)
-INTEGRATION_COUNT=0
-if [ -f vitest.config.ts ]; then
-    INTEGRATION_COUNT=$(grep "'src/__tests__/[^*]*\.test\.ts'" vitest.config.ts | grep -c "\.test\.ts'" || true)
-fi
-
-STANDARD_COUNT=$((TOTAL_TEST_FILES - INTEGRATION_COUNT))
-
-echo "  Total de arquivos de teste:        $TOTAL_TEST_FILES"
-echo "  Suíte padrão (sem DATABASE_URL):   $STANDARD_COUNT arquivos"
-echo "  Suíte integração (DATABASE_URL):   $INTEGRATION_COUNT arquivos"
-echo ""
-echo "  Nota: contagem de testes verificada externamente."
-echo "  Comando padrão:  DATABASE_URL='' npx vitest run"
-echo "  Último resultado verificado: 542 testes · 49 arquivos (2026-03-22)"
+echo "━━━ TESTS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Total files:      $TOTAL_TEST_FILES"
+echo "  Standard files:   $STANDARD_FILE_COUNT"
+echo "  Standard tests:   $STANDARD_TEST_COUNT"
+echo "  Integration:      $INTEGRATION_FILE_COUNT files"
 echo ""
 
-# ── INTEGRATION TEST LIST ─────────────────────────────────────────────────────
-echo "━━━ INTEGRATION TEST FILES (requerem DATABASE_URL) ━━━━━━━━━━━"
-if [ -f vitest.config.ts ]; then
-    grep "'src/__tests__/[^*]*\.test\.ts'" vitest.config.ts | sed "s/.*'\(.*\)'.*/  \\1/"
+echo "━━━ SHIELD ROUTES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Admin:       $ADMIN_ROUTE_COUNT"
+echo "  Consultant:  $CONSULTANT_ROUTE_COUNT"
+echo "  Total:       $SHIELD_ROUTE_COUNT"
+echo ""
+
+echo "━━━ DOMAINS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  $D_CORE  Gateway Core"
+echo "  $D_POLICY  Policy"
+echo "  $D_EVIDENCE  Evidence"
+echo "  $D_CATALOG  Catalog"
+echo "  $D_CONSULTANT  Consultant Plane"
+echo "  $D_SHIELD  Shield"
+echo "  ✗  Architect (not implemented)"
+echo ""
+
+echo "━━━ ADRs ($ADR_COUNT) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+for adr in $ADR_LIST; do echo "  $adr"; done
+echo ""
+
+echo "━━━ BUILD ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  tsc --noEmit:   $TSC_STATUS"
+echo "  Admin UI lock:  $ADMIN_UI_LOCK"
+echo ""
+
+echo "━━━ SECURITY (Shield files) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+if [ -z "$SETCONFIG_VIOLATIONS" ]; then
+    echo "  set_config(..., true): ✓ 0 ocorrências"
+else
+    echo "  ATENÇÃO — set_config(..., true) encontrado:"
+    echo "$SETCONFIG_VIOLATIONS" | sed 's/^/    /'
 fi
 echo ""
 
-# ── DOMAINS ──────────────────────────────────────────────────────────────────
-echo "━━━ DOMAINS IMPLEMENTADOS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-check_file() {
-    if [ -f "$1" ]; then echo "  ✓ $2"; else echo "  ✗ $2 (ausente: $1)"; fi
-}
-
-check_file "src/lib/shield.ts"                "Shield Core (detecção + risk engine + workflow)"
-check_file "src/lib/shield-collector-health.ts" "Shield S3 (collector health + SLOs)"
-check_file "src/lib/shield-export.ts"         "Shield S3 (export JSON/CSV)"
-check_file "src/lib/shield-metrics.ts"        "Shield S3 (métricas operacionais)"
-check_file "src/lib/shield-oauth-collector.ts" "Shield Collector (Microsoft OAuth)"
-check_file "src/lib/shield-google-collector.ts" "Shield Collector (Google Workspace)"
-check_file "src/lib/shield-network-collector.ts" "Shield Collector (Network/SWG/Proxy)"
-check_file "src/lib/shield-risk-engine.ts"    "Shield Risk Engine (5D scoring)"
-check_file "src/lib/shield-report.ts"         "Shield Executive Report"
-check_file "src/lib/consultant-auth.ts"       "Consultant Plane (cross-tenant auth)"
-check_file "src/lib/evidence.ts"              "Evidence Domain"
-check_file "src/routes/shield.routes.ts"      "Shield Routes"
-check_file "src/routes/consultant.routes.ts"  "Consultant Routes"
-check_file "admin-ui/package-lock.json"       "Admin UI (lockfile presente)"
-echo ""
-
-# ── SHIELD ROUTES ─────────────────────────────────────────────────────────────
-echo "━━━ SHIELD API ROUTES (contagem) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-if [ -f src/routes/shield.routes.ts ]; then
-    ROUTE_COUNT=$(grep -c "fastify\.\(get\|post\|put\|delete\|patch\)" src/routes/shield.routes.ts || true)
-    echo "  Rotas em shield.routes.ts: $ROUTE_COUNT"
+echo "━━━ VOLATILE DOCS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+if [ -z "$VOLATILE_FOUND" ]; then
+    echo "  ✓ Nenhum doc volátil encontrado"
+else
+    for v in $VOLATILE_FOUND; do echo "  ⚠ $v"; done
 fi
 echo ""
 
-# ── DOCS ──────────────────────────────────────────────────────────────────────
-echo "━━━ DOCUMENTAÇÃO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  ADRs presentes:"
-for f in docs/ADR-*.md; do
-    [ -f "$f" ] && echo "    $(basename $f)"
-done
-echo ""
-echo "  Docs canônicos:"
-for f in README.md docs/CURRENT_STATE.md docs/OPERATIONS.md docs/TEST_MANIFEST.md docs/PRODUCT_SURFACE.md; do
-    if [ -f "$f" ]; then echo "  ✓ $f"
-    else echo "  ✗ $f (ausente)"
-    fi
-done
-echo ""
-echo "  Docs voláteis obsoletos (devem estar ausentes):"
-for f in PROJECT_STATUS.md PROJECT_STATE.md TECHNICAL_REPORT.md AUDIT_MANIFEST.md \
-          CLAUDE_CODE_HANDOFF_2026-03-20.md CHANGELOG_AUDIT_FIXES_2026-03-20.md; do
-    if [ -f "$f" ]; then echo "  ⚠ $f (ainda presente — considerar remoção)"
-    else echo "  ✓ $f (removido)"
-    fi
+echo "━━━ CANONICAL DOCS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+for doc in README.md docs/CURRENT_STATE.md docs/TEST_MANIFEST.md docs/PRODUCT_SURFACE.md; do
+    if [ -f "$doc" ]; then echo "  ✓ $doc"
+    else echo "  ✗ $doc (ausente)"; fi
 done
 echo ""
 
-# ── BUILD STATUS ──────────────────────────────────────────────────────────────
-echo "━━━ BUILD STATUS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Backend TypeScript:"
-if npx tsc --noEmit 2>/dev/null; then
-    echo "  ✓ tsc --noEmit clean"
-else
-    echo "  ✗ tsc --noEmit falhou"
-fi
-
-echo "  Admin UI (lockfile):"
-if [ -f admin-ui/package-lock.json ]; then
-    echo "  ✓ package-lock.json presente"
-    echo "  Nota: npm ci + build requerem Node ≥ 20 (para @tailwindcss/oxide)"
-else
-    echo "  ✗ package-lock.json ausente"
-fi
-echo ""
-
-# ── SECURITY RULES ────────────────────────────────────────────────────────────
-echo "━━━ VERIFICAÇÕES DE SEGURANÇA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-# Verificar set_config(..., true) em código NOVO do Shield (S3)
-# Nota: existem usos de set_config(..., true) em código legado (rag.ts, admin.routes.ts,
-# consultant.routes.ts, oidc.routes.ts) — pre-existente ao Shield. A regra mandatória
-# se aplica a código novo do Shield.
-set +e
-SHIELD_WRONG=$(grep -r "set_config.*true" src/lib/shield*.ts src/routes/shield.routes.ts 2>/dev/null | grep -v "//.*set_config" | wc -l | tr -d ' ')
-SHIELD_WRONG=${SHIELD_WRONG:-0}
-set -e
-if [ "$SHIELD_WRONG" -eq 0 ]; then
-    echo "  ✓ Nenhum set_config(..., true) em código Shield (shield*.ts + shield.routes.ts)"
-else
-    echo "  ✗ ATENÇÃO: $SHIELD_WRONG ocorrência(s) de set_config(..., true) em código Shield"
-fi
-echo "  ℹ Nota: set_config(..., true) em código legado (rag.ts, admin.routes.ts,"
-echo "         consultant.routes.ts, oidc.routes.ts) é pre-existente ao Shield."
-
-# Verificar ausência de e-mail plain em colunas críticas (heurística simples)
-echo "  ✓ user_identifier_hash: SHA-256 conforme shield.ts (hashUserIdentifier)"
-echo ""
-
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  Auditoria concluída. Use este script para regenerar docs.  ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
+$GENERATE_DOCS && echo "✓ Docs gerados: $GEN_DATE" || true
