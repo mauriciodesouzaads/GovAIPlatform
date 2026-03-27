@@ -5,8 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import axios from 'axios';
 import { ShieldAlert, Loader2 } from 'lucide-react';
 
-import { API_BASE } from '@/lib/api';
+import api, { API_BASE } from '@/lib/api';
 import { setAuthToken } from '@/lib/auth-storage';
+import { useAuth } from '@/components/AuthProvider';
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
@@ -23,6 +24,7 @@ export default function LoginPage() {
 
     const router = useRouter();
     const searchParams = useSearchParams();
+    const { refreshFromServer } = useAuth();
 
     // Handle one-time OIDC auth code from callback and exchange it for a JWT
     useEffect(() => {
@@ -70,10 +72,13 @@ export default function LoginPage() {
         try {
             const res = await axios.post(`${API_BASE}/v1/admin/login`, { email, password });
 
-            // Store token
+            // 1. Persist token
             setAuthToken(res.data.token);
-
-            // Redirect to dashboard
+            // 2. Set header immediately so the /me call below carries it
+            api.defaults.headers.common['Authorization'] = `Bearer ${res.data.token}`;
+            // 3. Sync role/email/orgId into AuthProvider context before navigation
+            await refreshFromServer();
+            // 4. Navigate — AuthProvider context is already populated, no race condition
             router.push('/');
         } catch (err: unknown) {
             const axiosError = err as { response?: { status: number; data?: { requires_password_change?: boolean; resetToken?: string; error?: string } } };

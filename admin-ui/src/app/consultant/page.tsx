@@ -333,14 +333,18 @@ function TenantPanel({ tenant }: { tenant: ConsultantTenant }) {
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function ConsultantPage() {
-    const { role } = useAuth();
+    const { role, orgId } = useAuth();
     const { toast } = useToast();
     const [tenants, setTenants] = useState<ConsultantTenant[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // Derive accessible tenants from /v1/admin/organizations
-    // Consultant admins see all orgs; for non-admin roles we read what the API returns
+    // Derive accessible tenants from /v1/admin/organizations.
+    // Roles without access to that endpoint get a 403; fall back to the
+    // user's own org from AuthProvider context (populated via /v1/admin/me).
     const loadTenants = useCallback(async () => {
+        // Wait until AuthProvider has resolved orgId — avoid API calls with empty tenant ID
+        if (!orgId) return;
+
         try {
             setLoading(true);
             const res = await api.get('/v1/admin/organizations');
@@ -348,21 +352,15 @@ export default function ConsultantPage() {
             setTenants(orgs.map(o => ({ orgId: o.id, orgName: o.name })));
         } catch (e: any) {
             if (e.response?.status === 403) {
-                // consultant role may not access /admin/organizations — fall back to own org from localStorage
-                const storedOrg = localStorage.getItem('orgId');
-                const storedName = localStorage.getItem('orgName');
-                if (storedOrg) {
-                    setTenants([{ orgId: storedOrg, orgName: storedName ?? storedOrg }]);
-                } else {
-                    toast('Não foi possível carregar a lista de tenants.', 'error');
-                }
+                // Use orgId from AuthProvider context (resolved from /v1/admin/me)
+                setTenants([{ orgId, orgName: orgId }]);
             } else {
                 toast(e.response?.data?.error ?? e.message, 'error');
             }
         } finally {
             setLoading(false);
         }
-    }, [toast]);
+    }, [orgId, toast]);
 
     useEffect(() => { loadTenants(); }, [loadTenants]);
 
