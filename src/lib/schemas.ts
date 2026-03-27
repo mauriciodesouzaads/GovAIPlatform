@@ -62,6 +62,7 @@ export const ApprovalActionSchema = z.object({
 export const TelemetryConsentSchema = z.object({
     consent: z.boolean(),
     pii_strip: z.boolean().optional(),
+    hitl_timeout_hours: z.number().int().min(1).max(168).optional(),
 });
 
 // ── Users ─────────────────────────────────────────────────────────────────────

@@ -3,6 +3,17 @@
  *
  * Extracted from server.ts to improve testability, readability, and separation of concerns.
  * The route handler in server.ts is now a thin adapter that delegates here.
+ *
+ * Pipeline order (correct):
+ *   1. fetch policy rules (must precede governance evaluation)
+ *   2. org query  (single DB round-trip: telemetry + hitl_timeout_hours)
+ *   3. opaEngine.evaluate (OPA + DLP — governance first)
+ *   4. HITL check  (PENDING_APPROVAL returns before FinOps)
+ *   5. BLOCK check (policy violation returns before FinOps)
+ *   6. DLP flag
+ *   7. checkQuota (FinOps — only reached if request is allowed)
+ *   8. RAG
+ *   9. LLM dispatch
  */
 
 import { FastifyBaseLogger } from 'fastify';
@@ -84,18 +95,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
     try {
         await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
 
-        // FinOps quota enforcement
-        const quota = await checkQuota(pgPool, orgId, assistantId);
-        if (quota.exceeded) {
-            return { statusCode: 429, body: { error: 'Limite da cota de uso mensal (Hard Cap) excedido.' } };
-        }
-
-        const quotaHeaders: Record<string, string> = {};
-        if (quota.warning) {
-            quotaHeaders['X-GovAI-Quota-Warning'] = 'Soft Cap exceeded';
-        }
-
-        // Fetch active assistant version + policy rules (Redis-cached, 60s TTL)
+        // ── 1. Fetch active assistant version + policy rules (Redis-cached, 60s TTL) ──
         // Cache format: { versionId, policyRules } — includes versionId for snapshot
         const cacheKey = `assistant:${assistantId}:policy`;
         let policyRules: any;
@@ -136,11 +136,27 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             client, orgId, assistantId, versionId, policyRules, userId ?? null
         );
 
-        // Governance evaluation (OPA + DLP + HITL keywords)
+        // ── 2. Org query — single DB round-trip: telemetry consent + HITL timeout ──
+        // Telemetria externa (Langfuse): somente com consentimento explícito do tenant.
+        // LGPD Art. 7, I — o campo telemetry_consent é gerenciado pelo admin da org.
+        // telemetry_pii_strip=TRUE: envia apenas métricas (sem prompt/completion).
+        const orgRes = await client.query(
+            'SELECT telemetry_consent, telemetry_pii_strip, hitl_timeout_hours FROM organizations WHERE id = $1',
+            [orgId]
+        );
+        const { telemetry_consent, telemetry_pii_strip, hitl_timeout_hours } = orgRes.rows[0] || {
+            telemetry_consent: false,
+            telemetry_pii_strip: true,
+            hitl_timeout_hours: 4,
+        };
+        // default 4h — configurable via organizations.hitl_timeout_hours
+        const effectiveHitlTimeout: number = hitl_timeout_hours ?? 4;
+
+        // ── 3. Governance evaluation (OPA + DLP + HITL keywords) ──────────────────
         const policyContext = { orgId, rules: policyRules };
         const policyCheck = await opaEngine.evaluate({ message, orgId }, policyContext);
 
-        // HITL: pause and queue for human review
+        // ── 4. HITL: pause and queue for human review ─────────────────────────────
         if (policyCheck.action === 'PENDING_APPROVAL') {
             const sanitizedMessage = dlpEngine.sanitize(message).sanitizedText;
             const approvalRes = await client.query(
@@ -167,7 +183,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             await notificationQueue.add('send-notification', {
                 event: 'PENDING_APPROVAL', orgId, assistantId, approvalId,
                 reason: policyCheck.reason || 'Ação de alto risco',
-                traceId, expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+                traceId, expiresAt: new Date(Date.now() + effectiveHitlTimeout * 60 * 60 * 1000).toISOString(),
                 timestamp: new Date().toISOString(),
             }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
 
@@ -181,7 +197,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             };
         }
 
-        // Policy violation: blocked
+        // ── 5. Policy violation: blocked ──────────────────────────────────────────
         if (!policyCheck.allowed) {
             recordRequest('blocked', Date.now() - execStart);
             const sanitizedMessage = policyCheck.sanitizedInput || dlpEngine.sanitize(message).sanitizedText;
@@ -204,7 +220,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             return { statusCode: 403, body: { error: policyCheck.reason, traceId } };
         }
 
-        // DLP flag: use sanitized message downstream
+        // ── 6. DLP flag: use sanitized message downstream ─────────────────────────
         const safeMessage = policyCheck.sanitizedInput || message;
         if (policyCheck.action === 'FLAG') {
             log.info({
@@ -217,7 +233,18 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             }
         }
 
-        // RAG context retrieval (token-aware)
+        // ── 7. FinOps quota enforcement (only reached if request is allowed) ──────
+        const quota = await checkQuota(pgPool, orgId, assistantId);
+        if (quota.exceeded) {
+            return { statusCode: 429, body: { error: 'Limite da cota de uso mensal (Hard Cap) excedido.' } };
+        }
+
+        const quotaHeaders: Record<string, string> = {};
+        if (quota.warning) {
+            quotaHeaders['X-GovAI-Quota-Warning'] = 'Soft Cap exceeded';
+        }
+
+        // ── 8. RAG context retrieval (token-aware) ────────────────────────────────
         let ragContext = '';
         let ragMeta = { chunksUsed: 0, estimatedTokens: 0, truncated: false };
         try {
@@ -250,7 +277,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             log.warn(ragError, 'RAG retrieval failed, proceeding without context');
         }
 
-        // LiteLLM proxy call
+        // ── 9. LiteLLM proxy call ─────────────────────────────────────────────────
         const messages: { role: string; content: string }[] = [];
         if (ragContext) {
             messages.push({
@@ -307,18 +334,6 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
 
         await recordTokenUsage(pgPool, orgId, assistantId, tokensPrompt, tokensCompletion, costUsd, traceId)
             .catch((e: Error) => log.error(e, 'Failed to update FinOps ledger'));
-
-        // Telemetria externa (Langfuse): somente com consentimento explícito do tenant.
-        // LGPD Art. 7, I — o campo telemetry_consent é gerenciado pelo admin da org.
-        // telemetry_pii_strip=TRUE: envia apenas métricas (sem prompt/completion).
-        const telemetryRes = await client.query(
-            'SELECT telemetry_consent, telemetry_pii_strip FROM organizations WHERE id = $1',
-            [orgId]
-        );
-        const { telemetry_consent, telemetry_pii_strip } = telemetryRes.rows[0] || {
-            telemetry_consent: false,
-            telemetry_pii_strip: true,
-        };
 
         if (telemetry_consent) {
             await telemetryQueue.add('export-metrics', {

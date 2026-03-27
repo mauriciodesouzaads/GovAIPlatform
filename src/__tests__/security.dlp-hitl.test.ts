@@ -148,7 +148,7 @@ describe('[HITL] Expiration Worker — TTL Rejection', () => {
     }
 
     it('should expire a PENDING_APPROVAL whose expires_at is in the past', async () => {
-        const pastDate = new Date(Date.now() - 48 * 60 * 60 * 1000); // 48h ago
+        const pastDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
         const approvals: PendingApproval[] = [
             { id: 'approval-1', status: 'PENDING_APPROVAL', expires_at: pastDate }
         ];

@@ -101,8 +101,14 @@ describe('executeAssistant', () => {
     });
 
     it('returns 429 when FinOps hard cap is exceeded', async () => {
+        // fixed: quota check now after governance gate
         const client = makeClient();
         vi.mocked(pgPool.connect).mockResolvedValue(client as any);
+        vi.mocked(redisCache.get).mockResolvedValue(JSON.stringify({ pii_filter: false }));
+        vi.mocked(opaEngine.evaluate).mockResolvedValue({
+            allowed: true, action: 'ALLOW', sanitizedInput: 'Hello AI',
+        } as any);
+        vi.mocked(dlpEngine.sanitize).mockReturnValue({ sanitizedText: 'Hello AI', detections: [] } as any);
         vi.mocked(checkQuota).mockResolvedValue({ exceeded: true, warning: false } as any);
 
         const result = await executeAssistant(baseParams);
@@ -282,8 +288,14 @@ describe('executeAssistant', () => {
     });
 
     it('returns 500 on unexpected internal error (checkQuota throws inside try)', async () => {
+        // fixed: quota check now after governance gate — need to reach checkQuota via policy+OPA
         const client = makeClient();
         vi.mocked(pgPool.connect).mockResolvedValue(client as any);
+        vi.mocked(redisCache.get).mockResolvedValue(JSON.stringify({ pii_filter: false }));
+        vi.mocked(opaEngine.evaluate).mockResolvedValue({
+            allowed: true, action: 'ALLOW', sanitizedInput: 'Hello AI',
+        } as any);
+        vi.mocked(dlpEngine.sanitize).mockReturnValue({ sanitizedText: 'Hello AI', detections: [] } as any);
         vi.mocked(checkQuota).mockRejectedValue(new Error('Unexpected DB error'));
 
         const result = await executeAssistant(baseParams);
