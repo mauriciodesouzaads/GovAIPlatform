@@ -1,9 +1,9 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-27 19:31 UTC -->
+<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 00:37 UTC -->
 <!-- Não editar manualmente. Regenerar após cada sprint. -->
 
 # GovAI Platform — Test Manifest
 
-**Gerado em:** 2026-03-27 19:31 UTC
+**Gerado em:** 2026-03-28 00:37 UTC
 
 ---
 

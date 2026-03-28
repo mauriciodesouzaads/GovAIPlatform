@@ -1,4 +1,4 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-27 19:31 UTC -->
+<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 00:37 UTC -->
 <!-- Não editar manualmente. Regenerar após cada sprint. -->
 
 # GovAI Platform
@@ -35,8 +35,8 @@ Multi-tenant com PostgreSQL RLS. Admin UI em Next.js 14. Shield detecta shadow-A
 
 ## Migrations
 
-- **Total:** 42
-- **Intervalo:** 011–053 (excluindo 050)
+- **Total:** 44
+- **Intervalo:** 011–054 (excluindo 050)
 
 ---
 

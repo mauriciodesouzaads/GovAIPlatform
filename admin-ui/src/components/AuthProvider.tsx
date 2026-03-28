@@ -42,10 +42,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const refreshFromServer = useCallback(async (): Promise<boolean> => {
         try {
             const res = await api.get(ENDPOINTS.ME);
-            const { email: serverEmail, role: serverRole, org_id } = res.data;
+            const { email: serverEmail, role: serverRole, orgId: serverOrgId } = res.data;
             setRole(serverRole || 'operator');
             setEmail(serverEmail || '');
-            setOrgId(org_id || '');
+            setOrgId(serverOrgId || '');
             setToken(getAuthToken());
             return true;
         } catch {
@@ -72,10 +72,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             try {
                 const res = await api.get(ENDPOINTS.ME);
-                const { email: serverEmail, role: serverRole, org_id } = res.data;
+                const { email: serverEmail, role: serverRole, orgId: serverOrgId } = res.data;
                 setRole(serverRole || 'operator');
                 setEmail(serverEmail || '');
-                setOrgId(org_id || '');
+                setOrgId(serverOrgId || '');
             } catch (err: any) {
                 // Invalidate session only on explicit 401/403 (bad/expired token).
                 // Network errors (err.response undefined) are transient — keep the
