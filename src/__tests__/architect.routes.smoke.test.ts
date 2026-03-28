@@ -16,6 +16,23 @@ import { architectRoutes } from '../routes/architect.routes';
 
 // ── Mock lib/architect — all data defined inside the factory (hoisting-safe) ──
 
+vi.mock('../lib/architect-delegation', () => ({
+    dispatchWorkItem: vi.fn().mockResolvedValue({
+        workItemId: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+        adapter: 'human',
+        success: true,
+        output: { message: 'Human action required' },
+    }),
+    dispatchPendingWorkItems: vi.fn().mockResolvedValue([
+        {
+            workItemId: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+            adapter: 'human',
+            success: true,
+            output: { message: 'Human action required' },
+        },
+    ]),
+}));
+
 vi.mock('../lib/architect', () => {
     const now = new Date('2026-01-01T00:00:00Z');
     const CASE_ID     = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -503,5 +520,38 @@ describe('Architect Routes — Sprint A2 Smoke Tests', () => {
         expect(res.statusCode).toBe(200);
         const body = JSON.parse(res.body);
         expect(body.execution_hint).toBe('human');
+    });
+});
+
+// ── Sprint A4 smoke tests ─────────────────────────────────────────────────────
+
+describe('Architect Routes — Sprint A4 Smoke Tests', () => {
+
+    it('POST /work-items/:id/dispatch → 200 with adapter and success', async () => {
+        const res = await app.inject({
+            method: 'POST',
+            url: `/v1/admin/architect/work-items/${WORKITEM_ID}/dispatch`,
+            headers: JSON_H,
+            payload: {},
+        });
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.body);
+        expect(body.workItemId).toBe(WORKITEM_ID);
+        expect(body.adapter).toBe('human');
+        expect(body.success).toBe(true);
+    });
+
+    it('POST /cases/:id/workflow/dispatch-all → 200 with dispatched count', async () => {
+        const WORKFLOW_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+        const res = await app.inject({
+            method: 'POST',
+            url: `/v1/admin/architect/cases/${CASE_ID}/workflow/dispatch-all`,
+            headers: JSON_H,
+            payload: { workflow_graph_id: WORKFLOW_ID },
+        });
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.body);
+        expect(Array.isArray(body.dispatched)).toBe(true);
+        expect(typeof body.total).toBe('number');
     });
 });

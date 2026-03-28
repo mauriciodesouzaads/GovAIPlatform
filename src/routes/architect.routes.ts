@@ -29,6 +29,7 @@ import {
     generateArchitectDocument,
     getDiscoveryStatus,
 } from '../lib/architect';
+import { dispatchWorkItem, dispatchPendingWorkItems } from '../lib/architect-delegation';
 
 export async function architectRoutes(
     fastify: FastifyInstance,
@@ -431,5 +432,45 @@ export async function architectRoutes(
         const { decisionId } = request.params as { decisionId: string };
         const result = await generateArchitectDocument(pgPool, orgId, decisionId, userId);
         return reply.status(201).send(result);
+    });
+
+    // ── POST /v1/admin/architect/work-items/:workItemId/dispatch ─────────────
+    fastify.post('/v1/admin/architect/work-items/:workItemId/dispatch', {
+        preHandler: requireRole(['admin', 'operator']),
+    }, async (request: any, reply) => {
+        const { orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const { workItemId } = request.params as { workItemId: string };
+        try {
+            const result = await dispatchWorkItem(pgPool, orgId, workItemId);
+            return reply.send(result);
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes('not found')) return reply.status(404).send({ error: msg });
+            if (msg.includes('terminal') || msg.includes('blocked') || msg.includes('Max dispatch')) {
+                return reply.status(409).send({ error: msg });
+            }
+            throw err;
+        }
+    });
+
+    // ── POST /v1/admin/architect/cases/:id/workflow/dispatch-all ────────────
+    fastify.post('/v1/admin/architect/cases/:id/workflow/dispatch-all', {
+        preHandler: requireRole(['admin']),
+        schema: {
+            body: {
+                type: 'object',
+                required: ['workflow_graph_id'],
+                properties: {
+                    workflow_graph_id: { type: 'string', minLength: 1 },
+                },
+            },
+        },
+    }, async (request: any, reply) => {
+        const { orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const { workflow_graph_id } = request.body as { workflow_graph_id: string };
+        const dispatched = await dispatchPendingWorkItems(pgPool, orgId, workflow_graph_id);
+        return reply.send({ dispatched, total: dispatched.length });
     });
 }

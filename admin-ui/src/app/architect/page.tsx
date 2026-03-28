@@ -58,6 +58,8 @@ interface WorkItem {
     item_type: string;
     status: string;
     node_id: string;
+    execution_hint: string | null;
+    execution_context: { output?: { snippets?: unknown[] } } | null;
 }
 
 interface DemandCaseFull {
@@ -151,6 +153,10 @@ export default function ArchitectPage() {
     // Document generation
     const [generatingDoc, setGeneratingDoc] = useState(false);
     const [generatedDoc, setGeneratedDoc] = useState<string | null>(null);
+
+    // Dispatch
+    const [dispatchingItemId, setDispatchingItemId] = useState<string | null>(null);
+    const [dispatchingAll, setDispatchingAll] = useState(false);
 
     const loadCases = useCallback(async () => {
         setLoading(true);
@@ -263,6 +269,37 @@ export default function ArchitectPage() {
             openCase(selected.case.id);
         } catch {
             showToast('Erro ao aceitar contrato', 'error');
+        }
+    };
+
+    const handleDispatchItem = async (workItemId: string) => {
+        if (!selected) return;
+        setDispatchingItemId(workItemId);
+        try {
+            await api.post(ENDPOINTS.ARCHITECT_WORK_ITEM_DISPATCH(workItemId), {});
+            showToast('Work item despachado com sucesso', 'success');
+            openCase(selected.case.id);
+        } catch {
+            showToast('Erro ao despachar work item', 'error');
+        } finally {
+            setDispatchingItemId(null);
+        }
+    };
+
+    const handleDispatchAll = async (workflowId: string) => {
+        if (!selected) return;
+        setDispatchingAll(true);
+        try {
+            const res = await api.post(ENDPOINTS.ARCHITECT_WORKFLOW_DISPATCH_ALL(selected.case.id), {
+                workflow_graph_id: workflowId,
+            });
+            const dispatched: number = res.data.total ?? (Array.isArray(res.data.dispatched) ? res.data.dispatched.length : 0);
+            showToast(`${dispatched} work items despachados`, 'success');
+            openCase(selected.case.id);
+        } catch {
+            showToast('Erro ao despachar work items', 'error');
+        } finally {
+            setDispatchingAll(false);
         }
     };
 
@@ -731,7 +768,19 @@ export default function ArchitectPage() {
                                         {/* Work items */}
                                         {selected.workItems.length > 0 && (
                                             <div>
-                                                <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2">Work Items</p>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Work Items</p>
+                                                    {role === 'admin' && selected.workflow && selected.workItems.some(wi => wi.status === 'pending') && (
+                                                        <button
+                                                            onClick={() => handleDispatchAll(selected.workflow!.id)}
+                                                            disabled={dispatchingAll}
+                                                            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50"
+                                                        >
+                                                            <GitBranch className="w-3 h-3" />
+                                                            {dispatchingAll ? 'Despachando...' : 'Despachar Todos'}
+                                                        </button>
+                                                    )}
+                                                </div>
                                                 <div className="space-y-1.5">
                                                     {selected.workItems.map(wi => (
                                                         <div key={wi.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-secondary/10 border border-border/20">
@@ -739,7 +788,21 @@ export default function ArchitectPage() {
                                                                 {wi.status}
                                                             </span>
                                                             <span className="text-xs text-foreground flex-1 truncate">{wi.title}</span>
+                                                            {wi.execution_context?.output?.snippets && wi.execution_context.output.snippets.length > 0 && (
+                                                                <span className="text-xs text-violet-400 shrink-0">
+                                                                    {wi.execution_context.output.snippets.length} snippets
+                                                                </span>
+                                                            )}
                                                             <span className="text-xs text-muted-foreground shrink-0">{wi.item_type}</span>
+                                                            {wi.status === 'pending' && ['admin', 'operator'].includes(role) && (
+                                                                <button
+                                                                    onClick={() => handleDispatchItem(wi.id)}
+                                                                    disabled={dispatchingItemId === wi.id}
+                                                                    className="shrink-0 px-2 py-0.5 rounded text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50"
+                                                                >
+                                                                    {dispatchingItemId === wi.id ? '...' : 'Despachar'}
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     ))}
                                                 </div>

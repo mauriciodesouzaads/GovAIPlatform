@@ -1,9 +1,9 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 05:16 UTC -->
+<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 05:41 UTC -->
 <!-- Não editar manualmente. Regenerar após cada sprint. -->
 
 # GovAI Platform — Product Surface
 
-**Gerado em:** 2026-03-28 05:16 UTC
+**Gerado em:** 2026-03-28 05:41 UTC
 
 ---
 

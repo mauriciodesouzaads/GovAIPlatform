@@ -43,6 +43,8 @@ const integrationTestPatterns = [
     'src/__tests__/shield.export.test.ts',
     // Sprint A1: Architect Domain
     'src/__tests__/architect.domain.test.ts',
+    // Sprint A4: Delegation Router — requires DATABASE_URL
+    'src/__tests__/architect.delegation.test.ts',
 ];
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);

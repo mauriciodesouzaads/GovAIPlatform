@@ -964,7 +964,9 @@ Generate a complete ADR document with sections: Title, Status, Context, Decision
 
         if (!response.ok) {
             const err = await response.text();
-            throw new Error(`Document generation failed: ${err}`);
+            throw new Error(
+                `Document generation failed: ensure claude-sonnet-4-6 is configured in litellm-config.yaml and ANTHROPIC_API_KEY is set. Detail: ${err}`
+            );
         }
 
         const data = await response.json() as {

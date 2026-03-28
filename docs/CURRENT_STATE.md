@@ -1,9 +1,9 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 05:16 UTC -->
+<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 05:41 UTC -->
 <!-- Não editar manualmente. Regenerar após cada sprint. -->
 
 # GovAI Platform — Current State
 
-**Gerado em:** 2026-03-28 05:16 UTC
+**Gerado em:** 2026-03-28 05:41 UTC
 
 ---
 
@@ -11,8 +11,8 @@
 
 | Métrica | Valor |
 |---------|-------|
-| Total | **46** |
-| Intervalo | 011–056 (excluindo 050) |
+| Total | **47** |
+| Intervalo | 011–057 (excluindo 050) |
 | Fonte | `scripts/migrate.sh` |
 
 ---
@@ -21,10 +21,10 @@
 
 | Métrica | Valor |
 |---------|-------|
-| Total de arquivos | **65** |
+| Total de arquivos | **66** |
 | Suíte padrão — arquivos | **50** |
-| Suíte padrão — testes | **566** |
-| Suíte integração — arquivos | **15** |
+| Suíte padrão — testes | **568** |
+| Suíte integração — arquivos | **16** |
 
 Comando: `DATABASE_URL='' npx vitest run`
 

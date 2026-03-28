@@ -14,6 +14,11 @@ model_list:
     litellm_params:
       model: groq/llama-3.3-70b-versatile
       api_key: os.environ/GROQ_API_KEY
+  # Architect Document Generation — Claude Sonnet via Anthropic
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
   # Fallback: Gemini (quando disponível)
   - model_name: gemini/gemini-2.5-flash
     litellm_params:

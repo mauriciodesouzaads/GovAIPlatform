@@ -1,9 +1,9 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 05:16 UTC -->
+<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 05:41 UTC -->
 <!-- Não editar manualmente. Regenerar após cada sprint. -->
 
 # GovAI Platform — Test Manifest
 
-**Gerado em:** 2026-03-28 05:16 UTC
+**Gerado em:** 2026-03-28 05:41 UTC
 
 ---
 
@@ -11,10 +11,10 @@
 
 | Métrica | Valor |
 |---------|-------|
-| Total de arquivos de teste | **65** |
+| Total de arquivos de teste | **66** |
 | Suíte padrão — arquivos | **50** |
-| Suíte padrão — testes | **566** |
-| Suíte integração — arquivos | **15** |
+| Suíte padrão — testes | **568** |
+| Suíte integração — arquivos | **16** |
 
 ---
 
@@ -33,8 +33,9 @@ bash scripts/test-migrations-clean.sh
 
 ---
 
-## Arquivos de integração (15 — requerem DATABASE_URL)
+## Arquivos de integração (16 — requerem DATABASE_URL)
 
+- `architect.delegation.test.ts.`
 - `architect.domain.test.ts.`
 - `compliance.guarantees.test.ts.`
 - `consultant.plane.test.ts.`
