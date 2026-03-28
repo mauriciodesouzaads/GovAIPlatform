@@ -41,8 +41,13 @@ type DbClient = Pool | PoolClient | { query: (...args: any[]) => Promise<any> };
 
 /**
  * Records an immutable evidence entry.
- * Requires a DB client/pool with app.current_org_id already set (for RLS).
  * Non-fatal: catches DB errors silently so evidence failure never blocks the hot path.
+ *
+ * RLS handling:
+ *  - If db is a Pool (has .connect()), acquires a dedicated client and sets
+ *    app.current_org_id before INSERT so the evidence_isolation RLS policy is satisfied.
+ *  - If db is a PoolClient, the caller is responsible for having already called
+ *    set_config('app.current_org_id', ...) on that client (e.g. inside a transaction).
  */
 export async function recordEvidence(
   db: DbClient,
@@ -60,25 +65,45 @@ export async function recordEvidence(
     )
     .digest('hex');
 
-  try {
-    const result = await (db as Pool).query(
-      `INSERT INTO evidence_records
+  const params = [
+    payload.orgId,
+    payload.category,
+    payload.eventType,
+    payload.actorId ?? null,
+    payload.actorEmail ?? null,
+    payload.resourceType ?? null,
+    payload.resourceId ?? null,
+    JSON.stringify(metadata),
+    integrityHash,
+  ];
+  const sql = `INSERT INTO evidence_records
        (org_id, category, event_type, actor_id, actor_email,
         resource_type, resource_id, metadata, integrity_hash)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, created_at`,
-      [
-        payload.orgId,
-        payload.category,
-        payload.eventType,
-        payload.actorId ?? null,
-        payload.actorEmail ?? null,
-        payload.resourceType ?? null,
-        payload.resourceId ?? null,
-        JSON.stringify(metadata),
-        integrityHash,
-      ]
-    );
+       RETURNING id, created_at`;
+
+  // Pool path: acquire a dedicated client and set app.current_org_id for RLS
+  if (typeof (db as Pool).connect === 'function') {
+    const client = await (db as Pool).connect();
+    try {
+      await client.query("SELECT set_config('app.current_org_id', $1, false)", [payload.orgId]);
+      const result = await client.query(sql, params);
+      return {
+        id: result.rows[0].id as string,
+        createdAt: result.rows[0].created_at as Date,
+      };
+    } catch {
+      // Non-fatal: evidence failure must not block execution or approvals
+      return null;
+    } finally {
+      await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+      client.release();
+    }
+  }
+
+  // PoolClient path: caller already set app.current_org_id on this client
+  try {
+    const result = await (db as Pool).query(sql, params);
     return {
       id: result.rows[0].id as string,
       createdAt: result.rows[0].created_at as Date,

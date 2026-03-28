@@ -192,8 +192,10 @@ export async function createDemandCase(
             ]
         );
         const row = res.rows[0] as DemandCase;
-        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_CASE_CREATED',
-            { caseId: row.id, title: row.title }, 'demand_case', row.id);
+        try {
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_CASE_CREATED',
+                { caseId: row.id, title: row.title }, 'demand_case', row.id);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
         return row;
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
@@ -231,8 +233,10 @@ export async function updateDemandCaseStatus(
              WHERE id = $2 AND org_id = $3`,
             [newStatus, caseId, orgId]
         );
-        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_CASE_STATUS_CHANGED',
-            { from: current, to: newStatus }, 'demand_case', caseId);
+        try {
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_CASE_STATUS_CHANGED',
+                { from: current, to: newStatus }, 'demand_case', caseId);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
         client.release();
@@ -326,8 +330,10 @@ export async function upsertProblemContract(
             row = res.rows[0] as ProblemContract;
         }
 
-        await logConsultantAction(pool, orgId, orgId, 'ARCHITECT_CONTRACT_UPSERTED',
-            { contractId: row.id, demandCaseId }, 'problem_contract', row.id);
+        try {
+            await logConsultantAction(pool, orgId, orgId, 'ARCHITECT_CONTRACT_UPSERTED',
+                { contractId: row.id, demandCaseId }, 'problem_contract', row.id);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
         return row;
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
@@ -407,8 +413,10 @@ export async function acceptProblemContract(
              WHERE id = $1 AND org_id = $2`,
             [demandCaseId, orgId]
         );
-        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_CONTRACT_ACCEPTED',
-            { contractId }, 'problem_contract', contractId);
+        try {
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_CONTRACT_ACCEPTED',
+                { contractId }, 'problem_contract', contractId);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
         client.release();
@@ -449,8 +457,10 @@ export async function createDecisionSet(
             ]
         );
         const row = res.rows[0] as ArchitectureDecisionSet;
-        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_DECISION_CREATED',
-            { decisionSetId: row.id, contractId }, 'architecture_decision_set', row.id);
+        try {
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_DECISION_CREATED',
+                { decisionSetId: row.id, contractId }, 'architecture_decision_set', row.id);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
         return row;
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
@@ -476,8 +486,10 @@ export async function proposeDecisionSet(
             [actorId, decisionSetId, orgId]
         );
         if ((res.rowCount ?? 0) === 0) throw new Error('Decision set not found.');
-        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_DECISION_PROPOSED',
-            { decisionSetId }, 'architecture_decision_set', decisionSetId);
+        try {
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_DECISION_PROPOSED',
+                { decisionSetId }, 'architecture_decision_set', decisionSetId);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
         client.release();
@@ -514,8 +526,10 @@ export async function approveDecisionSet(
                AND dc.org_id = $2`,
             [contractId, orgId]
         );
-        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_DECISION_APPROVED',
-            { decisionSetId }, 'architecture_decision_set', decisionSetId);
+        try {
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_DECISION_APPROVED',
+                { decisionSetId }, 'architecture_decision_set', decisionSetId);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
         client.release();
@@ -541,8 +555,10 @@ export async function rejectDecisionSet(
             [reason, decisionSetId, orgId]
         );
         if ((res.rowCount ?? 0) === 0) throw new Error('Decision set not found.');
-        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_DECISION_REJECTED',
-            { decisionSetId, reason }, 'architecture_decision_set', decisionSetId);
+        try {
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_DECISION_REJECTED',
+                { decisionSetId, reason }, 'architecture_decision_set', decisionSetId);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
         client.release();
@@ -623,9 +639,11 @@ export async function compileWorkflow(
         );
 
         await client.query('COMMIT');
-        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_WORKFLOW_COMPILED',
-            { workflowId: workflow.id, workItemCount: workItems.length },
-            'workflow_graph', workflow.id);
+        try {
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_WORKFLOW_COMPILED',
+                { workflowId: workflow.id, workItemCount: workItems.length },
+                'workflow_graph', workflow.id);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
         return { workflow, workItems };
     } catch (err) {
         await client.query('ROLLBACK').catch(() => {});
@@ -684,8 +702,10 @@ export async function updateWorkItem(
         );
         if (res.rows.length === 0) throw new Error('Work item not found.');
         const row = res.rows[0] as ArchitectWorkItem;
-        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_WORK_ITEM_UPDATED',
-            { workItemId, patch }, 'architect_work_item', workItemId);
+        try {
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_WORK_ITEM_UPDATED',
+                { workItemId, patch }, 'architect_work_item', workItemId);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
         return row;
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
@@ -867,8 +887,10 @@ export async function answerDiscoveryQuestion(
              RETURNING *`,
             [JSON.stringify(questions), score, row.id, orgId]
         );
-        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_QUESTION_ANSWERED',
-            { contractId: row.id, questionIndex, caseId }, 'problem_contract', row.id);
+        try {
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_QUESTION_ANSWERED',
+                { contractId: row.id, questionIndex, caseId }, 'problem_contract', row.id);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
         const contract = updated.rows[0] as ProblemContract;
         return { contract, confidenceScore: score, readyForAcceptance: score >= 70 };
     } finally {
@@ -908,8 +930,10 @@ export async function addDiscoveryQuestion(
              RETURNING *`,
             [JSON.stringify(questions), row.id, orgId]
         );
-        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_QUESTION_ADDED',
-            { contractId: row.id, question, caseId }, 'problem_contract', row.id);
+        try {
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_QUESTION_ADDED',
+                { contractId: row.id, question, caseId }, 'problem_contract', row.id);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
         return updated.rows[0] as ProblemContract;
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
@@ -1003,8 +1027,10 @@ Generate a complete ADR document with sections: Title, Status, Context, Decision
         });
         const evidenceId = evidenceResult?.id ?? '';
 
-        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_DOCUMENT_GENERATED',
-            { decisionSetId, evidenceId }, 'architecture_decision_set', decisionSetId);
+        try {
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_DOCUMENT_GENERATED',
+                { decisionSetId, evidenceId }, 'architecture_decision_set', decisionSetId);
+        } catch { /* Non-fatal: audit log failure must not block the main operation */ }
 
         return { content, evidenceId };
     } finally {
@@ -1121,8 +1147,10 @@ export async function generateCaseSummary(
     });
 
     // 4. Log audit
-    await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_SUMMARY_GENERATED',
-        { caseId, completionPercentage }, 'demand_case', caseId);
+    try {
+        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_SUMMARY_GENERATED',
+            { caseId, completionPercentage }, 'demand_case', caseId);
+    } catch { /* Non-fatal: audit log failure must not block the main operation */ }
 
     return { summary, evidenceId: evidenceRecord?.id ?? '' };
 }

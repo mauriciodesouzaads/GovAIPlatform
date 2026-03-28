@@ -125,3 +125,42 @@ Para procedimentos de resposta a incidentes, ver [docs/RUNBOOKS.md](./RUNBOOKS.m
 | RB-03 | Fila HITL congestionada |
 | RB-04 | Container da API em loop de restart |
 | RB-05 | Migrations falhando no deploy |
+
+---
+
+## Variáveis de ambiente — precauções
+
+### ANTHROPIC_API_KEY override pelo shell
+
+Se a variável `ANTHROPIC_API_KEY` estiver exportada como vazia no shell (por exemplo,
+porque o terminal foi iniciado com ela definida como string vazia), o `docker compose`
+usará esse valor vazio em vez do conteúdo do `.env`. Isso resulta em chave ausente
+dentro do container LiteLLM e falha em chamadas ao Claude.
+
+**Diagnóstico:**
+
+```bash
+# Verificar se a variável está vazia no shell
+echo "KEY=[${ANTHROPIC_API_KEY}]"
+
+# Confirmar o valor que o compose usaria
+docker compose config | grep ANTHROPIC_API_KEY
+```
+
+**Correção:**
+
+```bash
+# Opção 1: desexportar antes de subir os containers
+unset ANTHROPIC_API_KEY && docker compose up -d
+
+# Opção 2: passar explicitamente do .env
+ANTHROPIC_API_KEY=$(grep '^ANTHROPIC_API_KEY=' .env \
+  | cut -d= -f2-) docker compose up -d litellm
+```
+
+**Verificação:**
+
+```bash
+docker compose exec litellm sh -c 'echo "KEY=[${ANTHROPIC_API_KEY:0:20}]"'
+# Deve exibir: KEY=[sk-ant-api03-...]
+```
