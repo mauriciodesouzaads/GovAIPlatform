@@ -360,10 +360,10 @@ export async function architectRoutes(
         if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
 
         const { workItemId } = request.params as { workItemId: string };
-        const { status, assigned_to, result_notes, result_ref } = request.body as any;
+        const { status, assigned_to, result_notes, result_ref, execution_hint } = request.body as any;
 
         const item = await updateWorkItem(pgPool, orgId, workItemId, {
-            status, assigned_to, result_notes, result_ref,
+            status, assigned_to, result_notes, result_ref, execution_hint,
         }, userId);
         return reply.send(item);
     });

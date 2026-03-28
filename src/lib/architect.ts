@@ -106,6 +106,7 @@ export interface ArchitectWorkItem {
     completed_at: Date | null;
     result_ref: string | null;
     result_notes: string | null;
+    execution_hint?: string | null;
     created_at: Date;
     updated_at: Date;
 }
@@ -561,8 +562,8 @@ export async function compileWorkflow(
             const wiRes = await client.query(
                 `INSERT INTO architect_work_items
                  (org_id, workflow_graph_id, node_id, item_type, title,
-                  description, ref_type, ref_id, status)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+                  description, ref_type, ref_id, execution_hint, status)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
                  RETURNING *`,
                 [
                     orgId,
@@ -573,6 +574,7 @@ export async function compileWorkflow(
                     (node.config?.description as string) ?? null,
                     (node.config?.ref_type as string) ?? null,
                     (node.config?.ref_id as string) ?? null,
+                    (node.config?.execution_hint as string) ?? null,
                 ]
             );
             workItems.push(wiRes.rows[0] as ArchitectWorkItem);
@@ -628,6 +630,7 @@ export async function updateWorkItem(
         result_notes?: string | null;
         result_ref?: string | null;
         completed_at?: Date | null;
+        execution_hint?: string | null;
     },
     actorId: string
 ): Promise<ArchitectWorkItem> {
@@ -636,17 +639,18 @@ export async function updateWorkItem(
         await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
         const res = await client.query(
             `UPDATE architect_work_items
-             SET status       = COALESCE($1, status),
-                 assigned_to  = CASE WHEN $2::text IS NULL THEN assigned_to
-                                     ELSE $2::uuid END,
-                 result_notes = COALESCE($3, result_notes),
-                 result_ref   = CASE WHEN $4::text IS NULL THEN result_ref
-                                     ELSE $4::uuid END,
-                 completed_at = CASE
+             SET status          = COALESCE($1, status),
+                 assigned_to     = CASE WHEN $2::text IS NULL THEN assigned_to
+                                        ELSE $2::uuid END,
+                 result_notes    = COALESCE($3, result_notes),
+                 result_ref      = CASE WHEN $4::text IS NULL THEN result_ref
+                                        ELSE $4::uuid END,
+                 completed_at    = CASE
                      WHEN $1 = 'done' AND completed_at IS NULL THEN now()
                      WHEN $5::timestamptz IS NOT NULL THEN $5::timestamptz
                      ELSE completed_at
-                 END
+                 END,
+                 execution_hint  = COALESCE($8, execution_hint)
              WHERE id = $6 AND org_id = $7
              RETURNING *`,
             [
@@ -657,6 +661,7 @@ export async function updateWorkItem(
                 patch.completed_at ?? null,
                 workItemId,
                 orgId,
+                patch.execution_hint ?? null,
             ]
         );
         if (res.rows.length === 0) throw new Error('Work item not found.');
@@ -902,8 +907,8 @@ export async function generateArchitectDocument(
     decisionSetId: string,
     actorId: string
 ): Promise<{ content: string; evidenceId: string }> {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+    const LITELLM_URL = process.env.LITELLM_URL ?? 'http://litellm:4000';
+    const LITELLM_API_KEY = process.env.LITELLM_API_KEY ?? 'govai-internal';
 
     const client = await pool.connect();
     try {
@@ -944,12 +949,11 @@ ${row.rationale_md}
 
 Generate a complete ADR document with sections: Title, Status, Context, Decision, Consequences, Risks, and Implementation Notes.`;
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
+        const response = await fetch(`${LITELLM_URL}/chat/completions`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01',
+                'Authorization': `Bearer ${LITELLM_API_KEY}`,
             },
             body: JSON.stringify({
                 model: 'claude-sonnet-4-6',
@@ -960,13 +964,13 @@ Generate a complete ADR document with sections: Title, Status, Context, Decision
 
         if (!response.ok) {
             const err = await response.text();
-            throw new Error(`Anthropic API error: ${err}`);
+            throw new Error(`Document generation failed: ${err}`);
         }
 
         const data = await response.json() as {
-            content: Array<{ type: string; text: string }>;
+            choices: Array<{ message: { content: string } }>;
         };
-        const content = data.content.find(c => c.type === 'text')?.text ?? '';
+        const content = data.choices?.[0]?.message?.content ?? '';
 
         const evidenceResult = await recordEvidence(pool, {
             orgId,

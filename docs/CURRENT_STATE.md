@@ -1,9 +1,9 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 05:04 UTC -->
+<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 05:16 UTC -->
 <!-- Não editar manualmente. Regenerar após cada sprint. -->
 
 # GovAI Platform — Current State
 
-**Gerado em:** 2026-03-28 05:04 UTC
+**Gerado em:** 2026-03-28 05:16 UTC
 
 ---
 
@@ -11,8 +11,8 @@
 
 | Métrica | Valor |
 |---------|-------|
-| Total | **45** |
-| Intervalo | 011–055 (excluindo 050) |
+| Total | **46** |
+| Intervalo | 011–056 (excluindo 050) |
 | Fonte | `scripts/migrate.sh` |
 
 ---
@@ -23,7 +23,7 @@
 |---------|-------|
 | Total de arquivos | **65** |
 | Suíte padrão — arquivos | **50** |
-| Suíte padrão — testes | **565** |
+| Suíte padrão — testes | **566** |
 | Suíte integração — arquivos | **15** |
 
 Comando: `DATABASE_URL='' npx vitest run`
@@ -63,7 +63,7 @@ Comando: `DATABASE_URL='' npx vitest run`
 
 ---
 
-## ADRs (7)
+## ADRs (8)
 
 - ADR-001-no-streaming.md
 - ADR-002-modularization-roadmap.md
@@ -72,6 +72,7 @@ Comando: `DATABASE_URL='' npx vitest run`
 - ADR-006-shield-s1r-multisource.md
 - ADR-007-shield-s2-workflow-consultant.md
 - ADR-008-documentation-reset-by-audit.md
+- ADR-009-architect-domain.md
 
 ---
 

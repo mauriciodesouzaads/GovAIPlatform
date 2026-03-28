@@ -85,7 +85,7 @@ vi.mock('../lib/architect', () => {
             workItems: [mockWorkItem],
         }),
         updateWorkItem:          vi.fn().mockResolvedValue({
-            ...mockWorkItem, status: 'done', completed_at: now,
+            ...mockWorkItem, status: 'done', completed_at: now, execution_hint: 'human',
         }),
         answerDiscoveryQuestion: vi.fn().mockResolvedValue({
             contract: mockContract,
@@ -491,5 +491,17 @@ describe('Architect Routes — Sprint A2 Smoke Tests', () => {
             payload: {},
         });
         expect(res.statusCode).toBe(400);
+    });
+
+    it('PATCH /work-items/:id with execution_hint → 200 with hint in response', async () => {
+        const res = await app.inject({
+            method: 'PATCH',
+            url: `/v1/admin/architect/work-items/${WORKITEM_ID}`,
+            headers: JSON_H,
+            payload: { status: 'done', result_notes: 'Completed', execution_hint: 'human' },
+        });
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.body);
+        expect(body.execution_hint).toBe('human');
     });
 });

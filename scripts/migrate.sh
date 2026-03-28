@@ -80,6 +80,7 @@ MIGRATIONS=(
     "053_shield_enterprise_hardening.sql"
     "054_hitl_timeout_per_org.sql"
     "055_architect_domain.sql"
+    "056_architect_execution_hint.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

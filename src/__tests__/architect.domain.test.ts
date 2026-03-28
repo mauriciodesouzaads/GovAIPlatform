@@ -35,6 +35,7 @@ import {
     answerDiscoveryQuestion,
     addDiscoveryQuestion,
     getDiscoveryStatus,
+    generateArchitectDocument,
 } from '../lib/architect';
 
 const pool = new Pool({ connectionString: DATABASE_URL });
@@ -781,12 +782,101 @@ describe('T19: addDiscoveryQuestion — accepted contract', () => {
     });
 });
 
-// ── T20: getDiscoveryStatus — non-existent case ───────────────────────────────
+// ── T20: generateArchitectDocument — decision set not found ───────────────────
 
-describe('T20: getDiscoveryStatus — non-existent case', () => {
-    it('throws when case does not exist', async () => {
+describe('T20: generateArchitectDocument — decision set not found', () => {
+    it('throws when decision set not found', async () => {
         await expect(
-            getDiscoveryStatus(pool, ORG_ID, '00000000-0000-0000-0000-000000000099')
-        ).rejects.toThrow('Demand case not found');
+            generateArchitectDocument(pool, ORG_ID,
+                '00000000-0000-0000-0000-000000000099', ACTOR_ID)
+        ).rejects.toThrow('Decision set not found');
+    });
+});
+
+// ── T21: compileWorkflow preserves execution_hint ─────────────────────────────
+
+describe('T21: compileWorkflow preserves execution_hint from node config', () => {
+    it('work item has execution_hint = internal_rag when set in node config', async () => {
+        const c = await createDemandCase(pool, ORG_ID, {
+            title: 'T21 execution_hint case',
+            source_type: 'internal',
+        }, ACTOR_ID);
+        createdCaseIds.push(c.id);
+
+        const contract = await upsertProblemContract(pool, ORG_ID, c.id, {
+            goal: 'T21 goal',
+            constraints_json: [{ c: 'x' }],
+            non_goals_json: [],
+            acceptance_criteria_json: [{ a: 'x' }],
+            open_questions_json: [],
+        });
+        await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
+
+        const decision = await createDecisionSet(pool, ORG_ID, contract.id, {
+            recommended_option: 'Option T21',
+            alternatives_json: [],
+            tradeoffs_json: [],
+            risks_json: [],
+            rationale_md: '## T21',
+        }, ACTOR_ID);
+        await approveDecisionSet(pool, ORG_ID, decision.id, ACTOR_ID);
+
+        const { workItems } = await compileWorkflow(pool, ORG_ID, decision.id, {
+            nodes: [{
+                id: 'n1',
+                type: 'rag_research',
+                label: 'RAG research task',
+                config: { execution_hint: 'internal_rag' },
+            }],
+            edges: [],
+            metadata: {},
+        }, ACTOR_ID);
+
+        expect(workItems).toHaveLength(1);
+        expect(workItems[0].execution_hint).toBe('internal_rag');
+    });
+});
+
+// ── T22: updateWorkItem updates execution_hint ────────────────────────────────
+
+describe('T22: updateWorkItem updates execution_hint', () => {
+    it('patches execution_hint to human', async () => {
+        const c = await createDemandCase(pool, ORG_ID, {
+            title: 'T22 execution_hint patch case',
+            source_type: 'internal',
+        }, ACTOR_ID);
+        createdCaseIds.push(c.id);
+
+        const contract = await upsertProblemContract(pool, ORG_ID, c.id, {
+            goal: 'T22 goal',
+            constraints_json: [{ c: 'x' }],
+            non_goals_json: [],
+            acceptance_criteria_json: [{ a: 'x' }],
+            open_questions_json: [],
+        });
+        await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
+
+        const decision = await createDecisionSet(pool, ORG_ID, contract.id, {
+            recommended_option: 'Option T22',
+            alternatives_json: [],
+            tradeoffs_json: [],
+            risks_json: [],
+            rationale_md: '## T22',
+        }, ACTOR_ID);
+        await approveDecisionSet(pool, ORG_ID, decision.id, ACTOR_ID);
+
+        const { workItems } = await compileWorkflow(pool, ORG_ID, decision.id, {
+            nodes: [{ id: 'n1', type: 'human_task', label: 'Manual review' }],
+            edges: [],
+            metadata: {},
+        }, ACTOR_ID);
+
+        const updated = await updateWorkItem(
+            pool, ORG_ID, workItems[0].id,
+            { execution_hint: 'human' },
+            ACTOR_ID
+        );
+
+        expect(updated.execution_hint).toBe('human');
     });
 });
