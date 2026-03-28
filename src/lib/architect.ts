@@ -119,6 +119,24 @@ export interface DemandCaseFull {
     workItems: ArchitectWorkItem[];
 }
 
+export interface CaseSummary {
+    caseId: string;
+    caseTitle: string;
+    caseStatus: string;
+    priority: string;
+    contractGoal: string | null;
+    contractStatus: string | null;
+    confidenceScore: number;
+    decisionCount: number;
+    approvedDecision: string | null;
+    workItemCount: number;
+    workItemsDone: number;
+    workItemsPending: number;
+    workItemsBlocked: number;
+    completionPercentage: number;
+    generatedAt: string; // ISO string
+}
+
 // ── Status transition map ─────────────────────────────────────────────────────
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -1048,4 +1066,63 @@ export async function getDiscoveryStatus(
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
         client.release();
     }
+}
+
+// ── R. generateCaseSummary ────────────────────────────────────────────────────
+
+export async function generateCaseSummary(
+    pool: Pool,
+    orgId: string,
+    caseId: string,
+    actorId: string
+): Promise<{ summary: CaseSummary; evidenceId: string }> {
+    // 1. Fetch full case chain
+    const full = await getDemandCaseFull(pool, orgId, caseId);
+    if (!full) throw new Error('Case not found');
+
+    // 2. Compute work item metrics
+    const workItemsDone    = full.workItems.filter(wi => wi.status === 'done').length;
+    const workItemsPending = full.workItems.filter(wi => wi.status === 'pending' || wi.status === 'in_progress').length;
+    const workItemsBlocked = full.workItems.filter(wi => wi.status === 'blocked').length;
+    const workItemCount    = full.workItems.length;
+    const completionPercentage = workItemCount === 0
+        ? 0
+        : Math.round((workItemsDone / workItemCount) * 100);
+
+    const approvedDecision = full.decisions.find(d => d.status === 'approved')?.recommended_option ?? null;
+
+    const summary: CaseSummary = {
+        caseId,
+        caseTitle:           full.case.title,
+        caseStatus:          full.case.status,
+        priority:            full.case.priority,
+        contractGoal:        full.contract?.goal ?? null,
+        contractStatus:      full.contract?.status ?? null,
+        confidenceScore:     full.contract?.confidence_score ?? 0,
+        decisionCount:       full.decisions.length,
+        approvedDecision,
+        workItemCount,
+        workItemsDone,
+        workItemsPending,
+        workItemsBlocked,
+        completionPercentage,
+        generatedAt:         new Date().toISOString(),
+    };
+
+    // 3. Record evidence
+    const evidenceRecord = await recordEvidence(pool, {
+        orgId,
+        category: 'execution',
+        eventType: 'ARCHITECT_CASE_SUMMARY_GENERATED',
+        actorId,
+        resourceType: 'demand_case',
+        resourceId: caseId,
+        metadata: { completionPercentage, workItemCount },
+    });
+
+    // 4. Log audit
+    await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_SUMMARY_GENERATED',
+        { caseId, completionPercentage }, 'demand_case', caseId);
+
+    return { summary, evidenceId: evidenceRecord?.id ?? '' };
 }

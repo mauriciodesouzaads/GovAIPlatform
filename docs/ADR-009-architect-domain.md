@@ -126,9 +126,41 @@ e criaria dead code ou acoplamento frágil.
 
 ## Referências
 
-- `src/lib/architect.ts` — domain service functions A–Q
-- `src/routes/architect.routes.ts` — 18 endpoints do domínio Architect
+- `src/lib/architect.ts` — domain service functions A–R
+- `src/routes/architect.routes.ts` — 20 endpoints do domínio Architect
 - `055_architect_domain.sql` — schema base (5 tabelas + RLS + triggers)
 - `056_architect_execution_hint.sql` — coluna advisory execution_hint
+- `057_architect_work_item_execution.sql` — colunas de delegação (dispatched_at, dispatch_attempts, execution_context)
+- `src/lib/architect-delegation.ts` — delegation router + adapters (internal_rag, human, agno stub)
 - `src/services/execution.service.ts` — padrão de chamada LiteLLM
 - ADR-001: decisão de não-streaming que se aplica igualmente ao Architect
+
+---
+
+## Sprint A4–A5 Addendum
+
+### Decision 6 — Concurrency: SELECT FOR UPDATE SKIP LOCKED
+
+`dispatchWorkItem` uses `SELECT FOR UPDATE SKIP LOCKED` to prevent double-dispatch
+in concurrent environments. SKIP LOCKED (not plain FOR UPDATE) ensures concurrent
+callers skip locked rows rather than blocking, enabling graceful parallel operation.
+Callers that receive the 'locked' result simply skip the item — it is being handled
+by another worker. This pattern avoids deadlocks and queue stalls under load.
+
+### Decision 7 — Agno as optional, flag-gated external runtime
+
+The Agno adapter is introduced as a stub in Sprint A5. Activation requires
+`AGNO_ENABLED=true` and a running Agno service at `AGNO_ENDPOINT`. The control plane
+never requires Agno to function — it remains optional infrastructure. The stub records
+the payload that would be sent to Agno in `execution_context` and keeps the work item
+in 'pending' state, allowing operators to inspect the payload before enabling the
+live integration.
+
+### Decision 8 — Case summary as evidence-backed report
+
+`generateCaseSummary` produces a structured report from the live state of the case
+chain and records it as an evidence record (`ARCHITECT_CASE_SUMMARY_GENERATED`).
+This closes the evidence loop: every significant Architect operation generates
+auditable evidence. The summary includes completion percentage, work item metrics,
+approved decision option, and confidence score — providing a single-call view of
+case health for auditors and operators.

@@ -1,5 +1,5 @@
 /**
- * Architect Delegation Router — Sprint A4
+ * Architect Delegation Router — Sprint A4/A5
  *
  * Reads work items with specific execution_hint values and routes them
  * to the appropriate adapter for execution.
@@ -9,6 +9,7 @@
  *   - Adapters update work item status in DB and record evidence
  *   - Human adapter is informational only (no DB state changes)
  *   - Max 3 dispatch attempts before marking blocked
+ *   - dispatchWorkItem uses SELECT FOR UPDATE SKIP LOCKED for concurrency safety
  */
 
 import { Pool } from 'pg';
@@ -197,15 +198,15 @@ export async function runHumanAdapter(
     }
 }
 
-// ── Delegation Router ─────────────────────────────────────────────────────────
+// ── Adapter: agno (stub) ──────────────────────────────────────────────────────
 
-export async function dispatchWorkItem(
+export async function runAgnoAdapter(
     pool: Pool,
     orgId: string,
-    workItemId: string
-): Promise<DispatchResult> {
+    workItemId: string,
+    agnoEndpoint?: string
+): Promise<AdapterResult> {
     const client = await pool.connect();
-    let item: Record<string, unknown>;
     try {
         await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
 
@@ -214,35 +215,147 @@ export async function dispatchWorkItem(
             `SELECT * FROM architect_work_items WHERE id = $1 AND org_id = $2`,
             [workItemId, orgId]
         );
-        if (wiRes.rows.length === 0) throw new Error('Work item not found');
-        item = wiRes.rows[0];
+        if (wiRes.rows.length === 0) {
+            return { success: false, output: {}, error: 'Work item not found' };
+        }
+        const item = wiRes.rows[0];
 
-        // 2. Check terminal status
-        if (item.status === 'done' || item.status === 'cancelled') {
-            throw new Error('Work item already terminal');
+        // 2. Validate execution_hint
+        if (item.execution_hint !== 'agno') {
+            return { success: false, output: {}, error: 'Wrong adapter for this item' };
         }
 
-        // 3. Check max attempts
-        if ((item.dispatch_attempts as number) >= 3) {
-            await client.query(
-                `UPDATE architect_work_items SET status = 'blocked' WHERE id = $1`,
-                [workItemId]
-            );
-            throw new Error('Max dispatch attempts reached');
+        // 3. Build agno payload
+        const agnoPayload = {
+            work_item_id: workItemId,
+            item_type: item.item_type,
+            title: item.title,
+            description: item.description,
+            execution_context_input: {
+                orgId,
+                ref_type: item.ref_type,
+                ref_id: item.ref_id,
+            },
+        };
+
+        // 4. If AGNO_ENABLED=true and endpoint provided: call Agno service
+        if (agnoEndpoint && process.env.AGNO_ENABLED === 'true') {
+            const response = await fetch(`${agnoEndpoint}/run`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(agnoPayload),
+            });
+            const data = await response.json() as Record<string, unknown>;
+            return { success: true, output: data };
         }
+
+        // 5. Stub response — Agno not yet enabled
+        const output = {
+            stub: true,
+            message: 'Agno adapter not yet enabled. Set AGNO_ENABLED=true and provide AGNO_ENDPOINT to activate.',
+            payload: agnoPayload,
+        };
+
+        // Update execution_context; status stays 'pending' (stub does not complete item)
+        await client.query(
+            `UPDATE architect_work_items
+             SET execution_context = $1
+             WHERE id = $2`,
+            [JSON.stringify({ adapter: 'agno', stub: true, payload: agnoPayload }), workItemId]
+        );
+
+        return { success: true, output };
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
         client.release();
     }
+}
 
-    // 4. Route by execution_hint
-    const hint = item.execution_hint as string | null;
+// ── Delegation Router ─────────────────────────────────────────────────────────
+
+export async function dispatchWorkItem(
+    pool: Pool,
+    orgId: string,
+    workItemId: string
+): Promise<DispatchResult> {
+    const client = await pool.connect();
+    let item: Record<string, unknown> | undefined;
+    let guardOutcome: 'proceed' | 'locked' | 'terminal' | 'blocked' = 'proceed';
+
+    try {
+        await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+        await client.query('BEGIN');
+
+        // 1. Lock with SKIP LOCKED — concurrent callers skip rather than block
+        const wiRes = await client.query(
+            `SELECT * FROM architect_work_items
+             WHERE id = $1 AND org_id = $2
+             FOR UPDATE SKIP LOCKED`,
+            [workItemId, orgId]
+        );
+
+        if (wiRes.rows.length === 0) {
+            // Another worker holds the lock
+            guardOutcome = 'locked';
+            await client.query('ROLLBACK').catch(() => {});
+        } else {
+            item = wiRes.rows[0];
+
+            // 2. Check terminal status
+            if (item.status === 'done' || item.status === 'cancelled') {
+                guardOutcome = 'terminal';
+                await client.query('ROLLBACK').catch(() => {});
+            } else if ((item.dispatch_attempts as number) >= 3) {
+                // 3. Check max attempts
+                await client.query(
+                    `UPDATE architect_work_items SET status = 'blocked' WHERE id = $1`,
+                    [workItemId]
+                );
+                guardOutcome = 'blocked';
+                await client.query('COMMIT').catch(() => {});
+            } else {
+                // Guard passed — commit and proceed to adapter
+                await client.query('COMMIT').catch(() => {});
+            }
+        }
+    } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+        throw err;
+    }
+
+    await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+    client.release();
+
+    // 4. Handle guard outcomes
+    if (guardOutcome === 'locked') {
+        return {
+            workItemId,
+            adapter: 'locked',
+            success: false,
+            output: {},
+            error: 'Work item locked by concurrent dispatch',
+        };
+    }
+    if (guardOutcome === 'terminal') {
+        throw new Error('Work item already terminal');
+    }
+    if (guardOutcome === 'blocked') {
+        throw new Error('Max dispatch attempts reached');
+    }
+
+    // 5. Route by execution_hint (adapter opens its own connection)
+    const hint = (item as Record<string, unknown>).execution_hint as string | null;
     let adapterName: string;
     let result: AdapterResult;
 
     if (hint === 'internal_rag') {
         adapterName = 'internal_rag';
         result = await runInternalRagAdapter(pool, orgId, workItemId);
+    } else if (hint === 'agno') {
+        adapterName = 'agno';
+        result = await runAgnoAdapter(pool, orgId, workItemId);
     } else if (hint === 'human') {
         adapterName = 'human';
         result = await runHumanAdapter(pool, orgId, workItemId);
@@ -252,7 +365,7 @@ export async function dispatchWorkItem(
         result = await runHumanAdapter(pool, orgId, workItemId);
     }
 
-    // 5. Return dispatch result
+    // 6. Return dispatch result
     return {
         workItemId,
         adapter: adapterName,
@@ -290,6 +403,8 @@ export async function dispatchPendingWorkItems(
     for (const workItemId of pendingIds) {
         try {
             const result = await dispatchWorkItem(pool, orgId, workItemId);
+            // Skip silently if another process has the lock
+            if (result.error?.includes('locked')) continue;
             results.push(result);
         } catch (err: unknown) {
             results.push({

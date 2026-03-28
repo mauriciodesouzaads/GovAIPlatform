@@ -158,6 +158,16 @@ export default function ArchitectPage() {
     const [dispatchingItemId, setDispatchingItemId] = useState<string | null>(null);
     const [dispatchingAll, setDispatchingAll] = useState(false);
 
+    // Case summary
+    const [caseSummary, setCaseSummary] = useState<{
+        caseId: string; caseTitle: string; caseStatus: string; priority: string;
+        contractGoal: string | null; contractStatus: string | null; confidenceScore: number;
+        decisionCount: number; approvedDecision: string | null;
+        workItemCount: number; workItemsDone: number; workItemsPending: number;
+        workItemsBlocked: number; completionPercentage: number; generatedAt: string;
+    } | null>(null);
+    const [loadingSummary, setLoadingSummary] = useState(false);
+
     const loadCases = useCallback(async () => {
         setLoading(true);
         try {
@@ -178,6 +188,7 @@ export default function ArchitectPage() {
         setSelected(null);
         setDiscoveryStatus(null);
         setGeneratedDoc(null);
+        setCaseSummary(null);
         try {
             const [fullRes, statusRes] = await Promise.all([
                 api.get(ENDPOINTS.ARCHITECT_CASE(caseId)),
@@ -269,6 +280,19 @@ export default function ArchitectPage() {
             openCase(selected.case.id);
         } catch {
             showToast('Erro ao aceitar contrato', 'error');
+        }
+    };
+
+    const handleGenerateSummary = async () => {
+        if (!selected) return;
+        setLoadingSummary(true);
+        try {
+            const res = await api.get(ENDPOINTS.ARCHITECT_CASE_SUMMARY(selected.case.id));
+            setCaseSummary(res.data.summary);
+        } catch {
+            showToast('Erro ao gerar resumo', 'error');
+        } finally {
+            setLoadingSummary(false);
         }
     };
 
@@ -532,6 +556,55 @@ export default function ArchitectPage() {
                                                 </div>
                                             </div>
                                         )}
+
+                                        {/* Case Summary */}
+                                        <div>
+                                            <button
+                                                onClick={handleGenerateSummary}
+                                                disabled={loadingSummary}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-600/20 hover:bg-violet-600/30 text-violet-400 border border-violet-500/20 transition-colors disabled:opacity-50"
+                                            >
+                                                <ClipboardList className="w-3 h-3" />
+                                                {loadingSummary ? 'Gerando...' : 'Gerar Resumo'}
+                                            </button>
+
+                                            {caseSummary && caseSummary.caseId === selected.case.id && (
+                                                <div className="mt-3 rounded-lg border border-violet-500/20 bg-violet-500/5 p-4 space-y-3">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Resumo do Caso</span>
+                                                        <span className={`text-2xl font-bold text-violet-400`}>
+                                                            {caseSummary.completionPercentage}%
+                                                        </span>
+                                                    </div>
+                                                    <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+                                                        <div
+                                                            className="h-full rounded-full bg-violet-500 transition-all"
+                                                            style={{ width: `${caseSummary.completionPercentage}%` }}
+                                                        />
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                                        <div>
+                                                            <span className="text-muted-foreground">Work Items</span>
+                                                            <p className="text-foreground font-medium">{caseSummary.workItemsDone} / {caseSummary.workItemCount} concluídos</p>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-muted-foreground">Confidence</span>
+                                                            <p className={`font-medium ${confidenceColor(caseSummary.confidenceScore)}`}>{caseSummary.confidenceScore}%</p>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-muted-foreground">Decisão Aprovada</span>
+                                                            <p className="text-foreground font-medium truncate">{caseSummary.approvedDecision ?? 'Pendente'}</p>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-muted-foreground">Status</span>
+                                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border ${statusBadge(caseSummary.caseStatus)}`}>
+                                                                {caseSummary.caseStatus}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
 

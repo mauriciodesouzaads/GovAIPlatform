@@ -28,6 +28,7 @@ import {
     addDiscoveryQuestion,
     generateArchitectDocument,
     getDiscoveryStatus,
+    generateCaseSummary,
 } from '../lib/architect';
 import { dispatchWorkItem, dispatchPendingWorkItems } from '../lib/architect-delegation';
 
@@ -432,6 +433,23 @@ export async function architectRoutes(
         const { decisionId } = request.params as { decisionId: string };
         const result = await generateArchitectDocument(pgPool, orgId, decisionId, userId);
         return reply.status(201).send(result);
+    });
+
+    // ── GET /v1/admin/architect/cases/:id/summary ────────────────────────────
+    fastify.get('/v1/admin/architect/cases/:id/summary', {
+        preHandler: requireRole(['admin', 'operator', 'auditor', 'dpo']),
+    }, async (request: any, reply) => {
+        const { userId, orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const { id } = request.params as { id: string };
+        try {
+            const result = await generateCaseSummary(pgPool, orgId, id, userId);
+            return reply.send(result);
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes('not found')) return reply.status(404).send({ error: msg });
+            throw err;
+        }
     });
 
     // ── POST /v1/admin/architect/work-items/:workItemId/dispatch ─────────────

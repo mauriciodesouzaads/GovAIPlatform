@@ -1,5 +1,5 @@
 /**
- * Sprint A4: Architect Delegation Router — Integration Tests
+ * Sprint A4/A5: Architect Delegation Router — Integration Tests
  *
  * Requires DATABASE_URL (excluded from default vitest run without it).
  * Tests T1–T8 cover all adapters, routing, terminal state guards, and batch dispatch.
@@ -10,6 +10,7 @@ import { Pool } from 'pg';
 import {
     runInternalRagAdapter,
     runHumanAdapter,
+    runAgnoAdapter,
     dispatchWorkItem,
     dispatchPendingWorkItems,
 } from '../lib/architect-delegation';
@@ -256,5 +257,73 @@ describe('Architect Delegation Router — Integration Tests', () => {
         expect(res.rows[0].status).toBe('done');
         expect(res.rows[0].execution_context).toBeTruthy();
         expect(res.rows[0].execution_context.adapter).toBe('internal_rag');
+    });
+
+    // T9: runAgnoAdapter with AGNO_ENABLED not set → stub response
+    it('T9: runAgnoAdapter with AGNO_ENABLED not set returns stub response', async () => {
+        delete process.env.AGNO_ENABLED;
+
+        await createOrg();
+        const caseId     = await createCase(ORG_ID);
+        const decisionId = await createDecision(ORG_ID, caseId);
+        const workflowId = await createWorkflow(ORG_ID, decisionId);
+        const itemId     = await createWorkItem(ORG_ID, workflowId, 'agno');
+
+        const result = await runAgnoAdapter(pool, ORG_ID, itemId);
+
+        expect(result.success).toBe(true);
+        expect((result.output as { stub?: boolean }).stub).toBe(true);
+
+        // execution_context persisted in DB with stub:true
+        const res = await pool.query(
+            `SELECT execution_context FROM architect_work_items WHERE id = $1`,
+            [itemId]
+        );
+        expect(res.rows[0].execution_context.stub).toBe(true);
+        expect(res.rows[0].execution_context.adapter).toBe('agno');
+    });
+
+    // T10: dispatchWorkItem routes 'agno' hint to agno adapter
+    it('T10: dispatchWorkItem routes agno execution_hint to agno adapter', async () => {
+        delete process.env.AGNO_ENABLED;
+
+        await createOrg();
+        const caseId     = await createCase(ORG_ID);
+        const decisionId = await createDecision(ORG_ID, caseId);
+        const workflowId = await createWorkflow(ORG_ID, decisionId);
+        const itemId     = await createWorkItem(ORG_ID, workflowId, 'agno');
+
+        const result = await dispatchWorkItem(pool, ORG_ID, itemId);
+
+        expect(result.adapter).toBe('agno');
+        expect(result.success).toBe(true);
+    });
+
+    // T11: SELECT FOR UPDATE SKIP LOCKED — second concurrent call returns 'locked'
+    it('T11: Two sequential dispatches of same item — second returns locked (simulated)', async () => {
+        await createOrg();
+        const caseId     = await createCase(ORG_ID);
+        const decisionId = await createDecision(ORG_ID, caseId);
+        const workflowId = await createWorkflow(ORG_ID, decisionId);
+        const itemId     = await createWorkItem(ORG_ID, workflowId, 'human');
+
+        // Simulate concurrent dispatch by holding a FOR UPDATE lock in a separate connection
+        const lockClient = await pool.connect();
+        await lockClient.query("SELECT set_config('app.current_org_id', $1, false)", [ORG_ID]);
+        await lockClient.query('BEGIN');
+        await lockClient.query(
+            `SELECT id FROM architect_work_items WHERE id = $1 FOR UPDATE`,
+            [itemId]
+        );
+
+        // While the lock is held, dispatchWorkItem should return 'locked'
+        const result = await dispatchWorkItem(pool, ORG_ID, itemId);
+
+        await lockClient.query('ROLLBACK');
+        lockClient.release();
+
+        expect(result.adapter).toBe('locked');
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('locked by concurrent dispatch');
     });
 });

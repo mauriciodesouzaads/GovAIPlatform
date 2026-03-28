@@ -124,6 +124,26 @@ vi.mock('../lib/architect', () => {
             readyForAcceptance: false,
             hasAcceptanceCriteria: true,
         }),
+        generateCaseSummary:     vi.fn().mockResolvedValue({
+            summary: {
+                caseId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+                caseTitle: 'Test case',
+                caseStatus: 'design',
+                priority: 'medium',
+                contractGoal: 'Test goal',
+                contractStatus: 'accepted',
+                confidenceScore: 50,
+                decisionCount: 1,
+                approvedDecision: 'Option A',
+                workItemCount: 1,
+                workItemsDone: 0,
+                workItemsPending: 1,
+                workItemsBlocked: 0,
+                completionPercentage: 0,
+                generatedAt: new Date('2026-01-01T00:00:00Z').toISOString(),
+            },
+            evidenceId: 'ev-summary-001',
+        }),
     };
 });
 
@@ -520,6 +540,23 @@ describe('Architect Routes — Sprint A2 Smoke Tests', () => {
         expect(res.statusCode).toBe(200);
         const body = JSON.parse(res.body);
         expect(body.execution_hint).toBe('human');
+    });
+});
+
+// ── Sprint A5 smoke tests ─────────────────────────────────────────────────────
+
+describe('Architect Routes — Sprint A5 Smoke Tests', () => {
+
+    it('GET /cases/:id/summary → 200 with summary and evidenceId', async () => {
+        const res = await app.inject({
+            method: 'GET',
+            url: `/v1/admin/architect/cases/${CASE_ID}/summary`,
+        });
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.body);
+        expect(body.summary.caseId).toBe(CASE_ID);
+        expect(typeof body.summary.completionPercentage).toBe('number');
+        expect(typeof body.evidenceId).toBe('string');
     });
 });
 

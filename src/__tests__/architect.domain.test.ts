@@ -36,6 +36,7 @@ import {
     addDiscoveryQuestion,
     getDiscoveryStatus,
     generateArchitectDocument,
+    generateCaseSummary,
 } from '../lib/architect';
 
 const pool = new Pool({ connectionString: DATABASE_URL });
@@ -878,5 +879,64 @@ describe('T22: updateWorkItem updates execution_hint', () => {
         );
 
         expect(updated.execution_hint).toBe('human');
+    });
+});
+
+// ── T23: generateCaseSummary ──────────────────────────────────────────────────
+
+describe('T23: generateCaseSummary on complete chain', () => {
+    it('returns completionPercentage=0 when no work items done, workItemCount reflects compiled workflow', async () => {
+        const c = await createDemandCase(pool, ORG_ID, {
+            title: 'Summary test T23',
+            source_type: 'internal',
+        }, ACTOR_ID);
+        createdCaseIds.push(c.id);
+
+        const contract = await upsertProblemContract(pool, ORG_ID, c.id, {
+            goal: 'Summary goal',
+            constraints_json: [],
+            non_goals_json: [],
+            acceptance_criteria_json: [{ a: 'x' }],
+            open_questions_json: [],
+        });
+        await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
+
+        const decision = await createDecisionSet(pool, ORG_ID, contract.id, {
+            recommended_option: 'Option T23',
+            alternatives_json: [],
+            tradeoffs_json: [],
+            risks_json: [],
+            rationale_md: '## T23',
+        }, ACTOR_ID);
+        await approveDecisionSet(pool, ORG_ID, decision.id, ACTOR_ID);
+
+        const { workItems } = await compileWorkflow(pool, ORG_ID, decision.id, {
+            nodes: [
+                { id: 'n1', type: 'human_task', label: 'Task A' },
+                { id: 'n2', type: 'human_task', label: 'Task B' },
+            ],
+            edges: [],
+            metadata: {},
+        }, ACTOR_ID);
+
+        const { summary, evidenceId } = await generateCaseSummary(pool, ORG_ID, c.id, ACTOR_ID);
+
+        expect(summary.caseId).toBe(c.id);
+        expect(summary.workItemCount).toBe(workItems.length);
+        expect(summary.workItemsDone).toBe(0);
+        expect(summary.completionPercentage).toBe(0);
+        expect(summary.approvedDecision).toBe('Option T23');
+        expect(typeof summary.generatedAt).toBe('string');
+        expect(typeof evidenceId).toBe('string');
+    });
+});
+
+// ── T24: generateCaseSummary — non-existent case throws ──────────────────────
+
+describe('T24: generateCaseSummary on non-existent case', () => {
+    it('throws Case not found', async () => {
+        await expect(
+            generateCaseSummary(pool, ORG_ID, '00000000-0000-0000-0000-000000000000', ACTOR_ID)
+        ).rejects.toThrow('Case not found');
     });
 });
