@@ -87,8 +87,12 @@ export default function LoginPage() {
                 setIsResetting(true);
                 setResetToken(axiosError.response.data.resetToken || '');
                 setError('Troca de senha inicial obrigatória por conformidade de segurança.');
+            } else if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
+                setError('E-mail ou senha incorretos.');
+            } else if (!axiosError.response) {
+                setError('Servidor temporariamente indisponível. Verifique a conexão.');
             } else {
-                setError(axiosError.response?.data?.error || 'Erro ao realizar login');
+                setError(axiosError.response?.data?.error || 'Erro ao realizar login.');
             }
         } finally {
             setLoading(false);

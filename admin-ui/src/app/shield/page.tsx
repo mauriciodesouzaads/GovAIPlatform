@@ -111,7 +111,7 @@ function NoteModal({
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 export default function ShieldPage() {
-    const { role } = useAuth();
+    const { role, orgId } = useAuth();
     const { toast } = useToast();
     const isAdmin = role === 'admin';
 
@@ -127,11 +127,8 @@ export default function ShieldPage() {
     const [processingId, setProcessingId] = useState<string | null>(null);
     const [modal, setModal] = useState<{ type: 'accept_risk' | 'dismiss'; findingId: string } | null>(null);
 
-    const orgId = typeof window !== 'undefined'
-        ? (localStorage.getItem('govai_org_id') || sessionStorage.getItem('govai_org_id') || 'default')
-        : 'default';
-
     const fetchPosture = useCallback(async () => {
+        if (!orgId) return; // wait for AuthProvider to resolve orgId
         setLoadingPosture(true);
         try {
             const res = await api.get(ENDPOINTS.SHIELD_POSTURE, { params: { orgId } });
@@ -144,6 +141,7 @@ export default function ShieldPage() {
     }, [orgId]);
 
     const fetchFindings = useCallback(async () => {
+        if (!orgId) return; // wait for AuthProvider to resolve orgId
         setLoadingFindings(true);
         try {
             const params: Record<string, string> = { orgId };
@@ -159,6 +157,7 @@ export default function ShieldPage() {
     }, [orgId, statusFilter, severityFilter]);
 
     const fetchCollectors = useCallback(async () => {
+        if (!orgId) return; // wait for AuthProvider to resolve orgId
         setLoadingCollectors(true);
         try {
             const res = await api.get(ENDPOINTS.SHIELD_COLLECTOR_HEALTH, { params: { orgId } });
