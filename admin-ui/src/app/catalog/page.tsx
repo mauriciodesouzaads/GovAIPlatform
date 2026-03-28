@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
     BookOpen, ChevronRight, X, Tag, Calendar, User,
     AlertTriangle, CheckCircle2, Clock, Loader2, ExternalLink,
-    Archive, ShieldAlert,
+    Archive, ShieldAlert, Link2, Copy,
 } from 'lucide-react';
 import api, { ENDPOINTS } from '@/lib/api';
 import { useToast } from '@/components/Toast';
@@ -419,20 +419,60 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
 
                     {/* Tab: Chat */}
                     {tab === 'chat' && (
-                        <div className="space-y-4">
-                            <p className="text-sm text-gray-400">
-                                Teste este assistente no Playground com o pipeline completo de governança (OPA + DLP + HITL).
-                            </p>
-                            <p className="text-xs text-gray-600">
-                                Modelo e políticas são configurados pelo administrador.
-                            </p>
-                            <a
-                                href="/playground"
-                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm transition-colors"
-                            >
-                                <ExternalLink className="w-4 h-4" />
-                                Iniciar Chat no Playground
-                            </a>
+                        <div className="space-y-5">
+                            {/* Link Governado — only for official assistants */}
+                            {state === 'official' ? (
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-2">
+                                        <Link2 className="w-4 h-4 text-emerald-400" />
+                                        <p className="text-sm font-semibold text-white">Link Governado</p>
+                                    </div>
+                                    <p className="text-xs text-gray-500 leading-relaxed">
+                                        Compartilhe este link com usuários finais. Adicione uma API Key válida ao final.
+                                    </p>
+                                    <div className="bg-white/[0.03] border border-white/10 rounded-lg p-3 font-mono text-xs text-gray-400 break-all">
+                                        {typeof window !== 'undefined'
+                                            ? `${window.location.origin}/chat/${assistant.id}?key=`
+                                            : `/chat/${assistant.id}?key=`
+                                        }
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            const url = typeof window !== 'undefined'
+                                                ? `${window.location.origin}/chat/${assistant.id}?key=`
+                                                : `/chat/${assistant.id}?key=`;
+                                            navigator.clipboard.writeText(url).then(() => {
+                                                toast('Link base copiado!', 'success');
+                                            }).catch(() => {
+                                                toast('Não foi possível copiar', 'error');
+                                            });
+                                        }}
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 text-sm font-medium transition-colors"
+                                    >
+                                        <Copy className="w-4 h-4" />
+                                        Copiar Link Base
+                                    </button>
+                                    <div className="border-t border-white/5 pt-3" />
+                                </div>
+                            ) : (
+                                <div className="flex items-start gap-2 text-xs text-gray-500 bg-white/[0.02] border border-white/5 rounded-lg p-3">
+                                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600/70" />
+                                    Assistente deve estar com status <strong className="text-white mx-1">official</strong>
+                                    para gerar link de acesso externo.
+                                </div>
+                            )}
+
+                            {/* Playground admin link */}
+                            <div className="space-y-2">
+                                <p className="text-xs text-gray-600">Teste no Playground com o pipeline completo (OPA + DLP + HITL).</p>
+                                <a
+                                    href="/playground"
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm transition-colors"
+                                >
+                                    <ExternalLink className="w-4 h-4" />
+                                    Abrir Playground Admin
+                                </a>
+                            </div>
                         </div>
                     )}
                 </div>

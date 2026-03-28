@@ -468,6 +468,54 @@ fastify.get('/health', async (_request, reply) => {
 });
 
 // ---------------------------------------------------------------------------
+// Public routes — accessible with API key only (no admin JWT required)
+// ---------------------------------------------------------------------------
+
+// GET /v1/public/assistant/:assistantId — returns safe public info for the end-user chat UI.
+// Uses requireApiKey to resolve org_id (needed for RLS), but does not require admin JWT.
+// Returns 404 if the assistant is not in 'official' lifecycle state.
+fastify.get('/v1/public/assistant/:assistantId', { preHandler: requireApiKey }, async (request, reply) => {
+    const { assistantId } = request.params as { assistantId: string };
+    const orgId = request.headers['x-org-id'] as string;
+
+    const client = await pgPool.connect();
+    try {
+        await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+        const [assistantRes, policyRes] = await Promise.all([
+            client.query(
+                `SELECT id, name, description, lifecycle_state
+                 FROM assistants
+                 WHERE id = $1 AND org_id = $2`,
+                [assistantId, orgId]
+            ),
+            client.query(
+                `SELECT COUNT(*)::int AS count FROM policy_versions WHERE org_id = $1`,
+                [orgId]
+            ),
+        ]);
+
+        if (assistantRes.rows.length === 0 || assistantRes.rows[0].lifecycle_state !== 'official') {
+            return reply.status(404).send({ error: 'Assistente não disponível ou não publicado.' });
+        }
+
+        const row = assistantRes.rows[0];
+        return reply.send({
+            id: row.id,
+            name: row.name,
+            description: row.description ?? null,
+            lifecycle_state: row.lifecycle_state,
+            policyCount: policyRes.rows[0].count,
+        });
+    } catch (error) {
+        fastify.log.error(error, 'Error fetching public assistant info');
+        return reply.status(500).send({ error: 'Erro ao buscar informações do assistente.' });
+    } finally {
+        client.release();
+    }
+});
+
+// ---------------------------------------------------------------------------
 // Route plugins
 // ---------------------------------------------------------------------------
 fastify.register(oidcRoutes, { pgPool }); // GA-005/GA-006: unified OIDC with JIT provisioning + Bearer-only session

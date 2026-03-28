@@ -6,6 +6,11 @@ import { Sidebar } from '@/components/Sidebar';
 export function LayoutWrapper({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const isLoginPage = pathname === '/login';
+    const isChatPage = pathname.startsWith('/chat');
+
+    if (isChatPage) {
+        return <>{children}</>;
+    }
 
     return (
         <>

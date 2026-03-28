@@ -97,7 +97,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Fires when loading completes or token/pathname changes.
     // This is the ONLY place that redirects to /login.
     useEffect(() => {
-        if (!isLoading && !token && pathname !== '/login') {
+        if (!isLoading && !token && pathname !== '/login' && !pathname.startsWith('/chat')) {
             router.push('/login');
         }
     }, [isLoading, token, pathname, router]);

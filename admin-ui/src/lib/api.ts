@@ -72,6 +72,9 @@ export const ENDPOINTS = {
     // Models
     MODELS_LIST:              '/v1/admin/models',
 
+    // Public (no admin auth — API key only)
+    PUBLIC_ASSISTANT_INFO:    (id: string) => `/v1/public/assistant/${id}`,
+
     // Architect Domain
     ARCHITECT_CASES:                  '/v1/admin/architect/cases',
     ARCHITECT_CASE:                   (id: string) => `/v1/admin/architect/cases/${id}`,
