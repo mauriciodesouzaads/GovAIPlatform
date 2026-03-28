@@ -80,4 +80,4 @@ Comando: `DATABASE_URL='' npx vitest run`
 
 - BullMQ workers: não implementados (coleta admin-triggered)
 - SSE / browser extension: ver ADR-004
-- Architect domain: Sprint A1 — demand_cases, problem_contracts, architecture_decision_sets, workflow_graphs, architect_work_items
+- Architect domain: Sprints A1–A5 — demand_cases, problem_contracts (discovery stateful + confidence scoring), architecture_decision_sets, workflow_graphs, architect_work_items, architect-delegation (dispatchWorkItem, internal_rag adapter, human adapter, agno stub), generateArchitectDocument via LiteLLM, generateCaseSummary, SELECT FOR UPDATE SKIP LOCKED concurrency, ADR-009 with 8 formal decisions

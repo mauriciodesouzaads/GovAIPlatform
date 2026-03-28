@@ -109,7 +109,7 @@ export async function architectRoutes(
     fastify.post('/v1/admin/architect/cases/:id/contract', {
         preHandler: requireRole(['admin', 'operator']),
     }, async (request: any, reply) => {
-        const { orgId } = request.user ?? {};
+        const { userId, orgId } = request.user ?? {};
         if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
 
         const { id } = request.params as { id: string };
@@ -133,7 +133,7 @@ export async function architectRoutes(
             open_questions_json:      open_questions_json ?? [],
             context_snippets_json:    context_snippets_json ?? [],
             confidence_score,
-        });
+        }, userId);
         // 201 on insert (version=1), 200 on update
         const statusCode = contract.version === 1 ? 201 : 200;
         return reply.status(statusCode).send(contract);
