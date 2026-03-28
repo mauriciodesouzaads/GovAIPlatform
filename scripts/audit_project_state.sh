@@ -54,6 +54,7 @@ D_EVIDENCE=$(has_file "src/lib/evidence.ts")
 D_CATALOG=$(has_file "045_catalog_registry.sql")
 D_CONSULTANT=$(has_file "src/lib/consultant-auth.ts")
 D_SHIELD=$(has_file "src/lib/shield.ts")
+D_ARCHITECT=$(has_file "src/lib/architect.ts")
 ADMIN_UI_LOCK=$(has_file "admin-ui/package-lock.json")
 
 ADR_LIST=$(ls docs/ADR-*.md 2>/dev/null | xargs -I{} basename {} || true)
@@ -197,7 +198,7 @@ Comando: \`DATABASE_URL='' npx vitest run\`
 | Catalog | ${D_CATALOG} |
 | Consultant Plane | ${D_CONSULTANT} |
 | Shield | ${D_SHIELD} |
-| Architect | ✗ não implementado |
+| Architect | ${D_ARCHITECT} |
 
 ---
 
@@ -230,7 +231,7 @@ $(echo "$ADR_LIST" | sed 's/^/- /')
 
 - BullMQ workers: não implementados (coleta admin-triggered)
 - SSE / browser extension: ver ADR-004
-- Architect domain: roadmap futuro
+- Architect domain: Sprint A1 — demand_cases, problem_contracts, architecture_decision_sets, workflow_graphs, architect_work_items
 HEREDOC
 
 INTEGRATION_LIST_MD=$(echo "$INTEGRATION_FILES_LIST" | sed 's|src/__tests__/|- `|' | sed 's/$/.`/')
@@ -349,7 +350,6 @@ cat > docs/PRODUCT_SURFACE.md << HEREDOC
 
 ## Não implementado (roadmap)
 
-- Architect domain
 - BullMQ workers (coleta automática)
 - SSE / browser extension (ADR-004)
 - CASB integration
@@ -398,7 +398,7 @@ echo "  $D_EVIDENCE  Evidence"
 echo "  $D_CATALOG  Catalog"
 echo "  $D_CONSULTANT  Consultant Plane"
 echo "  $D_SHIELD  Shield"
-echo "  ✗  Architect (not implemented)"
+echo "  $D_ARCHITECT  Architect"
 echo ""
 
 echo "━━━ ADRs ($ADR_COUNT) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

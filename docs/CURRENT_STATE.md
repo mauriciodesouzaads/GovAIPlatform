@@ -1,9 +1,9 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 00:37 UTC -->
+<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 04:43 UTC -->
 <!-- Não editar manualmente. Regenerar após cada sprint. -->
 
 # GovAI Platform — Current State
 
-**Gerado em:** 2026-03-28 00:37 UTC
+**Gerado em:** 2026-03-28 04:43 UTC
 
 ---
 
@@ -11,8 +11,8 @@
 
 | Métrica | Valor |
 |---------|-------|
-| Total | **44** |
-| Intervalo | 011–054 (excluindo 050) |
+| Total | **45** |
+| Intervalo | 011–055 (excluindo 050) |
 | Fonte | `scripts/migrate.sh` |
 
 ---
@@ -21,10 +21,10 @@
 
 | Métrica | Valor |
 |---------|-------|
-| Total de arquivos | **63** |
-| Suíte padrão — arquivos | **49** |
-| Suíte padrão — testes | **542** |
-| Suíte integração — arquivos | **14** |
+| Total de arquivos | **65** |
+| Suíte padrão — arquivos | **50** |
+| Suíte padrão — testes | **559** |
+| Suíte integração — arquivos | **15** |
 
 Comando: `DATABASE_URL='' npx vitest run`
 
@@ -40,7 +40,7 @@ Comando: `DATABASE_URL='' npx vitest run`
 | Catalog | ✓ |
 | Consultant Plane | ✓ |
 | Shield | ✓ |
-| Architect | ✗ não implementado |
+| Architect | ✓ |
 
 ---
 
@@ -79,4 +79,4 @@ Comando: `DATABASE_URL='' npx vitest run`
 
 - BullMQ workers: não implementados (coleta admin-triggered)
 - SSE / browser extension: ver ADR-004
-- Architect domain: roadmap futuro
+- Architect domain: Sprint A1 — demand_cases, problem_contracts, architecture_decision_sets, workflow_graphs, architect_work_items

@@ -41,6 +41,8 @@ const integrationTestPatterns = [
     'src/__tests__/shield.collector-health.test.ts',
     'src/__tests__/shield.posture-history.test.ts',
     'src/__tests__/shield.export.test.ts',
+    // Sprint A1: Architect Domain
+    'src/__tests__/architect.domain.test.ts',
 ];
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
