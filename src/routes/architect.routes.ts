@@ -24,6 +24,10 @@ import {
     updateWorkItem,
     listDemandCases,
     getDemandCaseFull,
+    answerDiscoveryQuestion,
+    addDiscoveryQuestion,
+    generateArchitectDocument,
+    getDiscoveryStatus,
 } from '../lib/architect';
 
 export async function architectRoutes(
@@ -362,5 +366,70 @@ export async function architectRoutes(
             status, assigned_to, result_notes, result_ref,
         }, userId);
         return reply.send(item);
+    });
+
+    // ── POST /v1/admin/architect/cases/:id/discover/answer ───────────────────
+    fastify.post('/v1/admin/architect/cases/:id/discover/answer', {
+        preHandler: requireRole(['admin', 'operator', 'dpo']),
+        schema: {
+            body: {
+                type: 'object',
+                required: ['questionIndex', 'answer'],
+                properties: {
+                    questionIndex: { type: 'integer', minimum: 0 },
+                    answer: { type: 'string', minLength: 1 },
+                },
+            },
+        },
+    }, async (request: any, reply) => {
+        const { userId, orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const { id } = request.params as { id: string };
+        const { questionIndex, answer } = request.body as { questionIndex: number; answer: string };
+        const result = await answerDiscoveryQuestion(pgPool, orgId, id, questionIndex, answer, userId);
+        return reply.send(result);
+    });
+
+    // ── POST /v1/admin/architect/cases/:id/discover/questions ────────────────
+    fastify.post('/v1/admin/architect/cases/:id/discover/questions', {
+        preHandler: requireRole(['admin', 'operator', 'dpo']),
+        schema: {
+            body: {
+                type: 'object',
+                required: ['question'],
+                properties: {
+                    question: { type: 'string', minLength: 1 },
+                },
+            },
+        },
+    }, async (request: any, reply) => {
+        const { userId, orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const { id } = request.params as { id: string };
+        const { question } = request.body as { question: string };
+        const contract = await addDiscoveryQuestion(pgPool, orgId, id, question, userId);
+        return reply.status(201).send(contract);
+    });
+
+    // ── GET /v1/admin/architect/cases/:id/discover/status ───────────────────
+    fastify.get('/v1/admin/architect/cases/:id/discover/status', {
+        preHandler: requireRole(['admin', 'operator', 'dpo']),
+    }, async (request: any, reply) => {
+        const { orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const { id } = request.params as { id: string };
+        const status = await getDiscoveryStatus(pgPool, orgId, id);
+        return reply.send(status);
+    });
+
+    // ── POST /v1/admin/architect/decisions/:decisionId/document ─────────────
+    fastify.post('/v1/admin/architect/decisions/:decisionId/document', {
+        preHandler: requireRole(['admin', 'operator']),
+    }, async (request: any, reply) => {
+        const { userId, orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const { decisionId } = request.params as { decisionId: string };
+        const result = await generateArchitectDocument(pgPool, orgId, decisionId, userId);
+        return reply.status(201).send(result);
     });
 }

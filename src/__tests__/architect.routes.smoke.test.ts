@@ -87,6 +87,26 @@ vi.mock('../lib/architect', () => {
         updateWorkItem:          vi.fn().mockResolvedValue({
             ...mockWorkItem, status: 'done', completed_at: now,
         }),
+        answerDiscoveryQuestion: vi.fn().mockResolvedValue({
+            contract: mockContract,
+            confidenceScore: 75,
+            readyForAcceptance: true,
+        }),
+        addDiscoveryQuestion:    vi.fn().mockResolvedValue(mockContract),
+        generateArchitectDocument: vi.fn().mockResolvedValue({
+            content: '# ADR\n## Decision\nUse Option A',
+            evidenceId: 'ev-0001',
+        }),
+        getDiscoveryStatus:      vi.fn().mockResolvedValue({
+            caseStatus: 'discovery',
+            contractExists: true,
+            contractStatus: 'draft',
+            confidenceScore: 50,
+            totalQuestions: 2,
+            answeredQuestions: 1,
+            readyForAcceptance: false,
+            hasAcceptanceCriteria: true,
+        }),
     };
 });
 
@@ -353,5 +373,123 @@ describe('Architect Routes — Smoke Tests', () => {
             url: `/v1/admin/architect/cases/00000000-0000-0000-0000-000000000000`,
         });
         expect(res.statusCode).toBe(404);
+    });
+});
+
+// ── Sprint A2 smoke tests ─────────────────────────────────────────────────────
+
+describe('Architect Routes — Sprint A2 Smoke Tests', () => {
+
+    it('POST /cases/:id/discover/answer → 200 with contract and confidenceScore', async () => {
+        const { answerDiscoveryQuestion } = await import('../lib/architect');
+        vi.mocked(answerDiscoveryQuestion).mockResolvedValueOnce({
+            contract: {
+                id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+                org_id: ORG_ID,
+                demand_case_id: CASE_ID,
+                version: 1,
+                goal: 'Test goal',
+                constraints_json: [],
+                non_goals_json: [],
+                acceptance_criteria_json: [],
+                open_questions_json: [],
+                context_snippets_json: [],
+                confidence_score: 75,
+                status: 'draft',
+                accepted_by: null,
+                accepted_at: null,
+                created_at: new Date('2026-01-01T00:00:00Z'),
+                updated_at: new Date('2026-01-01T00:00:00Z'),
+            },
+            confidenceScore: 75,
+            readyForAcceptance: true,
+        });
+
+        const res = await app.inject({
+            method: 'POST',
+            url: `/v1/admin/architect/cases/${CASE_ID}/discover/answer`,
+            headers: JSON_H,
+            payload: { questionIndex: 0, answer: 'Customer data' },
+        });
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.body);
+        expect(body.confidenceScore).toBe(75);
+        expect(body.readyForAcceptance).toBe(true);
+    });
+
+    it('POST /cases/:id/discover/questions → 201 with updated contract', async () => {
+        const res = await app.inject({
+            method: 'POST',
+            url: `/v1/admin/architect/cases/${CASE_ID}/discover/questions`,
+            headers: JSON_H,
+            payload: { question: 'What is the data source?' },
+        });
+        expect(res.statusCode).toBe(201);
+        const body = JSON.parse(res.body);
+        expect(body.goal).toBe('Test goal');
+    });
+
+    it('GET /cases/:id/discover/status → 200 with discovery summary', async () => {
+        const { getDiscoveryStatus } = await import('../lib/architect');
+        vi.mocked(getDiscoveryStatus).mockResolvedValueOnce({
+            caseStatus: 'discovery',
+            contractExists: true,
+            contractStatus: 'draft',
+            confidenceScore: 50,
+            totalQuestions: 2,
+            answeredQuestions: 1,
+            readyForAcceptance: false,
+            hasAcceptanceCriteria: true,
+        });
+
+        const res = await app.inject({
+            method: 'GET',
+            url: `/v1/admin/architect/cases/${CASE_ID}/discover/status`,
+        });
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.body);
+        expect(body.contractExists).toBe(true);
+        expect(body.confidenceScore).toBe(50);
+        expect(typeof body.totalQuestions).toBe('number');
+    });
+
+    it('POST /decisions/:id/document → 201 with content and evidenceId', async () => {
+        const { generateArchitectDocument } = await import('../lib/architect');
+        vi.mocked(generateArchitectDocument).mockResolvedValueOnce({
+            content: '# ADR\n## Decision\nUse Option A',
+            evidenceId: 'ev-0001',
+        });
+
+        const res = await app.inject({
+            method: 'POST',
+            url: `/v1/admin/architect/decisions/${DECISION_ID}/document`,
+            headers: JSON_H,
+            payload: {},
+        });
+        expect(res.statusCode).toBe(201);
+        const body = JSON.parse(res.body);
+        expect(typeof body.content).toBe('string');
+        expect(body.content.length).toBeGreaterThan(0);
+        expect(typeof body.evidenceId).toBe('string');
+    });
+
+    it('POST /cases/:id/discover/answer with missing fields → 400', async () => {
+        const res = await app.inject({
+            method: 'POST',
+            url: `/v1/admin/architect/cases/${CASE_ID}/discover/answer`,
+            headers: JSON_H,
+            payload: { questionIndex: 0 }, // missing answer
+        });
+        expect(res.statusCode).toBe(400);
+    });
+
+    it('POST /cases/:id/discover/questions with missing question → 400', async () => {
+        const res = await app.inject({
+            method: 'POST',
+            url: `/v1/admin/architect/cases/${CASE_ID}/discover/questions`,
+            headers: JSON_H,
+            payload: {},
+        });
+        expect(res.statusCode).toBe(400);
     });
 });

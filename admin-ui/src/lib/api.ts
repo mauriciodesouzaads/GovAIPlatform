@@ -62,6 +62,25 @@ export const ENDPOINTS = {
 
     // Catalog Registry
     CATALOG_ASSISTANTS:       '/v1/admin/assistants',
+
+    // Architect Domain
+    ARCHITECT_CASES:                  '/v1/admin/architect/cases',
+    ARCHITECT_CASE:                   (id: string) => `/v1/admin/architect/cases/${id}`,
+    ARCHITECT_CASE_STATUS:            (id: string) => `/v1/admin/architect/cases/${id}/status`,
+    ARCHITECT_CASE_CONTRACT:          (id: string) => `/v1/admin/architect/cases/${id}/contract`,
+    ARCHITECT_CASE_CONTRACT_ACCEPT:   (id: string) => `/v1/admin/architect/cases/${id}/contract/accept`,
+    ARCHITECT_CASE_DISCOVER:          (id: string) => `/v1/admin/architect/cases/${id}/discover`,
+    ARCHITECT_CASE_DISCOVER_ANSWER:   (id: string) => `/v1/admin/architect/cases/${id}/discover/answer`,
+    ARCHITECT_CASE_DISCOVER_QUESTIONS:(id: string) => `/v1/admin/architect/cases/${id}/discover/questions`,
+    ARCHITECT_CASE_DISCOVER_STATUS:   (id: string) => `/v1/admin/architect/cases/${id}/discover/status`,
+    ARCHITECT_CASE_DECISIONS:         (id: string) => `/v1/admin/architect/cases/${id}/decisions`,
+    ARCHITECT_CASE_WORK_ITEMS:        (id: string) => `/v1/admin/architect/cases/${id}/work-items`,
+    ARCHITECT_DECISION_PROPOSE:       (id: string) => `/v1/admin/architect/decisions/${id}/propose`,
+    ARCHITECT_DECISION_APPROVE:       (id: string) => `/v1/admin/architect/decisions/${id}/approve`,
+    ARCHITECT_DECISION_REJECT:        (id: string) => `/v1/admin/architect/decisions/${id}/reject`,
+    ARCHITECT_DECISION_COMPILE:       (id: string) => `/v1/admin/architect/decisions/${id}/compile`,
+    ARCHITECT_DECISION_DOCUMENT:      (id: string) => `/v1/admin/architect/decisions/${id}/document`,
+    ARCHITECT_WORK_ITEM:              (id: string) => `/v1/admin/architect/work-items/${id}`,
 };
 
 export default api;

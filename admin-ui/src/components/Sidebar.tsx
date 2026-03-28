@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, ToggleRight, Play, ScanEye, BookOpen, UserCog } from 'lucide-react';
+import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -25,6 +25,7 @@ export function Sidebar() {
         { label: 'Shield Detection', href: '/shield', icon: ScanEye, allowed: ['admin', 'sre', 'dpo', 'auditor'] },
         { label: 'Catálogo de Agentes', href: '/catalog', icon: BookOpen, allowed: ['admin', 'operator', 'auditor'] },
         { label: 'Painel do Consultor', href: '/consultant', icon: UserCog, allowed: ['admin', 'sre', 'dpo'] },
+        { label: 'Arquiteto', href: '/architect', icon: BrainCircuit, allowed: ['admin', 'operator', 'dpo'] },
     ];
 
     const visibleCoreItems = coreItems.filter(item => item.allowed.includes(role));

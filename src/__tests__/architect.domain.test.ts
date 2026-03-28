@@ -32,6 +32,9 @@ import {
     listDemandCases,
     getDemandCaseFull,
     discoverWithContext,
+    answerDiscoveryQuestion,
+    addDiscoveryQuestion,
+    getDiscoveryStatus,
 } from '../lib/architect';
 
 const pool = new Pool({ connectionString: DATABASE_URL });
@@ -593,5 +596,197 @@ describe('T14: discoverWithContext with no KB', () => {
             pool, fakeOrgId, '00000000-0000-0000-0000-000000000099', 'test question'
         );
         expect(result.snippets).toHaveLength(0);
+    });
+});
+
+// ── T15: addDiscoveryQuestion ─────────────────────────────────────────────────
+
+describe('T15: addDiscoveryQuestion', () => {
+    let caseId: string;
+    let contractId: string;
+
+    beforeAll(async () => {
+        const c = await createDemandCase(pool, ORG_ID, {
+            title: 'T15 case',
+            source_type: 'internal',
+        }, ACTOR_ID);
+        caseId = c.id;
+        createdCaseIds.push(caseId);
+
+        const contract = await upsertProblemContract(pool, ORG_ID, caseId, {
+            goal: 'T15 goal',
+            constraints_json: [],
+            non_goals_json: [],
+            acceptance_criteria_json: [],
+            open_questions_json: [],
+        });
+        contractId = contract.id;
+    });
+
+    it('appends a new unanswered question to the contract', async () => {
+        const updated = await addDiscoveryQuestion(pool, ORG_ID, caseId, 'What is the data source?', ACTOR_ID);
+        expect(updated.id).toBe(contractId);
+        const questions = updated.open_questions_json as Array<{ question: string; answered: boolean; answer: string | null }>;
+        expect(Array.isArray(questions)).toBe(true);
+        expect(questions.some(q => q.question === 'What is the data source?' && !q.answered)).toBe(true);
+    });
+});
+
+// ── T16: answerDiscoveryQuestion ──────────────────────────────────────────────
+
+describe('T16: answerDiscoveryQuestion', () => {
+    let caseId: string;
+
+    beforeAll(async () => {
+        const c = await createDemandCase(pool, ORG_ID, {
+            title: 'T16 case',
+            source_type: 'internal',
+        }, ACTOR_ID);
+        caseId = c.id;
+        createdCaseIds.push(caseId);
+
+        await upsertProblemContract(pool, ORG_ID, caseId, {
+            goal: 'T16 goal',
+            constraints_json: [{ constraint: 'LGPD' }],
+            non_goals_json: [],
+            acceptance_criteria_json: [{ criterion: 'Accuracy > 90%' }],
+            open_questions_json: [
+                { question: 'What data is used?', answered: false, answer: null },
+                { question: 'Who owns the model?', answered: false, answer: null },
+            ],
+        });
+    });
+
+    it('marks question as answered and returns updated confidence score', async () => {
+        const result = await answerDiscoveryQuestion(pool, ORG_ID, caseId, 0, 'Customer transaction data', ACTOR_ID);
+        expect(result.contract).toBeTruthy();
+        const questions = result.contract.open_questions_json as Array<{ answered: boolean; answer: string | null }>;
+        expect(questions[0].answered).toBe(true);
+        expect(questions[0].answer).toBe('Customer transaction data');
+        expect(result.confidenceScore).toBeGreaterThanOrEqual(40);
+    });
+
+    it('returns readyForAcceptance=true when score >= 70', async () => {
+        // Answer second question to boost score
+        const result = await answerDiscoveryQuestion(pool, ORG_ID, caseId, 1, 'Data science team', ACTOR_ID);
+        // With 2/2 answered + criteria + constraints: 40 + 30 + 20 + 10 = 100
+        expect(result.confidenceScore).toBeGreaterThanOrEqual(70);
+        expect(result.readyForAcceptance).toBe(true);
+    });
+
+    it('throws on invalid question index', async () => {
+        await expect(
+            answerDiscoveryQuestion(pool, ORG_ID, caseId, 99, 'irrelevant', ACTOR_ID)
+        ).rejects.toThrow('Invalid question index');
+    });
+});
+
+// ── T17: getDiscoveryStatus ───────────────────────────────────────────────────
+
+describe('T17: getDiscoveryStatus', () => {
+    let caseId: string;
+
+    beforeAll(async () => {
+        const c = await createDemandCase(pool, ORG_ID, {
+            title: 'T17 case',
+            source_type: 'regulatory',
+        }, ACTOR_ID);
+        caseId = c.id;
+        createdCaseIds.push(caseId);
+    });
+
+    it('returns status with contractExists=false before contract creation', async () => {
+        const status = await getDiscoveryStatus(pool, ORG_ID, caseId);
+        expect(status.contractExists).toBe(false);
+        expect(status.contractStatus).toBeNull();
+        expect(status.confidenceScore).toBe(0);
+    });
+
+    it('returns contractExists=true after contract creation', async () => {
+        await upsertProblemContract(pool, ORG_ID, caseId, {
+            goal: 'T17 goal',
+            constraints_json: [],
+            non_goals_json: [],
+            acceptance_criteria_json: [],
+            open_questions_json: [],
+        });
+
+        const status = await getDiscoveryStatus(pool, ORG_ID, caseId);
+        expect(status.contractExists).toBe(true);
+        expect(status.contractStatus).toBe('draft');
+        expect(status.totalQuestions).toBe(0);
+        expect(status.answeredQuestions).toBe(0);
+    });
+});
+
+// ── T18: answerDiscoveryQuestion on accepted contract ─────────────────────────
+
+describe('T18: answerDiscoveryQuestion — accepted contract', () => {
+    let caseId: string;
+
+    beforeAll(async () => {
+        const c = await createDemandCase(pool, ORG_ID, {
+            title: 'T18 accepted contract case',
+            source_type: 'internal',
+        }, ACTOR_ID);
+        caseId = c.id;
+        createdCaseIds.push(caseId);
+
+        await upsertProblemContract(pool, ORG_ID, caseId, {
+            goal: 'T18 goal',
+            constraints_json: [{ c: 'x' }],
+            non_goals_json: [],
+            acceptance_criteria_json: [{ a: 'x' }],
+            open_questions_json: [],
+        });
+
+        await acceptProblemContract(pool, ORG_ID, caseId, ACTOR_ID);
+    });
+
+    it('throws when trying to answer question on accepted contract', async () => {
+        await expect(
+            answerDiscoveryQuestion(pool, ORG_ID, caseId, 0, 'answer', ACTOR_ID)
+        ).rejects.toThrow('Contract already accepted');
+    });
+});
+
+// ── T19: addDiscoveryQuestion on accepted contract ────────────────────────────
+
+describe('T19: addDiscoveryQuestion — accepted contract', () => {
+    let caseId: string;
+
+    beforeAll(async () => {
+        const c = await createDemandCase(pool, ORG_ID, {
+            title: 'T19 accepted contract case',
+            source_type: 'internal',
+        }, ACTOR_ID);
+        caseId = c.id;
+        createdCaseIds.push(caseId);
+
+        await upsertProblemContract(pool, ORG_ID, caseId, {
+            goal: 'T19 goal',
+            constraints_json: [{ c: 'x' }],
+            non_goals_json: [],
+            acceptance_criteria_json: [{ a: 'x' }],
+            open_questions_json: [],
+        });
+
+        await acceptProblemContract(pool, ORG_ID, caseId, ACTOR_ID);
+    });
+
+    it('throws when trying to add question on accepted contract', async () => {
+        await expect(
+            addDiscoveryQuestion(pool, ORG_ID, caseId, 'new question', ACTOR_ID)
+        ).rejects.toThrow('Contract already accepted');
+    });
+});
+
+// ── T20: getDiscoveryStatus — non-existent case ───────────────────────────────
+
+describe('T20: getDiscoveryStatus — non-existent case', () => {
+    it('throws when case does not exist', async () => {
+        await expect(
+            getDiscoveryStatus(pool, ORG_ID, '00000000-0000-0000-0000-000000000099')
+        ).rejects.toThrow('Demand case not found');
     });
 });

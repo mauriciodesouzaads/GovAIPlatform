@@ -1,9 +1,9 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 04:43 UTC -->
+<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 05:04 UTC -->
 <!-- Não editar manualmente. Regenerar após cada sprint. -->
 
 # GovAI Platform — Test Manifest
 
-**Gerado em:** 2026-03-28 04:43 UTC
+**Gerado em:** 2026-03-28 05:04 UTC
 
 ---
 
@@ -13,7 +13,7 @@
 |---------|-------|
 | Total de arquivos de teste | **65** |
 | Suíte padrão — arquivos | **50** |
-| Suíte padrão — testes | **559** |
+| Suíte padrão — testes | **565** |
 | Suíte integração — arquivos | **15** |
 
 ---

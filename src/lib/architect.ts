@@ -16,6 +16,7 @@
 import { Pool } from 'pg';
 import { searchSimilarChunks, estimateTokens } from './rag';
 import { logConsultantAction } from './consultant-auth';
+import { recordEvidence } from './evidence';
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
 
@@ -783,6 +784,260 @@ export async function getDemandCaseFull(
         }
 
         return { case: demandCase, contract, decisions, workflow, workItems };
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+// ── Confidence score helper ───────────────────────────────────────────────────
+
+function calcConfidenceScore(
+    openQuestions: Array<{ answered: boolean }>,
+    acceptanceCriteria: unknown[],
+    constraints: unknown[]
+): number {
+    const base = 40;
+    const total = openQuestions.length;
+    const answered = openQuestions.filter(q => q.answered).length;
+    const questionBonus = total > 0 ? (answered / total) * 30 : 0;
+    const criteriaBonus = acceptanceCriteria.length > 0 ? 20 : 0;
+    const constraintBonus = constraints.length > 0 ? 10 : 0;
+    return Math.min(100, Math.round(base + questionBonus + criteriaBonus + constraintBonus));
+}
+
+// ── N. answerDiscoveryQuestion ────────────────────────────────────────────────
+
+export async function answerDiscoveryQuestion(
+    pool: Pool,
+    orgId: string,
+    caseId: string,
+    questionIndex: number,
+    answer: string,
+    actorId: string
+): Promise<{ contract: ProblemContract; confidenceScore: number; readyForAcceptance: boolean }> {
+    const client = await pool.connect();
+    try {
+        await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+        const res = await client.query(
+            `SELECT id, status, open_questions_json, acceptance_criteria_json, constraints_json
+             FROM problem_contracts
+             WHERE demand_case_id = $1 AND org_id = $2`,
+            [caseId, orgId]
+        );
+        if (res.rows.length === 0) throw new Error('Problem contract not found.');
+        const row = res.rows[0];
+        if (row.status === 'accepted') throw new Error('Contract already accepted');
+        const questions: Array<{ question: string; answered: boolean; answer: string | null }> =
+            Array.isArray(row.open_questions_json) ? row.open_questions_json : [];
+        if (questionIndex < 0 || questionIndex >= questions.length) {
+            throw new Error('Invalid question index');
+        }
+        questions[questionIndex].answered = true;
+        questions[questionIndex].answer = answer;
+        const criteria: unknown[] = Array.isArray(row.acceptance_criteria_json) ? row.acceptance_criteria_json : [];
+        const constraints: unknown[] = Array.isArray(row.constraints_json) ? row.constraints_json : [];
+        const score = calcConfidenceScore(questions, criteria, constraints);
+        const updated = await client.query(
+            `UPDATE problem_contracts
+             SET open_questions_json = $1, confidence_score = $2, updated_at = now()
+             WHERE id = $3 AND org_id = $4
+             RETURNING *`,
+            [JSON.stringify(questions), score, row.id, orgId]
+        );
+        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_QUESTION_ANSWERED',
+            { contractId: row.id, questionIndex, caseId }, 'problem_contract', row.id);
+        const contract = updated.rows[0] as ProblemContract;
+        return { contract, confidenceScore: score, readyForAcceptance: score >= 70 };
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── O. addDiscoveryQuestion ───────────────────────────────────────────────────
+
+export async function addDiscoveryQuestion(
+    pool: Pool,
+    orgId: string,
+    caseId: string,
+    question: string,
+    actorId: string
+): Promise<ProblemContract> {
+    const client = await pool.connect();
+    try {
+        await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+        const res = await client.query(
+            `SELECT id, status, open_questions_json
+             FROM problem_contracts
+             WHERE demand_case_id = $1 AND org_id = $2`,
+            [caseId, orgId]
+        );
+        if (res.rows.length === 0) throw new Error('Problem contract not found.');
+        const row = res.rows[0];
+        if (row.status === 'accepted') throw new Error('Contract already accepted');
+        const questions: Array<{ question: string; answered: boolean; answer: string | null }> =
+            Array.isArray(row.open_questions_json) ? row.open_questions_json : [];
+        questions.push({ question, answered: false, answer: null });
+        const updated = await client.query(
+            `UPDATE problem_contracts
+             SET open_questions_json = $1, updated_at = now()
+             WHERE id = $2 AND org_id = $3
+             RETURNING *`,
+            [JSON.stringify(questions), row.id, orgId]
+        );
+        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_QUESTION_ADDED',
+            { contractId: row.id, question, caseId }, 'problem_contract', row.id);
+        return updated.rows[0] as ProblemContract;
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── P. generateArchitectDocument ─────────────────────────────────────────────
+
+export async function generateArchitectDocument(
+    pool: Pool,
+    orgId: string,
+    decisionSetId: string,
+    actorId: string
+): Promise<{ content: string; evidenceId: string }> {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+
+    const client = await pool.connect();
+    try {
+        await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+
+        const decRes = await client.query(
+            `SELECT ads.*, pc.goal, pc.constraints_json, pc.acceptance_criteria_json,
+                    pc.non_goals_json, pc.context_snippets_json,
+                    dc.title AS case_title, dc.description AS case_description
+             FROM architecture_decision_sets ads
+             JOIN problem_contracts pc ON pc.id = ads.problem_contract_id
+             JOIN demand_cases dc ON dc.id = pc.demand_case_id
+             WHERE ads.id = $1 AND ads.org_id = $2`,
+            [decisionSetId, orgId]
+        );
+        if (decRes.rows.length === 0) throw new Error('Decision set not found');
+        const row = decRes.rows[0];
+
+        const prompt = `You are an enterprise AI governance architect. Generate a formal Architecture Decision Record (ADR) document in Markdown based on the following:
+
+## Case
+Title: ${row.case_title}
+${row.case_description ? `Description: ${row.case_description}` : ''}
+
+## Problem Contract
+Goal: ${row.goal}
+Constraints: ${JSON.stringify(row.constraints_json)}
+Non-goals: ${JSON.stringify(row.non_goals_json)}
+Acceptance Criteria: ${JSON.stringify(row.acceptance_criteria_json)}
+
+## Architecture Decision
+Recommended Option: ${row.recommended_option}
+Alternatives: ${JSON.stringify(row.alternatives_json)}
+Tradeoffs: ${JSON.stringify(row.tradeoffs_json)}
+Risks: ${JSON.stringify(row.risks_json)}
+Rationale:
+${row.rationale_md}
+
+Generate a complete ADR document with sections: Title, Status, Context, Decision, Consequences, Risks, and Implementation Notes.`;
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+                model: 'claude-sonnet-4-6',
+                max_tokens: 2048,
+                messages: [{ role: 'user', content: prompt }],
+            }),
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`Anthropic API error: ${err}`);
+        }
+
+        const data = await response.json() as {
+            content: Array<{ type: string; text: string }>;
+        };
+        const content = data.content.find(c => c.type === 'text')?.text ?? '';
+
+        const evidenceResult = await recordEvidence(pool, {
+            orgId,
+            category: 'policy_enforcement',
+            eventType: 'ARCHITECT_DOCUMENT_GENERATED',
+            actorId,
+            resourceType: 'architecture_decision_set',
+            resourceId: decisionSetId,
+            metadata: { decisionSetId, caseTitle: row.case_title, contentLength: content.length },
+        });
+        const evidenceId = evidenceResult?.id ?? '';
+
+        await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_DOCUMENT_GENERATED',
+            { decisionSetId, evidenceId }, 'architecture_decision_set', decisionSetId);
+
+        return { content, evidenceId };
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+// ── Q. getDiscoveryStatus ─────────────────────────────────────────────────────
+
+export async function getDiscoveryStatus(
+    pool: Pool,
+    orgId: string,
+    caseId: string
+): Promise<{
+    caseStatus: string;
+    contractExists: boolean;
+    contractStatus: string | null;
+    confidenceScore: number;
+    totalQuestions: number;
+    answeredQuestions: number;
+    readyForAcceptance: boolean;
+    hasAcceptanceCriteria: boolean;
+}> {
+    const client = await pool.connect();
+    try {
+        await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+        const res = await client.query(
+            `SELECT dc.status AS case_status,
+                    pc.id AS contract_id,
+                    pc.status AS contract_status,
+                    pc.confidence_score,
+                    pc.open_questions_json,
+                    pc.acceptance_criteria_json
+             FROM demand_cases dc
+             LEFT JOIN problem_contracts pc ON pc.demand_case_id = dc.id AND pc.org_id = dc.org_id
+             WHERE dc.id = $1 AND dc.org_id = $2`,
+            [caseId, orgId]
+        );
+        if (res.rows.length === 0) throw new Error('Demand case not found');
+        const row = res.rows[0];
+        const questions: Array<{ answered: boolean }> =
+            Array.isArray(row.open_questions_json) ? row.open_questions_json : [];
+        const criteria: unknown[] =
+            Array.isArray(row.acceptance_criteria_json) ? row.acceptance_criteria_json : [];
+        const answeredQuestions = questions.filter(q => q.answered).length;
+        const confidenceScore = row.confidence_score ?? 0;
+        return {
+            caseStatus: row.case_status,
+            contractExists: row.contract_id !== null,
+            contractStatus: row.contract_status ?? null,
+            confidenceScore,
+            totalQuestions: questions.length,
+            answeredQuestions,
+            readyForAcceptance: confidenceScore >= 70,
+            hasAcceptanceCriteria: criteria.length > 0,
+        };
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
         client.release();
