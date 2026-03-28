@@ -1,4 +1,4 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 09:59 UTC -->
+<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 12:18 UTC -->
 <!-- Não editar manualmente. Regenerar após cada sprint. -->
 
 # GovAI Platform
@@ -29,7 +29,7 @@ Multi-tenant com PostgreSQL RLS. Admin UI em Next.js 14. Shield detecta shadow-A
 | Catalog | ✅ | `src/lib/catalog.ts` |
 | Consultant Plane | ✅ | `src/lib/consultant-auth.ts` |
 | Shield (shadow-AI) | ✅ | `src/lib/shield.ts` (facade → 5 services) |
-| Architect | ✗ | não implementado |
+| Architect | ✅ | `src/lib/architect.ts` + `src/lib/architect-delegation.ts` |
 
 ---
 

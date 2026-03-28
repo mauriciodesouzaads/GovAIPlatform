@@ -1,9 +1,9 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 09:59 UTC -->
+<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 12:18 UTC -->
 <!-- Não editar manualmente. Regenerar após cada sprint. -->
 
 # GovAI Platform — Current State
 
-**Gerado em:** 2026-03-28 09:59 UTC
+**Gerado em:** 2026-03-28 12:18 UTC
 
 ---
 
@@ -58,7 +58,7 @@ Comando: `DATABASE_URL='' npx vitest run`
 
 | Check | Status |
 |-------|--------|
-| tsc --noEmit | ✗ erro |
+| tsc --noEmit | ✓ clean |
 | Admin UI lockfile | ✓ |
 
 ---

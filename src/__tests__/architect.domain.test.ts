@@ -157,7 +157,7 @@ describe('T4: upsertProblemContract creates contract and advances case', () => {
             non_goals_json: ['Rebuild legacy system'],
             acceptance_criteria_json: [{ criterion: 'Zero PII leaks', measurable: true }],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
 
         expect(contract.goal).toBe('Ensure GDPR compliance');
         expect(contract.demand_case_id).toBe(c.id);
@@ -195,7 +195,7 @@ describe('T5: upsertProblemContract on accepted contract throws', () => {
             non_goals_json: [],
             acceptance_criteria_json: [],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
 
         await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
 
@@ -206,7 +206,7 @@ describe('T5: upsertProblemContract on accepted contract throws', () => {
                 non_goals_json: [],
                 acceptance_criteria_json: [],
                 open_questions_json: [],
-            })
+            }, ACTOR_ID)
         ).rejects.toThrow(/immutable after acceptance/);
     });
 });
@@ -227,7 +227,7 @@ describe('T6: acceptProblemContract', () => {
             non_goals_json: [],
             acceptance_criteria_json: [],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
 
         await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
 
@@ -267,7 +267,7 @@ describe('T7: createDecisionSet', () => {
             non_goals_json: [],
             acceptance_criteria_json: [],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
         await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
 
         const decision = await createDecisionSet(pool, ORG_ID, contract.id, {
@@ -300,7 +300,7 @@ describe('T8: approveDecisionSet', () => {
             non_goals_json: [],
             acceptance_criteria_json: [],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
         await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
 
         const decision = await createDecisionSet(pool, ORG_ID, contract.id, {
@@ -349,7 +349,7 @@ describe('T9: rejectDecisionSet', () => {
             non_goals_json: [],
             acceptance_criteria_json: [],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
         await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
 
         const decision = await createDecisionSet(pool, ORG_ID, contract.id, {
@@ -394,7 +394,7 @@ describe('T10: compileWorkflow', () => {
             non_goals_json: [],
             acceptance_criteria_json: [],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
         await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
 
         const decision = await createDecisionSet(pool, ORG_ID, contract.id, {
@@ -456,7 +456,7 @@ describe('T11: getDemandCaseFull', () => {
             non_goals_json: [],
             acceptance_criteria_json: [],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
         await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
 
         const decision = await createDecisionSet(pool, ORG_ID, contract.id, {
@@ -540,7 +540,7 @@ describe('T13: updateWorkItem', () => {
             non_goals_json: [],
             acceptance_criteria_json: [],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
         await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
         const decision = await createDecisionSet(pool, ORG_ID, contract.id, {
             recommended_option: 'Option F',
@@ -621,7 +621,7 @@ describe('T15: addDiscoveryQuestion', () => {
             non_goals_json: [],
             acceptance_criteria_json: [],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
         contractId = contract.id;
     });
 
@@ -656,7 +656,7 @@ describe('T16: answerDiscoveryQuestion', () => {
                 { question: 'What data is used?', answered: false, answer: null },
                 { question: 'Who owns the model?', answered: false, answer: null },
             ],
-        });
+        }, ACTOR_ID);
     });
 
     it('marks question as answered and returns updated confidence score', async () => {
@@ -711,7 +711,7 @@ describe('T17: getDiscoveryStatus', () => {
             non_goals_json: [],
             acceptance_criteria_json: [],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
 
         const status = await getDiscoveryStatus(pool, ORG_ID, caseId);
         expect(status.contractExists).toBe(true);
@@ -740,7 +740,7 @@ describe('T18: answerDiscoveryQuestion — accepted contract', () => {
             non_goals_json: [],
             acceptance_criteria_json: [{ a: 'x' }],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
 
         await acceptProblemContract(pool, ORG_ID, caseId, ACTOR_ID);
     });
@@ -771,7 +771,7 @@ describe('T19: addDiscoveryQuestion — accepted contract', () => {
             non_goals_json: [],
             acceptance_criteria_json: [{ a: 'x' }],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
 
         await acceptProblemContract(pool, ORG_ID, caseId, ACTOR_ID);
     });
@@ -810,7 +810,7 @@ describe('T21: compileWorkflow preserves execution_hint from node config', () =>
             non_goals_json: [],
             acceptance_criteria_json: [{ a: 'x' }],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
         await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
 
         const decision = await createDecisionSet(pool, ORG_ID, contract.id, {
@@ -854,7 +854,7 @@ describe('T22: updateWorkItem updates execution_hint', () => {
             non_goals_json: [],
             acceptance_criteria_json: [{ a: 'x' }],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
         await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
 
         const decision = await createDecisionSet(pool, ORG_ID, contract.id, {
@@ -898,7 +898,7 @@ describe('T23: generateCaseSummary on complete chain', () => {
             non_goals_json: [],
             acceptance_criteria_json: [{ a: 'x' }],
             open_questions_json: [],
-        });
+        }, ACTOR_ID);
         await acceptProblemContract(pool, ORG_ID, contract.id, ACTOR_ID);
 
         const decision = await createDecisionSet(pool, ORG_ID, contract.id, {

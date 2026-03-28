@@ -258,7 +258,7 @@ export async function upsertProblemContract(
         context_snippets_json?: unknown[];
         confidence_score?: number;
     },
-    actorId?: string
+    actorId: string
 ): Promise<ProblemContract> {
     const client = await pool.connect();
     try {
@@ -332,7 +332,7 @@ export async function upsertProblemContract(
         }
 
         try {
-            await logConsultantAction(pool, actorId ?? orgId, orgId, 'ARCHITECT_CONTRACT_UPSERTED',
+            await logConsultantAction(pool, actorId, orgId, 'ARCHITECT_CONTRACT_UPSERTED',
                 { contractId: row.id, demandCaseId }, 'problem_contract', row.id);
         } catch { /* Non-fatal: audit log failure must not block the main operation */ }
         return row;

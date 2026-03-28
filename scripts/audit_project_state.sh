@@ -110,7 +110,7 @@ Multi-tenant com PostgreSQL RLS. Admin UI em Next.js 14. Shield detecta shadow-A
 | Catalog | ✅ | \`src/lib/catalog.ts\` |
 | Consultant Plane | ✅ | \`src/lib/consultant-auth.ts\` |
 | Shield (shadow-AI) | ✅ | \`src/lib/shield.ts\` (facade → 5 services) |
-| Architect | ✗ | não implementado |
+| Architect | ✅ | \`src/lib/architect.ts\` + \`src/lib/architect-delegation.ts\` |
 
 ---
 
@@ -231,7 +231,7 @@ $(echo "$ADR_LIST" | sed 's/^/- /')
 
 - BullMQ workers: não implementados (coleta admin-triggered)
 - SSE / browser extension: ver ADR-004
-- Architect domain: Sprint A1 — demand_cases, problem_contracts, architecture_decision_sets, workflow_graphs, architect_work_items
+- Architect domain: Sprints A1–A5 — demand_cases, problem_contracts (discovery stateful + confidence scoring), architecture_decision_sets, workflow_graphs, architect_work_items, architect-delegation (dispatchWorkItem, internal_rag adapter, human adapter, agno stub), generateArchitectDocument via LiteLLM, generateCaseSummary, SELECT FOR UPDATE SKIP LOCKED concurrency, ADR-009 with 8 formal decisions
 HEREDOC
 
 INTEGRATION_LIST_MD=$(echo "$INTEGRATION_FILES_LIST" | sed 's|src/__tests__/|- `|' | sed 's/$/.`/')
