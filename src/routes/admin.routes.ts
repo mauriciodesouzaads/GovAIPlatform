@@ -910,4 +910,16 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
     // Platform control-plane routes (requirePlatformAdmin)
     const { platformRoutes } = await import('./platform.routes');
     app.register(platformRoutes, subOpts);
+
+    // GET /v1/admin/models — available LLM models for model selector
+    // Sync with litellm-config.yaml when models change
+    app.get('/v1/admin/models', { preHandler: requireRole(['admin', 'operator', 'sre']) }, async (_request, reply) => {
+        return reply.send({
+            models: [
+                { id: 'govai-llm', name: 'GovAI LLM (Groq Llama 3.3)', provider: 'groq' },
+                { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Anthropic)', provider: 'anthropic' },
+                { id: 'gemini/gemini-2.5-flash', name: 'Gemini 2.5 Flash (Google)', provider: 'google' },
+            ],
+        });
+    });
 }

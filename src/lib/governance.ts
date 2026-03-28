@@ -17,6 +17,7 @@ export type ActionType = z.infer<typeof ActionType>;
 
 export const GovernanceRequestSchema = z.object({
     message: z.string().min(1, "O input não pode estar vazio").max(10000, "O input excede o limite máximo permitido"),
+    model: z.string().optional(),
 });
 
 export type GovernanceRequest = z.infer<typeof GovernanceRequestSchema>;

@@ -310,6 +310,7 @@ fastify.post('/v1/execute/:assistantId', {
         assistantId,
         orgId,
         message: parseResult.data.message,
+        model: parseResult.data.model,
         traceId: request.auditContext!.traceId,
         log: request.log,
     });

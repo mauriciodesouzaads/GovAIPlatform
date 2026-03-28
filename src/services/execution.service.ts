@@ -38,6 +38,7 @@ export interface ExecutionParams {
     message: string;
     traceId: string;
     userId?: string;
+    model?: string;
     log: FastifyBaseLogger;
 }
 
@@ -88,7 +89,7 @@ export async function captureOrReusePolicySnapshot(
 }
 
 export async function executeAssistant(params: ExecutionParams): Promise<ExecutionResult> {
-    const { assistantId, orgId, message, traceId, userId, log } = params;
+    const { assistantId, orgId, message, traceId, userId, model: modelOverride, log } = params;
     const execStart = Date.now();
     const client = await pgPool.connect();
 
@@ -289,9 +290,10 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
 
         let aiResponse: any;
         try {
+            const aiModel = modelOverride || process.env.AI_MODEL || 'govai-llm';
             aiResponse = await axios.post(
                 `${process.env.LITELLM_URL}/chat/completions`,
-                { model: process.env.AI_MODEL || 'gemini/gemini-1.5-flash', messages },
+                { model: aiModel, messages },
                 { headers: { Authorization: `Bearer ${process.env.LITELLM_KEY}` }, timeout: 30000 }
             );
         } catch (error: any) {

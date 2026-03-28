@@ -62,6 +62,15 @@ export const ENDPOINTS = {
 
     // Catalog Registry
     CATALOG_ASSISTANTS:       '/v1/admin/assistants',
+    CATALOG_LIST:             '/v1/admin/catalog',
+    CATALOG_METADATA:         (id: string) => `/v1/admin/assistants/${id}/metadata`,
+    CATALOG_SUBMIT_REVIEW:    (id: string) => `/v1/admin/assistants/${id}/submit-for-review`,
+    CATALOG_REVIEW:           (id: string) => `/v1/admin/assistants/${id}/catalog-review`,
+    CATALOG_SUSPEND:          (id: string) => `/v1/admin/assistants/${id}/suspend`,
+    CATALOG_ARCHIVE:          (id: string) => `/v1/admin/assistants/${id}/archive`,
+
+    // Models
+    MODELS_LIST:              '/v1/admin/models',
 
     // Architect Domain
     ARCHITECT_CASES:                  '/v1/admin/architect/cases',
