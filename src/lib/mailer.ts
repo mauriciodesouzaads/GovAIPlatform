@@ -242,6 +242,95 @@ export class Mailer {
     }
 
     /**
+     * Envia alerta ao admin da organização quando findings críticos são detectados pelo Shield.
+     * Se SMTP não estiver configurado: loga aviso e retorna sem lançar erro.
+     */
+    async sendShieldCriticalAlert(params: {
+        toEmail: string;
+        orgName: string;
+        findingCount: number;
+        criticalTools: Array<{ toolName: string; riskScore: number }>;
+        postureUrl: string;
+    }): Promise<void> {
+        if (!this.transporter || !this.config) {
+            console.warn('[Mailer] SMTP not configured — skipping Shield critical alert', {
+                toEmail: params.toEmail,
+                orgName: params.orgName,
+                findingCount: params.findingCount,
+            });
+            return;
+        }
+
+        const { toEmail, orgName, findingCount, criticalTools, postureUrl } = params;
+        const subject = `[GovAI Shield] ${findingCount} finding(s) crítico(s) detectado(s) — ${orgName}`;
+
+        const toolListHtml = criticalTools
+            .map(t => `<li>${escapeHtml(t.toolName)} — Score: ${t.riskScore}/100</li>`)
+            .join('');
+
+        const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:system-ui,-apple-system,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1);">
+        <tr>
+          <td style="background:#0f172a;padding:24px 32px;">
+            <span style="color:#fff;font-size:18px;font-weight:700;">GovAI Shield</span>
+            <span style="color:#94a3b8;font-size:13px;margin-left:12px;">Alerta Crítico</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px 32px 0;">
+            <div style="background:#fef2f2;border:1px solid #fca5a540;border-radius:8px;padding:12px 16px;">
+              <span style="color:#dc2626;font-weight:700;font-size:15px;">🚨 ${findingCount} finding(s) crítico(s) detectado(s)</span>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:24px 32px;">
+            <h2 style="margin:0 0 16px;color:#111827;font-size:16px;">GovAI Shield — Alerta Crítico</h2>
+            <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.6;">
+              A plataforma detectou <strong>${findingCount}</strong> finding(s) de risco crítico
+              na organização <strong>${escapeHtml(orgName)}</strong>.
+            </p>
+            <h3 style="margin:0 0 8px;color:#111827;font-size:14px;">Ferramentas de maior risco:</h3>
+            <ul style="margin:0 0 16px;padding-left:20px;color:#374151;font-size:14px;line-height:1.8;">
+              ${toolListHtml}
+            </ul>
+            <p style="margin:0 0 16px;">
+              <a href="${postureUrl}" style="color:#059669;font-size:14px;font-weight:600;">
+                Ver postura completa no Shield
+              </a>
+            </p>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;"/>
+            <small style="color:#9ca3af;font-size:11px;">
+              Este alerta foi gerado automaticamente pelo GovAI Shield.
+              Para desativar, configure alert_email nas configurações da organização.
+            </small>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+        try {
+            await this.transporter.sendMail({
+                from: this.config.from,
+                to: toEmail,
+                subject,
+                html,
+            });
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn('[Mailer] Failed to send Shield critical alert:', message);
+        }
+    }
+
+    /**
      * Fecha o pool de conexões SMTP (para graceful shutdown).
      */
     close(): void {

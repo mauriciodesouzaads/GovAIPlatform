@@ -30,6 +30,8 @@ import { initExpirationWorker } from './workers/expiration.worker';
 import { exportTenantData, exportToCSV, generateDueDiligencePDF } from './lib/offboarding';
 import { initKeyRotationJob } from './jobs/key-rotation.job';
 import { initApiKeyRotationJob } from './jobs/api-key-rotation.job';
+import { startShieldWorker } from './workers/shield.worker';
+import { startShieldSchedule } from './jobs/shield-schedule.job';
 
 // ---------------------------------------------------------------------------
 // Fail-fast guards — must run before anything else
@@ -54,12 +56,14 @@ initAuditWorker();
 initExpirationWorker();
 initNotificationWorker();
 initTelemetryWorker();
+startShieldWorker();
 
 // ---------------------------------------------------------------------------
 // Jobs — scheduled tasks (run after server startup via internal delay)
 // ---------------------------------------------------------------------------
 initKeyRotationJob();
 initApiKeyRotationJob();
+startShieldSchedule();
 
 // ---------------------------------------------------------------------------
 // Fastify instance — pino-pretty only in non-production environments
