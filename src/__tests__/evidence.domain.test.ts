@@ -24,6 +24,7 @@ function makeDb(rows: any[] = [], extra?: { throws?: boolean }) {
         query: extra?.throws
             ? vi.fn().mockRejectedValue(new Error('DB error'))
             : vi.fn().mockResolvedValue({ rows, rowCount: rows.length }),
+        release: vi.fn(), // marks this as PoolClient — Pool path requires .connect()
     } as any;
 }
 

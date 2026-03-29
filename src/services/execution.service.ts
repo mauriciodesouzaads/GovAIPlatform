@@ -239,7 +239,29 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
         // ── 7. FinOps quota enforcement (only reached if request is allowed) ──────
         const quota = await checkQuota(pgPool, orgId, assistantId);
         if (quota.exceeded) {
-            return { statusCode: 429, body: { error: 'Limite da cota de uso mensal (Hard Cap) excedido.' } };
+            const quotaPayload = {
+                reason: 'Hard cap exceeded',
+                traceId,
+                snapshotId,
+                orgId,
+                assistantId,
+            };
+            const signature = IntegrityService.signPayload(
+                quotaPayload,
+                process.env.SIGNING_SECRET!
+            );
+            await auditQueue.add('persist-log', {
+                org_id:       orgId,
+                assistant_id: assistantId,
+                action:       'QUOTA_EXCEEDED' satisfies ActionType,
+                metadata:     quotaPayload,
+                signature,
+                traceId,
+            }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+            return {
+                statusCode: 429,
+                body: { error: 'Limite da cota de uso mensal (Hard Cap) excedido.', traceId },
+            };
         }
 
         const quotaHeaders: Record<string, string> = {};
