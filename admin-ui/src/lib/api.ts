@@ -69,6 +69,11 @@ export const ENDPOINTS = {
     CATALOG_SUSPEND:          (id: string) => `/v1/admin/assistants/${id}/suspend`,
     CATALOG_ARCHIVE:          (id: string) => `/v1/admin/assistants/${id}/archive`,
 
+    // Platform Admin — Organization Management
+    PLATFORM_ORGS:            '/v1/admin/organizations',
+    PLATFORM_ORG:             (id: string) => `/v1/admin/organizations/${id}`,
+    PLATFORM_ORG_INVITE:      (id: string) => `/v1/admin/organizations/${id}/invite-admin`,
+
     // Models
     MODELS_LIST:              '/v1/admin/models',
 

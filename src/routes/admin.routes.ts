@@ -384,13 +384,32 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         }
     });
 
-    // 3. Organizations List (Tenants)
-    // GA-002: filter by caller's own orgId — tenants cannot see other orgs
-    app.get('/v1/admin/organizations', { preHandler: requireRole(['admin']) }, async (request, reply) => {
-        const orgId = (request as any).user?.orgId || request.headers['x-org-id'] as string;
-        if (!orgId) return reply.status(401).send({ error: 'orgId missing from token.' });
+    // 3. Organizations List
+    // GA-002: tenant admin sees only their own org; platform_admin sees all orgs with stats
+    app.get('/v1/admin/organizations', { preHandler: requireRole(['admin', 'platform_admin']) }, async (request, reply) => {
+        const userRole = (request as any).user?.role;
         const client = await pgPool.connect();
         try {
+            if (userRole === 'platform_admin') {
+                // Cross-tenant view with user/assistant counts and admin email
+                const res = await client.query(
+                    `SELECT
+                         o.id,
+                         o.name,
+                         o.created_at,
+                         COALESCE(o.hitl_timeout_hours, 4) AS hitl_timeout_hours,
+                         (SELECT COUNT(*)::int  FROM users      u WHERE u.org_id = o.id) AS user_count,
+                         (SELECT COUNT(*)::int  FROM assistants a WHERE a.org_id = o.id) AS assistant_count,
+                         (SELECT u2.email FROM users u2 WHERE u2.org_id = o.id AND u2.role = 'admin' ORDER BY u2.created_at ASC LIMIT 1) AS admin_email
+                     FROM organizations o
+                     ORDER BY o.created_at DESC`
+                );
+                return reply.send(res.rows);
+            }
+
+            // Tenant admin: return only caller's own org (GA-002)
+            const orgId = (request as any).user?.orgId || request.headers['x-org-id'] as string;
+            if (!orgId) return reply.status(401).send({ error: 'orgId missing from token.' });
             const res = await client.query(
                 `SELECT id, name, 'active' AS status, created_at,
                         telemetry_consent, telemetry_consent_at, telemetry_pii_strip

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit } from 'lucide-react';
+import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -28,8 +28,13 @@ export function Sidebar() {
         { label: 'Arquiteto', href: '/architect', icon: BrainCircuit, allowed: ['admin', 'operator', 'dpo'] },
     ];
 
+    const platformItems = [
+        { label: 'Organizações', href: '/organizations', icon: Building2, allowed: ['platform_admin'] },
+    ];
+
     const visibleCoreItems = coreItems.filter(item => item.allowed.includes(role));
     const visibleDetectionItems = detectionItems.filter(item => item.allowed.includes(role));
+    const visiblePlatformItems = platformItems.filter(item => item.allowed.includes(role));
 
     return (
         <aside className="w-64 border-r border-border bg-card/60 backdrop-blur-md flex flex-col h-full shrink-0 shadow-[4px_0_24px_-10px_rgba(0,0,0,0.5)] z-20">
@@ -93,6 +98,35 @@ export function Sidebar() {
                                         <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-amber-400 rounded-r-full" />
                                     )}
                                     <item.icon className={cn("w-4 h-4 transition-colors", isActive ? "text-amber-400" : "group-hover:text-foreground")} />
+                                    <span className="relative z-10">{item.label}</span>
+                                </Link>
+                            )
+                        })}
+                    </>
+                )}
+
+                {visiblePlatformItems.length > 0 && (
+                    <>
+                        <div className="text-xs font-semibold text-indigo-400/70 tracking-wider uppercase mt-4 mb-2 px-2">
+                            Platform
+                        </div>
+                        {visiblePlatformItems.map((item) => {
+                            const isActive = pathname === item.href;
+                            return (
+                                <Link
+                                    key={item.href}
+                                    href={item.href}
+                                    className={cn(
+                                        "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative overflow-hidden",
+                                        isActive
+                                            ? "bg-indigo-500/10 text-foreground ring-1 ring-indigo-500/30 shadow-sm"
+                                            : "text-muted-foreground hover:text-foreground hover:bg-secondary/30"
+                                    )}
+                                >
+                                    {isActive && (
+                                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-indigo-400 rounded-r-full" />
+                                    )}
+                                    <item.icon className={cn("w-4 h-4 transition-colors", isActive ? "text-indigo-400" : "group-hover:text-foreground")} />
                                     <span className="relative z-10">{item.label}</span>
                                 </Link>
                             )

@@ -1,9 +1,9 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-28 09:59 UTC -->
+<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-29 11:52 UTC -->
 <!-- Não editar manualmente. Regenerar após cada sprint. -->
 
 # GovAI Platform — Test Manifest
 
-**Gerado em:** 2026-03-28 09:59 UTC
+**Gerado em:** 2026-03-29 11:52 UTC
 
 ---
 
@@ -11,9 +11,9 @@
 
 | Métrica | Valor |
 |---------|-------|
-| Total de arquivos de teste | **66** |
-| Suíte padrão — arquivos | **50** |
-| Suíte padrão — testes | **569** |
+| Total de arquivos de teste | **67** |
+| Suíte padrão — arquivos | **51** |
+| Suíte padrão — testes | **574** |
 | Suíte integração — arquivos | **16** |
 
 ---
@@ -56,7 +56,7 @@ bash scripts/test-migrations-clean.sh
 
 ## Suíte padrão
 
-50 arquivos em `src/__tests__/` não listados acima.
+51 arquivos em `src/__tests__/` não listados acima.
 Inclui: auth, HITL, DLP, OPA, FinOps, RAG, API Keys, Orgs, policy, evidence, catalog,
 Shield unit tests, risk engine unit tests.
 

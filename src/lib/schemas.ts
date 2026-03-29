@@ -65,6 +65,23 @@ export const TelemetryConsentSchema = z.object({
     hitl_timeout_hours: z.number().int().min(1).max(168).optional(),
 });
 
+export const OrgCreateSchema = z.object({
+    name: z.string().min(1).max(100),
+    admin_email: z.string().email().max(254),
+    admin_password: z.string().min(12).max(128),
+    hitl_timeout_hours: z.number().int().min(1).max(168).optional(),
+});
+
+export const OrgUpdateSchema = z.object({
+    name: z.string().min(1).max(100).optional(),
+    hitl_timeout_hours: z.number().int().min(1).max(168).optional(),
+});
+
+export const InviteAdminSchema = z.object({
+    email: z.string().email().max(254),
+    password: z.string().min(12).max(128),
+});
+
 // ── Users ─────────────────────────────────────────────────────────────────────
 
 export const UpdateUserRoleSchema = z.object({

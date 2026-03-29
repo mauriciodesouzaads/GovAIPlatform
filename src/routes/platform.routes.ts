@@ -10,12 +10,164 @@
 
 import { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
+import bcrypt from 'bcrypt';
+import { OrgCreateSchema, OrgUpdateSchema, InviteAdminSchema, zodErrors } from '../lib/schemas';
 
 export async function platformRoutes(
     app: FastifyInstance,
     opts: { pgPool: Pool; requirePlatformAdmin: any; [key: string]: any }
 ) {
     const { pgPool, requirePlatformAdmin } = opts;
+
+    // ── Organization Management (platform_admin CRUD) ────────────────────────
+
+    // POST /v1/admin/organizations — create new org + admin user + seed policy
+    app.post('/v1/admin/organizations', { preHandler: requirePlatformAdmin }, async (request, reply) => {
+        const parsed = OrgCreateSchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.status(400).send({ error: 'Validation failed', details: zodErrors(parsed.error) });
+        }
+        const { name, admin_email, admin_password, hitl_timeout_hours = 4 } = parsed.data;
+
+        const client = await pgPool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Create organization
+            const orgRes = await client.query<{ id: string }>(
+                `INSERT INTO organizations (name, hitl_timeout_hours)
+                 VALUES ($1, $2) RETURNING id`,
+                [name, hitl_timeout_hours]
+            );
+            const orgId = orgRes.rows[0].id;
+
+            // Hash password with bcrypt (10 rounds — same as rest of codebase)
+            const passwordHash = await bcrypt.hash(admin_password, 10);
+
+            // Create admin user (trigger auto-populates user_lookup)
+            const userRes = await client.query<{ id: string }>(
+                `INSERT INTO users (org_id, email, name, sso_provider, sso_user_id, password_hash, role, requires_password_change)
+                 VALUES ($1, $2, $3, 'local', $4, $5, 'admin', false) RETURNING id`,
+                [orgId, admin_email.toLowerCase(), admin_email.split('@')[0], admin_email.toLowerCase(), passwordHash]
+            );
+            const adminUserId = userRes.rows[0].id;
+
+            // Seed GovAI base policy (minimal governance rules for new org)
+            await client.query(
+                `INSERT INTO policy_versions (org_id, name, rules_jsonb, version)
+                 VALUES ($1, 'GovAI Base Policy', $2, 1)`,
+                [orgId, JSON.stringify({
+                    rules: [
+                        { type: 'audit_all', enabled: true },
+                        { type: 'block_pii', enabled: true },
+                    ],
+                    description: 'Política base gerada automaticamente no onboarding.',
+                })]
+            );
+
+            await client.query('COMMIT');
+            app.log.info({ orgId, adminUserId }, '[Platform] New organization created');
+            return reply.status(201).send({ orgId, adminUserId });
+
+        } catch (err: unknown) {
+            await client.query('ROLLBACK').catch(() => { /* no-op */ });
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes('duplicate key') || msg.includes('unique') || msg.includes('already exists')) {
+                return reply.status(409).send({ error: 'Email já está em uso.' });
+            }
+            app.log.error(err, '[Platform] Error creating organization');
+            return reply.status(500).send({ error: 'Erro ao criar organização.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // PATCH /v1/admin/organizations/:id — update org settings (name, hitl_timeout_hours)
+    app.patch('/v1/admin/organizations/:id', { preHandler: requirePlatformAdmin }, async (request, reply) => {
+        const { id } = request.params as { id: string };
+        const parsed = OrgUpdateSchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.status(400).send({ error: 'Validation failed', details: zodErrors(parsed.error) });
+        }
+        const updates = parsed.data;
+        if (!updates.name && updates.hitl_timeout_hours === undefined) {
+            return reply.status(400).send({ error: 'Pelo menos um campo (name, hitl_timeout_hours) é obrigatório.' });
+        }
+
+        const setParts: string[] = [];
+        const values: unknown[] = [];
+        let idx = 1;
+
+        if (updates.name !== undefined) {
+            setParts.push(`name = $${idx++}`);
+            values.push(updates.name);
+        }
+        if (updates.hitl_timeout_hours !== undefined) {
+            setParts.push(`hitl_timeout_hours = $${idx++}`);
+            values.push(updates.hitl_timeout_hours);
+        }
+        values.push(id);
+
+        const client = await pgPool.connect();
+        try {
+            const res = await client.query<{ id: string; name: string; hitl_timeout_hours: number }>(
+                `UPDATE organizations SET ${setParts.join(', ')} WHERE id = $${idx} RETURNING id, name, hitl_timeout_hours`,
+                values
+            );
+            if (res.rows.length === 0) {
+                return reply.status(404).send({ error: 'Organização não encontrada.' });
+            }
+            return reply.send(res.rows[0]);
+        } catch (err: unknown) {
+            app.log.error(err, '[Platform] Error updating organization');
+            return reply.status(500).send({ error: 'Erro ao atualizar organização.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // POST /v1/admin/organizations/:id/invite-admin — add admin user to existing org
+    app.post('/v1/admin/organizations/:id/invite-admin', { preHandler: requirePlatformAdmin }, async (request, reply) => {
+        const { id: orgId } = request.params as { id: string };
+        const parsed = InviteAdminSchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.status(400).send({ error: 'Validation failed', details: zodErrors(parsed.error) });
+        }
+        const { email, password } = parsed.data;
+
+        const client = await pgPool.connect();
+        try {
+            // Verify org exists
+            const orgCheck = await client.query<{ id: string }>(
+                'SELECT id FROM organizations WHERE id = $1',
+                [orgId]
+            );
+            if (orgCheck.rows.length === 0) {
+                return reply.status(404).send({ error: 'Organização não encontrada.' });
+            }
+
+            const passwordHash = await bcrypt.hash(password, 10);
+
+            const userRes = await client.query<{ id: string }>(
+                `INSERT INTO users (org_id, email, name, sso_provider, sso_user_id, password_hash, role, requires_password_change)
+                 VALUES ($1, $2, $3, 'local', $4, $5, 'admin', false) RETURNING id`,
+                [orgId, email.toLowerCase(), email.split('@')[0], email.toLowerCase(), passwordHash]
+            );
+
+            app.log.info({ orgId, userId: userRes.rows[0].id, email }, '[Platform] Admin invited to organization');
+            return reply.status(201).send({ userId: userRes.rows[0].id, orgId, email });
+
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes('duplicate key') || msg.includes('unique') || msg.includes('already exists')) {
+                return reply.status(409).send({ error: 'Email já está em uso.' });
+            }
+            app.log.error(err, '[Platform] Error inviting admin');
+            return reply.status(500).send({ error: 'Erro ao convidar administrador.' });
+        } finally {
+            client.release();
+        }
+    });
 
     // GET /v1/admin/platform/organizations — all orgs across all tenants
     app.get('/v1/admin/platform/organizations', { preHandler: requirePlatformAdmin }, async (_request, reply) => {
