@@ -83,7 +83,8 @@ export async function recordEvidence(
        RETURNING id, created_at`;
 
   // Pool path: acquire a dedicated client and set app.current_org_id for RLS
-  if (typeof (db as Pool).connect === 'function') {
+  // Distinguish Pool from PoolClient by presence of .release (only PoolClient has it)
+  if (typeof (db as PoolClient).release !== 'function') {
     const client = await (db as Pool).connect();
     try {
       await client.query("SELECT set_config('app.current_org_id', $1, false)", [payload.orgId]);

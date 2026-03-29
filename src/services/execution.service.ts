@@ -91,6 +91,8 @@ export async function captureOrReusePolicySnapshot(
 export async function executeAssistant(params: ExecutionParams): Promise<ExecutionResult> {
     const { assistantId, orgId, message, traceId, userId, model: modelOverride, log } = params;
     const execStart = Date.now();
+    // Single model resolution: request override > env default > built-in fallback
+    const aiModel = modelOverride || process.env.AI_MODEL || 'govai-llm';
     const client = await pgPool.connect();
 
     try {
@@ -255,7 +257,6 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             );
             if (kbRes.rows.length > 0) {
                 const { searchWithTokenLimit } = await import('../lib/rag');
-                const aiModel = process.env.AI_MODEL || 'gemini/gemini-1.5-flash';
                 const ragResult = await searchWithTokenLimit(pgPool, kbRes.rows[0].id, orgId, safeMessage, aiModel, 10);
                 ragContext = ragResult.context;
                 ragMeta = {
@@ -290,7 +291,6 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
 
         let aiResponse: any;
         try {
-            const aiModel = modelOverride || process.env.AI_MODEL || 'govai-llm';
             aiResponse = await axios.post(
                 `${process.env.LITELLM_URL}/chat/completions`,
                 { model: aiModel, messages },
@@ -330,7 +330,6 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
 
         const tokensPrompt = aiResponse.data.usage?.prompt_tokens || 0;
         const tokensCompletion = aiResponse.data.usage?.completion_tokens || 0;
-        const aiModel = process.env.AI_MODEL || 'gemini-1.5-flash';
         const costUsd = (aiResponse.data.usage?.total_tokens || 0) * getCostPerToken(aiModel);
         const latencyMs = Date.now() - execStart;
 

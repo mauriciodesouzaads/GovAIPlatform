@@ -164,3 +164,31 @@ ANTHROPIC_API_KEY=$(grep '^ANTHROPIC_API_KEY=' .env \
 docker compose exec litellm sh -c 'echo "KEY=[${ANTHROPIC_API_KEY:0:20}]"'
 # Deve exibir: KEY=[sk-ant-api03-...]
 ```
+
+---
+
+## Segurança do Chat de Usuário Final
+
+### API Key no URL
+
+O link governado do Catálogo inclui a API key como parâmetro
+de URL (`?key=sk-govai-...`). Isso é suficiente para
+desenvolvimento e demos internas.
+
+Para produção com dados sensíveis, adote estas práticas:
+
+1. **Crie API keys de escopo limitado** para chat de usuário
+   final — separadas das keys usadas por integrações backend.
+   Revogue e rotacione periodicamente via /v1/admin/api-keys.
+
+2. **Use HTTPS obrigatório** — sem HTTPS, a key fica exposta
+   em logs de proxy e de CDN. O nginx.conf.template do projeto
+   já configura TLS; nunca exponha o chat via HTTP em produção.
+
+3. **Considere um proxy de sessão** para produção de alta
+   segurança: o frontend obtém um token de sessão efêmero
+   (30 min) via endpoint autenticado, em vez de usar a key
+   diretamente na URL. Esta feature está no roadmap.
+
+4. **Monitore uso por key** via /v1/admin/audit-logs —
+   filtre por api_key_id para detectar uso anômalo.
