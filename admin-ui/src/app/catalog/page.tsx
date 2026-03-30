@@ -462,6 +462,34 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                 </div>
                             )}
 
+                            {/* Governed chat button */}
+                            <div className="space-y-2">
+                                {state === 'official' ? (
+                                    <a
+                                        href={`/chat/${assistant.id}?key=`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm transition-colors"
+                                    >
+                                        <ExternalLink className="w-4 h-4" />
+                                        Abrir Chat Governado ↗
+                                    </a>
+                                ) : (
+                                    <div title="Assistente deve estar com status 'Oficial' para abrir o chat governado.">
+                                        <button
+                                            disabled
+                                            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600/30 text-emerald-700 font-semibold text-sm cursor-not-allowed opacity-50"
+                                        >
+                                            <ExternalLink className="w-4 h-4" />
+                                            Abrir Chat Governado ↗
+                                        </button>
+                                        <p className="text-xs text-gray-600 mt-1 text-center">
+                                            Requer status <strong className="text-gray-500">oficial</strong>
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
                             {/* Playground admin link */}
                             <div className="space-y-2">
                                 <p className="text-xs text-gray-600">Teste no Playground com o pipeline completo (OPA + DLP + HITL).</p>
