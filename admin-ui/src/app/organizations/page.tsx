@@ -293,7 +293,7 @@ export default function OrganizationsPage() {
     }
 
     return (
-        <div className="flex-1 bg-black min-h-screen relative overflow-hidden">
+        <div className="flex-1 overflow-auto bg-black relative">
             {/* Background grid */}
             <div className="absolute inset-0 opacity-20 pointer-events-none"
                 style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px)', backgroundSize: '32px 32px' }} />

@@ -678,7 +678,7 @@ export default function CatalogPage() {
     const selectedFull = selected ? (assistants.find(a => a.id === selected.id) ?? selected) : null;
 
     return (
-        <div className="relative min-h-screen bg-black text-white overflow-hidden">
+        <div className="flex-1 overflow-auto bg-black text-white relative">
             {/* Grid background */}
             <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-[0.03] pointer-events-none" />
             <div className="absolute inset-0 bg-gradient-to-b from-amber-500/5 via-transparent to-transparent pointer-events-none" />

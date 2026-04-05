@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Activity, ShieldCheck, Coins, ArrowUpRight, ShieldAlert, CreditCard, Bot, Info, Database, Server, Zap } from 'lucide-react';
+import { Activity, ShieldCheck, Coins, ArrowUpRight, ShieldAlert, CreditCard, Bot, Info, Database, Server, Zap, AlertTriangle } from 'lucide-react';
 
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 
@@ -21,21 +21,23 @@ interface DashboardStats {
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const response = await api.get(ENDPOINTS.STATS);
-        setStats(response.data);
-      } catch {
-        console.error("Error fetching stats:");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStats();
+  const fetchStats = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await api.get(ENDPOINTS.STATS);
+      setStats(response.data);
+    } catch {
+      console.error("Error fetching stats:");
+      setError('Não foi possível carregar as estatísticas do dashboard.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { fetchStats(); }, [fetchStats]);
 
   const interceptionRate = stats && (stats.total_executions + stats.total_violations) > 0
     ? Math.min(100, Math.round((stats.total_violations / (stats.total_executions + stats.total_violations)) * 100))
@@ -77,7 +79,13 @@ export default function DashboardPage() {
           <HealthStatus />
         </div>
 
-        {loading ? (
+        {error ? (
+          <div className="flex flex-col items-center justify-center gap-4 py-24">
+            <AlertTriangle className="w-10 h-10 text-destructive/70" />
+            <p className="text-sm text-destructive font-medium">{error}</p>
+            <button onClick={fetchStats} className="text-xs text-muted-foreground underline hover:text-white transition-colors">Tentar novamente</button>
+          </div>
+        ) : loading ? (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-pulse">
             {[1, 2, 3, 4].map(i => (
               <div key={i} className="h-32 bg-white/5 border border-white/10 rounded-2xl" />

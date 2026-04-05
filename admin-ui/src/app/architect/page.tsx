@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
     BrainCircuit, Plus, RefreshCw, ChevronRight,
     ClipboardList, Search, CheckCircle2, GitBranch,
-    X, FileText, MessageSquare, Layers,
+    X, FileText, MessageSquare, Layers, AlertTriangle,
 } from 'lucide-react';
 import api, { ENDPOINTS } from '@/lib/api';
 import { useToast } from '@/components/Toast';
@@ -124,6 +124,7 @@ export default function ArchitectPage() {
     const [cases, setCases] = useState<DemandCase[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     // New case modal
     const [showNewCase, setShowNewCase] = useState(false);
@@ -170,12 +171,14 @@ export default function ArchitectPage() {
 
     const loadCases = useCallback(async () => {
         setLoading(true);
+        setLoadError(null);
         try {
             const res = await api.get(ENDPOINTS.ARCHITECT_CASES);
             setCases(res.data.cases ?? []);
             setTotal(res.data.total ?? 0);
         } catch {
             showToast('Erro ao carregar casos', 'error');
+            setLoadError('Não foi possível carregar os casos de demanda.');
         } finally {
             setLoading(false);
         }
@@ -410,6 +413,12 @@ export default function ArchitectPage() {
                     {loading && cases.length === 0 ? (
                         <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
                             Carregando...
+                        </div>
+                    ) : loadError ? (
+                        <div className="flex flex-col items-center justify-center h-48 gap-3">
+                            <AlertTriangle className="w-8 h-8 text-destructive/70" />
+                            <p className="text-sm text-destructive font-medium">{loadError}</p>
+                            <button onClick={loadCases} className="text-xs text-muted-foreground underline hover:text-foreground transition-colors">Tentar novamente</button>
                         </div>
                     ) : cases.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-48 text-muted-foreground gap-3">

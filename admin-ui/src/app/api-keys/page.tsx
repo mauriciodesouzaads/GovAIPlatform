@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import api, { ENDPOINTS } from '@/lib/api';
-import { Key, Copy, Trash2, Plus, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Key, Copy, Trash2, Plus, ShieldCheck, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { useToast } from '@/components/Toast';
 
 interface ApiKey {
     id: string;
@@ -13,19 +14,24 @@ interface ApiKey {
 }
 
 export default function ApiKeysPage() {
+    const { toast } = useToast();
     const [keys, setKeys] = useState<ApiKey[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [newKeyName, setNewKeyName] = useState('');
     const [createdKey, setCreatedKey] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
     const [copied, setCopied] = useState(false);
 
     const fetchKeys = async () => {
+        setError(null);
         try {
             const res = await api.get(ENDPOINTS.API_KEYS);
             setKeys(res.data);
-        } catch (e) { console.error(e); }
-        finally { setLoading(false); }
+        } catch (e) {
+            console.error(e);
+            setError('Não foi possível carregar as chaves de API.');
+        } finally { setLoading(false); }
     };
 
     useEffect(() => { fetchKeys(); }, []);
@@ -39,8 +45,10 @@ export default function ApiKeysPage() {
             setCreatedKey(res.data.key);
             setNewKeyName('');
             fetchKeys();
-        } catch (e) { console.error(e); }
-        finally { setCreating(false); }
+        } catch (e) {
+            console.error(e);
+            toast('Erro ao criar chave de API.', 'error');
+        } finally { setCreating(false); }
     };
 
     const revokeKey = async (keyId: string) => {
@@ -50,7 +58,10 @@ export default function ApiKeysPage() {
         try {
             await api.delete(`${ENDPOINTS.API_KEYS}/${keyId}`);
             fetchKeys();
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+            toast('Erro ao revogar chave de API.', 'error');
+        }
     };
 
     const handleCopy = () => {
@@ -145,6 +156,14 @@ export default function ApiKeysPage() {
                         <tbody className="divide-y divide-border/50">
                             {loading ? (
                                 <tr><td colSpan={4} className="px-6 py-12 text-center text-muted-foreground animate-pulse font-medium">Loading security keys...</td></tr>
+                            ) : error ? (
+                                <tr><td colSpan={4} className="px-6 py-12 text-center">
+                                    <div className="flex flex-col items-center gap-3">
+                                        <AlertTriangle className="w-8 h-8 text-destructive/70" />
+                                        <p className="text-sm text-destructive font-medium">{error}</p>
+                                        <button onClick={fetchKeys} className="text-xs text-muted-foreground underline hover:text-foreground transition-colors">Tentar novamente</button>
+                                    </div>
+                                </td></tr>
                             ) : keys.length === 0 ? (
                                 <tr><td colSpan={4} className="px-6 py-12 text-center text-muted-foreground font-medium">Nenhuma chave gerada na organização.</td></tr>
                             ) : (
