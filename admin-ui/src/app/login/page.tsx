@@ -206,7 +206,7 @@ export default function LoginPage() {
                                     }}
                                     disabled={ssoLoading !== null}
                                     type="button"
-                                    className="w-full bg-[#2F2F2F] border border-border/80 text-white font-medium text-sm px-4 py-3.5 rounded-xl hover:bg-[#3f3f3f] hover:border-border transition-all flex items-center justify-center gap-3 group disabled:opacity-60"
+                                    className="w-full bg-zinc-800 border border-border/80 text-white font-medium text-sm px-4 py-3.5 rounded-xl hover:bg-zinc-700 hover:border-border transition-all flex items-center justify-center gap-3 group disabled:opacity-60"
                                 >
                                     {ssoLoading === 'microsoft'
                                         ? <Loader2 className="w-5 h-5 animate-spin" />
@@ -222,7 +222,7 @@ export default function LoginPage() {
                                     }}
                                     disabled={ssoLoading !== null}
                                     type="button"
-                                    className="w-full bg-[#2F2F2F] border border-border/80 text-white font-medium text-sm px-4 py-3.5 rounded-xl hover:bg-[#3f3f3f] hover:border-border transition-all flex items-center justify-center gap-3 group disabled:opacity-60"
+                                    className="w-full bg-zinc-800 border border-border/80 text-white font-medium text-sm px-4 py-3.5 rounded-xl hover:bg-zinc-700 hover:border-border transition-all flex items-center justify-center gap-3 group disabled:opacity-60"
                                 >
                                     {ssoLoading === 'okta'
                                         ? <Loader2 className="w-5 h-5 animate-spin" />

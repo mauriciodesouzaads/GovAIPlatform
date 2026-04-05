@@ -279,7 +279,8 @@ export async function dispatchWorkItem(
     workItemId: string
 ): Promise<DispatchResult> {
     const client = await pool.connect();
-    let item: Record<string, unknown> | undefined;
+    // eslint-disable-next-line prefer-const
+    let item!: Record<string, unknown>;
     let guardOutcome: 'proceed' | 'locked' | 'terminal' | 'blocked' = 'proceed';
 
     try {
@@ -346,7 +347,7 @@ export async function dispatchWorkItem(
     }
 
     // 5. Route by execution_hint (adapter opens its own connection)
-    const hint = (item as Record<string, unknown>).execution_hint as string | null;
+    const hint = item.execution_hint as string | null;
     let adapterName: string;
     let result: AdapterResult;
 

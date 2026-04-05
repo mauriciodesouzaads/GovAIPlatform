@@ -119,7 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         router.push('/login');
     }, [router]);
 
-    if (isLoading) return <div className="min-h-screen bg-black" />;
+    if (isLoading) return <div className="min-h-screen bg-background" />;
 
     return (
         <AuthContext.Provider value={{ token, role, email, orgId, isLoading, logout, refreshFromServer }}>

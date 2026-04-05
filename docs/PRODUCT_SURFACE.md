@@ -1,9 +1,9 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-03-30 03:17 UTC -->
+<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-04-05 15:32 UTC -->
 <!-- Não editar manualmente. Regenerar após cada sprint. -->
 
 # GovAI Platform — Product Surface
 
-**Gerado em:** 2026-03-30 03:17 UTC
+**Gerado em:** 2026-04-05 15:32 UTC
 
 ---
 
@@ -31,7 +31,26 @@
 ## Catalog
 
 - `GET/POST /v1/admin/catalog`
-- Lifecycle: draft → review → approved → deprecated
+- `GET/PATCH/DELETE /v1/admin/catalog/:id`
+- Lifecycle: draft → under_review → approved → official → suspended → archived
+
+## Public Endpoints
+
+- `GET /v1/public/assistant/:assistantId` — safe public info para chat UI (requer API Key)
+
+## Platform Admin (platform_admin role)
+
+- `POST /v1/admin/organizations` — criar organização
+- `PATCH /v1/admin/organizations/:id` — atualizar organização
+- `POST /v1/admin/organizations/:id/invite-admin` — convidar admin para org
+- `GET /v1/admin/platform/organizations` — listar todas as orgs
+- `GET /v1/admin/platform/users` — listar todos os usuários
+- `POST/GET/DELETE /v1/admin/platform/consultant-assignments` — atribuições de consultor
+- `POST /v1/admin/platform/consultant-alerts` — alertas de consultor
+
+## Models
+
+- `GET /v1/admin/models` — listar modelos LLM disponíveis
 
 ## Consultant Plane
 
@@ -56,16 +75,62 @@
 | Export | GET /findings, GET /findings.csv, GET /posture |
 | Sync | POST /dedupe, POST /sync-catalog |
 
+**BullMQ Automation (5 cron jobs):**
+
+- `generate-findings` — gera findings automáticos
+- `dedupe-findings` — deduplicação de findings
+- `posture-snapshot` — snapshot de postura
+- `collect-oauth` — coleta via OAuth
+- `collect-google` — coleta via Google Workspace
+
+## Architect Domain (20 endpoints)
+
+- `POST /v1/admin/architect/cases` — criar caso de demanda
+- `GET /v1/admin/architect/cases` — listar casos
+- `GET /v1/admin/architect/cases/:id` — detalhe do caso
+- `PATCH /v1/admin/architect/cases/:id/status` — atualizar status
+- `POST/PUT /v1/admin/architect/cases/:id/contract` — problem contract
+- `POST /v1/admin/architect/cases/:id/contract/accept` — aceitar contrato
+- `POST /v1/admin/architect/cases/:id/discover` — discovery stateful
+- `POST /v1/admin/architect/cases/:id/discover/answer` — responder discovery
+- `POST /v1/admin/architect/cases/:id/discover/questions` — perguntas discovery
+- `GET /v1/admin/architect/cases/:id/discover/status` — status discovery
+- `POST /v1/admin/architect/cases/:id/decisions` — criar ADR
+- `POST /v1/admin/architect/decisions/:id/{propose,approve,reject,compile}` — workflow ADR
+- `POST /v1/admin/architect/decisions/:id/document` — gerar documento ADR via LiteLLM
+- `GET /v1/admin/architect/cases/:id/work-items` — listar work items
+- `PATCH /v1/admin/architect/work-items/:id` — atualizar work item
+- `POST /v1/admin/architect/work-items/:id/dispatch` — despachar work item
+- `POST /v1/admin/architect/cases/:id/workflow/dispatch-all` — despachar todos
+- `GET /v1/admin/architect/cases/:id/summary` — gerar resumo via LiteLLM
+
 ---
 
 ## Não implementado (roadmap)
 
-- BullMQ workers (coleta automática)
 - SSE / browser extension (ADR-004)
 - CASB integration
+- Agno runtime (stub only, AGNO_ENABLED=false)
+- Claude Code adapter (enum only, sem adapter implementado)
 
 ---
 
-## Admin UI (Next.js 14)
+## Admin UI (Next.js 14) — 15 páginas
 
-Dashboard · Fila HITL · Playground · RAG Upload · Relatórios compliance
+| Rota | Página | Roles |
+|------|--------|-------|
+| `/` | Dashboard — Security Command Center | todos |
+| `/playground` | Playground — teste com governança completa | admin, sre, operator |
+| `/logs` | Audit Logs — rastreabilidade LGPD/GDPR | todos |
+| `/assistants` | Assistants & RAG — gestão de assistentes | admin, sre, operator |
+| `/api-keys` | API Keys | admin |
+| `/approvals` | Approvals — fila HITL | admin, sre, dpo |
+| `/compliance` | Compliance LGPD — toggles de conformidade | admin, dpo |
+| `/reports` | Reports — exportação PDF/CSV | admin, dpo, auditor |
+| `/shield` | Shield Detection — shadow-AI | admin, sre, dpo, auditor |
+| `/catalog` | Catálogo de Agentes — registry formal | admin, operator, auditor |
+| `/consultant` | Painel do Consultor | admin, sre, dpo |
+| `/architect` | Arquiteto de IA — demandas e ADRs | admin, operator, dpo |
+| `/organizations` | Organizações (platform_admin) | platform_admin |
+| `/login` | Login — JWT + SSO (Microsoft Entra, Okta) | público |
+| `/chat/[assistantId]` | Chat Governado — interface end-user | API Key |
