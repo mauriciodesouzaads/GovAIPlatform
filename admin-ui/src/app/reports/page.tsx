@@ -83,7 +83,8 @@ export default function ReportsPage() {
             : 'text-red-400 bg-red-500/10 border-red-500/20';
 
     return (
-        <main className="flex-1 overflow-auto p-8 space-y-8">
+        <div className="flex-1 overflow-auto">
+            <div className="max-w-7xl mx-auto p-6 space-y-8">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
@@ -132,8 +133,10 @@ export default function ReportsPage() {
             )}
 
             {loading && (
-                <div className="flex items-center justify-center py-20">
-                    <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                <div className="space-y-4">
+                    {[1,2,3,4].map(i => (
+                        <div key={i} className="animate-pulse bg-secondary rounded h-10 w-full" />
+                    ))}
                 </div>
             )}
 
@@ -155,6 +158,7 @@ export default function ReportsPage() {
                     <section>
                         <h2 className="text-lg font-semibold mb-3">Inventário de Agentes de IA</h2>
                         <div className="bg-card border border-border rounded-xl overflow-hidden">
+                            <div className="overflow-x-auto">
                             <table className="w-full text-sm">
                                 <thead>
                                     <tr className="border-b border-border bg-secondary/50">
@@ -187,6 +191,7 @@ export default function ReportsPage() {
                                     ))}
                                 </tbody>
                             </table>
+                            </div>
                         </div>
                     </section>
 
@@ -289,7 +294,8 @@ export default function ReportsPage() {
                     </section>
                 </>
             )}
-        </main>
+            </div>
+        </div>
     );
 }
 

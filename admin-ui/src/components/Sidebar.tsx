@@ -2,11 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2 } from 'lucide-react';
+import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
 
-export function Sidebar() {
+interface SidebarProps {
+    mobileOpen?: boolean;
+    onClose?: () => void;
+}
+
+function SidebarContent({ onClose }: { onClose?: () => void }) {
     const pathname = usePathname();
     const { logout, role, email } = useAuth();
 
@@ -37,9 +42,9 @@ export function Sidebar() {
     const visiblePlatformItems = platformItems.filter(item => item.allowed.includes(role));
 
     return (
-        <aside className="w-64 border-r border-border bg-card/60 backdrop-blur-md flex flex-col h-full shrink-0 shadow-[4px_0_24px_-10px_rgba(0,0,0,0.5)] z-20">
+        <div className="w-64 border-r border-border bg-card/60 backdrop-blur-md flex flex-col h-full shrink-0 shadow-[4px_0_24px_-10px_rgba(0,0,0,0.5)] z-20">
             <div className="h-16 flex items-center px-6 border-b border-border/50">
-                <Link href="/" className="flex items-center gap-3">
+                <Link href="/" className="flex items-center gap-3 flex-1" onClick={onClose}>
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-lg shadow-emerald-500/20 text-black flex items-center justify-center font-black text-lg">
                         G
                     </div>
@@ -48,6 +53,11 @@ export function Sidebar() {
                         <span className="text-[10px] text-emerald-500 font-semibold tracking-widest uppercase">Platform</span>
                     </div>
                 </Link>
+                {onClose && (
+                    <button onClick={onClose} className="lg:hidden p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors">
+                        <X className="w-4 h-4" />
+                    </button>
+                )}
             </div>
 
             <div className="flex-1 py-6 px-4 flex flex-col gap-1.5 overflow-y-auto">
@@ -60,6 +70,7 @@ export function Sidebar() {
                         <Link
                             key={item.href}
                             href={item.href}
+                            onClick={onClose}
                             className={cn(
                                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative overflow-hidden",
                                 isActive
@@ -87,6 +98,7 @@ export function Sidebar() {
                                 <Link
                                     key={item.href}
                                     href={item.href}
+                                    onClick={onClose}
                                     className={cn(
                                         "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative overflow-hidden",
                                         isActive
@@ -116,6 +128,7 @@ export function Sidebar() {
                                 <Link
                                     key={item.href}
                                     href={item.href}
+                                    onClick={onClose}
                                     className={cn(
                                         "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative overflow-hidden",
                                         isActive
@@ -136,7 +149,6 @@ export function Sidebar() {
             </div>
 
             <div className="p-4 border-t border-border/50 bg-background/30">
-                {/* Admin user preview */}
                 <div className="flex items-center gap-3 px-3 py-3 mb-2 rounded-lg bg-secondary/30 border border-border/30">
                     <div className="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-xs ring-1 ring-indigo-500/30 uppercase">
                         {email ? email.substring(0, 2) : 'AD'}
@@ -155,6 +167,31 @@ export function Sidebar() {
                     Encerrar Sessão
                 </button>
             </div>
-        </aside>
+        </div>
+    );
+}
+
+export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
+    return (
+        <>
+            {/* Desktop sidebar — always visible on lg+ */}
+            <aside className="hidden lg:flex h-full shrink-0">
+                <SidebarContent />
+            </aside>
+
+            {/* Mobile overlay — shown when mobileOpen */}
+            {mobileOpen && (
+                <aside className="fixed inset-0 z-50 lg:hidden flex">
+                    <div
+                        className="absolute inset-0 bg-background/70 backdrop-blur-sm"
+                        onClick={onClose}
+                        aria-hidden="true"
+                    />
+                    <div className="relative z-10 h-full">
+                        <SidebarContent onClose={onClose} />
+                    </div>
+                </aside>
+            )}
+        </>
     );
 }

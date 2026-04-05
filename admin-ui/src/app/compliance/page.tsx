@@ -145,7 +145,8 @@ export default function CompliancePage() {
     // ── Render ─────────────────────────────────────────────────────────────────
 
     return (
-        <div className="flex-1 overflow-auto p-6 space-y-6">
+        <div className="flex-1 overflow-auto">
+            <div className="max-w-7xl mx-auto p-6 space-y-6">
             {/* Header */}
             <div className="flex items-start justify-between">
                 <div>
@@ -182,7 +183,7 @@ export default function CompliancePage() {
             </div>
 
             {/* Summary bar */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="rounded-xl border border-border bg-card/60 p-4">
                     <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Total de Tenants</p>
                     <p className="text-3xl font-bold text-foreground">{orgs.length}</p>
@@ -220,6 +221,7 @@ export default function CompliancePage() {
                 </div>
             ) : (
                 <div className="rounded-xl border border-border bg-card/60 overflow-hidden">
+                    <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="border-b border-border/50 bg-background/40">
@@ -329,6 +331,7 @@ export default function CompliancePage() {
                             })}
                         </tbody>
                     </table>
+                    </div>
                 </div>
             )}
 
@@ -338,6 +341,7 @@ export default function CompliancePage() {
                 Toda alteração é registrada com assinatura HMAC-SHA256 em{' '}
                 <code className="font-mono bg-secondary/30 px-1 rounded">audit_logs_partitioned</code>.
             </p>
+            </div>
         </div>
     );
 }

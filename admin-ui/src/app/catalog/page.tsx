@@ -39,8 +39,8 @@ function lifecycleColor(s?: string) {
         case 'under_review':    return 'text-amber-400 bg-amber-400/10 border-amber-400/20';
         case 'draft':           return 'text-blue-400 bg-blue-400/10 border-blue-400/20';
         case 'suspended':       return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
-        case 'archived':        return 'text-gray-500 bg-gray-500/10 border-gray-500/20';
-        default:                return 'text-gray-400 bg-gray-400/10 border-gray-400/20';
+        case 'archived':        return 'text-muted-foreground bg-gray-500/10 border-gray-500/20';
+        default:                return 'text-muted-foreground bg-gray-400/10 border-gray-400/20';
     }
 }
 
@@ -50,7 +50,7 @@ function riskColor(r?: string) {
         case 'high':        return 'text-orange-400 bg-orange-500/10 border-orange-500/20';
         case 'medium':      return 'text-amber-400 bg-amber-400/10 border-amber-400/20';
         case 'low':         return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
-        default:            return 'text-gray-400 bg-gray-400/10 border-gray-400/20';
+        default:            return 'text-muted-foreground bg-gray-400/10 border-gray-400/20';
     }
 }
 
@@ -83,26 +83,26 @@ function ActionModal({
 
     return (
         <>
-            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60]" onClick={onClose} />
+            <div className="fixed inset-0 bg-background/70 backdrop-blur-sm z-[60]" onClick={onClose} />
             <div className="fixed inset-0 flex items-center justify-center z-[70] p-4">
-                <div className="bg-[#111] border border-white/10 rounded-xl p-6 w-full max-w-md shadow-2xl space-y-4">
+                <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md shadow-2xl space-y-4">
                     <div className="flex items-start justify-between">
-                        <h3 className="font-semibold text-white text-base">{title}</h3>
-                        <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
+                        <h3 className="font-semibold text-foreground text-base">{title}</h3>
+                        <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
                             <X className="w-4 h-4" />
                         </button>
                     </div>
-                    <p className="text-sm text-gray-400">{description}</p>
+                    <p className="text-sm text-muted-foreground">{description}</p>
                     {inputLabel && (
                         <div className="space-y-1">
-                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                 {inputLabel}
                             </label>
                             <textarea
                                 value={value}
                                 onChange={e => setValue(e.target.value)}
                                 rows={3}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 resize-none"
+                                className="w-full bg-secondary/50 border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-gray-600 focus:outline-none focus:border-amber-500/50 resize-none"
                                 placeholder={inputRequired ? `Mínimo ${inputMin} caracteres` : 'Opcional'}
                             />
                             {inputRequired && value.trim().length > 0 && value.trim().length < inputMin && (
@@ -116,7 +116,7 @@ function ActionModal({
                         <button
                             onClick={onClose}
                             disabled={loading}
-                            className="px-4 py-2 rounded-lg text-sm border border-white/10 text-gray-400 hover:text-white hover:border-white/20 transition-colors disabled:opacity-50"
+                            className="px-4 py-2 rounded-lg text-sm border border-border text-muted-foreground hover:text-foreground hover:border-white/20 transition-colors disabled:opacity-50"
                         >
                             Cancelar
                         </button>
@@ -219,24 +219,24 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
     return (
         <>
             {/* Backdrop */}
-            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40" onClick={onClose} />
+            <div className="fixed inset-0 bg-background/70 backdrop-blur-sm z-40" onClick={onClose} />
 
             {/* Panel */}
-            <aside className="fixed right-0 top-0 h-full w-full max-w-lg bg-[#0f0f0f] border-l border-white/10 z-50 flex flex-col overflow-hidden shadow-2xl">
+            <aside className="fixed right-0 top-0 h-full w-full max-w-lg bg-card border-l border-border z-50 flex flex-col overflow-hidden shadow-2xl">
 
                 {/* Header */}
-                <div className="flex items-start justify-between p-6 border-b border-white/10">
+                <div className="flex items-start justify-between p-6 border-b border-border">
                     <div>
-                        <h2 className="text-lg font-semibold text-white">{assistant.name}</h2>
-                        <p className="text-sm text-gray-400 mt-0.5">{assistant.id}</p>
+                        <h2 className="text-lg font-semibold text-foreground">{assistant.name}</h2>
+                        <p className="text-sm text-muted-foreground mt-0.5">{assistant.id}</p>
                     </div>
-                    <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors p-1">
+                    <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors p-1">
                         <X className="w-5 h-5" />
                     </button>
                 </div>
 
                 {/* Tabs */}
-                <div className="flex border-b border-white/10">
+                <div className="flex border-b border-border">
                     {tabs.map(t => (
                         <button
                             key={t.key}
@@ -244,7 +244,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                             className={`flex-1 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
                                 tab === t.key
                                     ? 'border-amber-500 text-amber-400'
-                                    : 'border-transparent text-gray-500 hover:text-gray-300'
+                                    : 'border-transparent text-muted-foreground hover:text-foreground/80'
                             }`}
                         >
                             {t.label}
@@ -274,24 +274,24 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
 
                             {assistant.description && (
                                 <div>
-                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Descrição</p>
-                                    <p className="text-sm text-gray-300">{assistant.description}</p>
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Descrição</p>
+                                    <p className="text-sm text-foreground/80">{assistant.description}</p>
                                 </div>
                             )}
 
                             {assistant.risk_justification && (
                                 <div>
-                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Justificativa de Risco</p>
-                                    <p className="text-sm text-gray-300">{assistant.risk_justification}</p>
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Justificativa de Risco</p>
+                                    <p className="text-sm text-foreground/80">{assistant.risk_justification}</p>
                                 </div>
                             )}
 
                             {assistant.capability_tags && assistant.capability_tags.length > 0 && (
                                 <div>
-                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Capability Tags</p>
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Capability Tags</p>
                                     <div className="flex flex-wrap gap-1.5">
                                         {assistant.capability_tags.map(tag => (
-                                            <span key={tag} className="px-2 py-0.5 rounded text-xs bg-white/5 border border-white/10 text-gray-300">
+                                            <span key={tag} className="px-2 py-0.5 rounded text-xs bg-secondary/50 border border-border text-foreground/80">
                                                 {tag}
                                             </span>
                                         ))}
@@ -301,27 +301,27 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Owner</p>
-                                    <p className="text-sm text-gray-300 flex items-center gap-1.5">
-                                        <User className="w-3.5 h-3.5 text-gray-500" />
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Owner</p>
+                                    <p className="text-sm text-foreground/80 flex items-center gap-1.5">
+                                        <User className="w-3.5 h-3.5 text-muted-foreground" />
                                         {assistant.owner_email ?? '—'}
                                     </p>
                                 </div>
                                 <div>
-                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Versões</p>
-                                    <p className="text-sm text-gray-300">{assistant.version_count ?? 0}</p>
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Versões</p>
+                                    <p className="text-sm text-foreground/80">{assistant.version_count ?? 0}</p>
                                 </div>
                                 <div>
-                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Revisado em</p>
-                                    <p className="text-sm text-gray-300 flex items-center gap-1.5">
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-gray-500" />
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Revisado em</p>
+                                    <p className="text-sm text-foreground/80 flex items-center gap-1.5">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-muted-foreground" />
                                         {fmtDate(assistant.reviewed_at)}
                                     </p>
                                 </div>
                                 <div>
-                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Criado em</p>
-                                    <p className="text-sm text-gray-300 flex items-center gap-1.5">
-                                        <Calendar className="w-3.5 h-3.5 text-gray-500" />
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Criado em</p>
+                                    <p className="text-sm text-foreground/80 flex items-center gap-1.5">
+                                        <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
                                         {fmtDate(assistant.created_at)}
                                     </p>
                                 </div>
@@ -333,8 +333,8 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                     {tab === 'lifecycle' && isAdmin && (
                         <div className="space-y-5">
                             {/* Current state */}
-                            <div className="bg-white/[0.03] border border-white/10 rounded-xl p-4">
-                                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Estado atual</p>
+                            <div className="bg-card/30 border border-border rounded-xl p-4">
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Estado atual</p>
                                 <span className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${lifecycleColor(state)}`}>
                                     {state ?? 'draft'}
                                 </span>
@@ -389,8 +389,8 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                 )}
 
                                 {state === 'approved' && (
-                                    <div className="text-xs text-gray-500 bg-white/[0.02] border border-white/5 rounded-lg p-3 leading-relaxed">
-                                        Para publicar como <strong className="text-white">oficial</strong>, publique uma versão do assistente
+                                    <div className="text-xs text-muted-foreground bg-secondary/30 border border-border/50 rounded-lg p-3 leading-relaxed">
+                                        Para publicar como <strong className="text-foreground">oficial</strong>, publique uma versão do assistente
                                         na página{' '}
                                         <a href="/assistants" className="text-amber-400 hover:underline">Assistentes</a>.
                                     </div>
@@ -400,7 +400,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                     <button
                                         onClick={() => setModal({ type: 'archive' })}
                                         disabled={actionLoading}
-                                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-500/50 text-gray-400 hover:bg-gray-500/10 font-semibold text-sm transition-colors disabled:opacity-50"
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-500/50 text-muted-foreground hover:bg-gray-500/10 font-semibold text-sm transition-colors disabled:opacity-50"
                                     >
                                         <Archive className="w-4 h-4" />
                                         Arquivar
@@ -408,7 +408,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                 )}
 
                                 {state === 'archived' && (
-                                    <div className="flex items-center gap-2 text-sm text-gray-500 bg-white/[0.02] border border-white/5 rounded-lg p-4">
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground bg-secondary/30 border border-border/50 rounded-lg p-4">
                                         <Archive className="w-4 h-4 shrink-0" />
                                         Este assistente está arquivado. Nenhuma ação disponível.
                                     </div>
@@ -425,12 +425,12 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                 <div className="space-y-3">
                                     <div className="flex items-center gap-2">
                                         <Link2 className="w-4 h-4 text-emerald-400" />
-                                        <p className="text-sm font-semibold text-white">Link Governado</p>
+                                        <p className="text-sm font-semibold text-foreground">Link Governado</p>
                                     </div>
-                                    <p className="text-xs text-gray-500 leading-relaxed">
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
                                         Compartilhe este link com usuários finais. Adicione uma API Key válida ao final.
                                     </p>
-                                    <div className="bg-white/[0.03] border border-white/10 rounded-lg p-3 font-mono text-xs text-gray-400 break-all">
+                                    <div className="bg-card/30 border border-border rounded-lg p-3 font-mono text-xs text-muted-foreground break-all">
                                         {typeof window !== 'undefined'
                                             ? `${window.location.origin}/chat/${assistant.id}?key=`
                                             : `/chat/${assistant.id}?key=`
@@ -452,12 +452,12 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                         <Copy className="w-4 h-4" />
                                         Copiar Link Base
                                     </button>
-                                    <div className="border-t border-white/5 pt-3" />
+                                    <div className="border-t border-border/50 pt-3" />
                                 </div>
                             ) : (
-                                <div className="flex items-start gap-2 text-xs text-gray-500 bg-white/[0.02] border border-white/5 rounded-lg p-3">
+                                <div className="flex items-start gap-2 text-xs text-muted-foreground bg-secondary/30 border border-border/50 rounded-lg p-3">
                                     <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600/70" />
-                                    Assistente deve estar com status <strong className="text-white mx-1">official</strong>
+                                    Assistente deve estar com status <strong className="text-foreground mx-1">official</strong>
                                     para gerar link de acesso externo.
                                 </div>
                             )}
@@ -469,7 +469,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                         href={`/chat/${assistant.id}?key=`}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm transition-colors"
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-foreground font-semibold text-sm transition-colors"
                                     >
                                         <ExternalLink className="w-4 h-4" />
                                         Abrir Chat Governado ↗
@@ -483,8 +483,8 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                             <ExternalLink className="w-4 h-4" />
                                             Abrir Chat Governado ↗
                                         </button>
-                                        <p className="text-xs text-gray-600 mt-1 text-center">
-                                            Requer status <strong className="text-gray-500">oficial</strong>
+                                        <p className="text-xs text-muted-foreground mt-1 text-center">
+                                            Requer status <strong className="text-muted-foreground">oficial</strong>
                                         </p>
                                     </div>
                                 )}
@@ -492,7 +492,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
 
                             {/* Playground admin link */}
                             <div className="space-y-2">
-                                <p className="text-xs text-gray-600">Teste no Playground com o pipeline completo (OPA + DLP + HITL).</p>
+                                <p className="text-xs text-muted-foreground">Teste no Playground com o pipeline completo (OPA + DLP + HITL).</p>
                                 <a
                                     href="/playground"
                                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm transition-colors"
@@ -528,7 +528,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                     inputRequired={true}
                     inputMin={20}
                     confirmLabel="Rejeitar"
-                    confirmClass="bg-rose-500 hover:bg-rose-400 text-white"
+                    confirmClass="bg-rose-500 hover:bg-rose-400 text-foreground"
                     onConfirm={comments => doReview('rejected', comments)}
                     onClose={() => setModal(null)}
                     loading={actionLoading}
@@ -555,7 +555,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                     inputLabel="Motivo (opcional)"
                     inputRequired={false}
                     confirmLabel="Arquivar"
-                    confirmClass="border border-gray-500/50 text-gray-400 hover:bg-gray-500/10"
+                    confirmClass="border border-gray-500/50 text-muted-foreground hover:bg-gray-500/10"
                     onConfirm={reason => doArchive(reason)}
                     onClose={() => setModal(null)}
                     loading={actionLoading}
@@ -569,16 +569,16 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
 
 function AssistantCard({ assistant, onManage }: { assistant: Assistant; onManage: () => void }) {
     return (
-        <div className="bg-white/[0.03] border border-white/10 rounded-xl p-5 flex flex-col gap-4 hover:border-amber-500/30 hover:bg-white/[0.05] transition-all">
+        <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-4 hover:border-amber-500/30 hover:bg-secondary/30 transition-all">
             {/* Top row */}
             <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-white text-sm leading-snug truncate">{assistant.name}</h3>
+                    <h3 className="font-semibold text-foreground text-sm leading-snug truncate">{assistant.name}</h3>
                     {assistant.description && (
-                        <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{assistant.description}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{assistant.description}</p>
                     )}
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-600 shrink-0 mt-0.5" />
+                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
             </div>
 
             {/* Badges */}
@@ -595,12 +595,12 @@ function AssistantCard({ assistant, onManage }: { assistant: Assistant; onManage
             {assistant.capability_tags && assistant.capability_tags.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                     {assistant.capability_tags.slice(0, 3).map(tag => (
-                        <span key={tag} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-white/5 border border-white/10 text-gray-400">
+                        <span key={tag} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-secondary/50 border border-border text-muted-foreground">
                             <Tag className="w-2.5 h-2.5" />{tag}
                         </span>
                     ))}
                     {assistant.capability_tags.length > 3 && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 border border-white/10 text-gray-500">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-secondary/50 border border-border text-muted-foreground/70">
                             +{assistant.capability_tags.length - 3}
                         </span>
                     )}
@@ -608,7 +608,7 @@ function AssistantCard({ assistant, onManage }: { assistant: Assistant; onManage
             )}
 
             {/* Meta footer */}
-            <div className="flex items-center justify-between text-[10px] text-gray-600 border-t border-white/5 pt-3">
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground border-t border-border/50 pt-3">
                 <span className="flex items-center gap-1">
                     <User className="w-3 h-3" />
                     {assistant.owner_email ?? '—'}
@@ -678,12 +678,8 @@ export default function CatalogPage() {
     const selectedFull = selected ? (assistants.find(a => a.id === selected.id) ?? selected) : null;
 
     return (
-        <div className="flex-1 overflow-auto bg-black text-white relative">
-            {/* Grid background */}
-            <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-[0.03] pointer-events-none" />
-            <div className="absolute inset-0 bg-gradient-to-b from-amber-500/5 via-transparent to-transparent pointer-events-none" />
-
-            <div className="relative max-w-[1400px] mx-auto px-6 py-8 space-y-8">
+        <div className="flex-1 overflow-auto">
+            <div className="max-w-7xl mx-auto p-6 space-y-8">
 
                 {/* Header */}
                 <div className="flex items-start justify-between gap-4">
@@ -692,14 +688,14 @@ export default function CatalogPage() {
                             <BookOpen className="w-5 h-5 text-amber-400" />
                         </div>
                         <div>
-                            <h1 className="text-xl font-bold text-white tracking-tight">Catálogo de Agentes</h1>
-                            <p className="text-sm text-gray-500">Registry formal de capacidades de IA — ciclo de vida, risco e governança.</p>
+                            <h1 className="text-xl font-bold text-foreground tracking-tight">Catálogo de Agentes</h1>
+                            <p className="text-sm text-muted-foreground">Registry formal de capacidades de IA — ciclo de vida, risco e governança.</p>
                         </div>
                     </div>
                     <button
                         onClick={load}
                         disabled={loading}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10 text-gray-400 hover:text-white hover:border-white/20 text-sm transition-colors disabled:opacity-50"
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-border/60 text-sm transition-colors disabled:opacity-50"
                     >
                         <Loader2 className={`w-4 h-4 ${loading ? 'animate-spin' : 'hidden'}`} />
                         Atualizar
@@ -713,7 +709,7 @@ export default function CatalogPage() {
                         placeholder="Buscar por nome, descrição ou owner..."
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        className="flex-1 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50"
+                        className="flex-1 px-4 py-2.5 rounded-lg bg-secondary/50 border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-amber-500/50"
                     />
                     <div className="flex gap-2 flex-wrap">
                         {LIFECYCLE_FILTERS.map(f => (
@@ -723,7 +719,7 @@ export default function CatalogPage() {
                                 className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
                                     lifecycleFilter === f
                                         ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                                        : 'border-white/10 text-gray-500 hover:text-gray-300'
+                                        : 'border-border text-muted-foreground hover:text-foreground'
                                 }`}
                             >
                                 {f === 'all' ? 'Todos' : f}
@@ -737,7 +733,7 @@ export default function CatalogPage() {
                                 className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
                                     riskFilter === f
                                         ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                                        : 'border-white/10 text-gray-500 hover:text-gray-300'
+                                        : 'border-border text-muted-foreground hover:text-foreground'
                                 }`}
                             >
                                 {f === 'all' ? 'Todos riscos' : f}
@@ -747,7 +743,7 @@ export default function CatalogPage() {
                 </div>
 
                 {/* Summary bar */}
-                <p className="text-xs text-gray-600">
+                <p className="text-xs text-muted-foreground">
                     {filtered.length} assistente{filtered.length !== 1 ? 's' : ''} encontrado{filtered.length !== 1 ? 's' : ''}
                     {assistants.length !== filtered.length && ` de ${assistants.length} total`}
                 </p>
@@ -762,12 +758,12 @@ export default function CatalogPage() {
 
                 {/* Grid */}
                 {loading ? (
-                    <div className="flex items-center justify-center py-24 text-gray-600">
+                    <div className="flex items-center justify-center py-24 text-muted-foreground">
                         <Loader2 className="w-8 h-8 animate-spin mr-3" />
                         Carregando catálogo...
                     </div>
                 ) : filtered.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-24 text-gray-600 gap-3">
+                    <div className="flex flex-col items-center justify-center py-24 text-muted-foreground gap-3">
                         <BookOpen className="w-10 h-10 opacity-30" />
                         <p className="text-sm">Nenhum assistente encontrado com os filtros selecionados.</p>
                     </div>

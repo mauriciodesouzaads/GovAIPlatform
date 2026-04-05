@@ -56,7 +56,7 @@ function severityColor(s: string) {
         case 'high':         return 'text-orange-400 bg-orange-500/10 border-orange-500/20';
         case 'medium':       return 'text-amber-400 bg-amber-400/10 border-amber-400/20';
         case 'low':          return 'text-blue-400 bg-blue-400/10 border-blue-400/20';
-        default:             return 'text-gray-400 bg-gray-400/10 border-gray-400/20';
+        default:             return 'text-muted-foreground bg-gray-400/10 border-gray-400/20';
     }
 }
 
@@ -65,10 +65,10 @@ function statusColor(s: string) {
         case 'open':         return 'text-amber-400';
         case 'acknowledged': return 'text-blue-400';
         case 'promoted':     return 'text-emerald-500';
-        case 'accepted_risk':return 'text-gray-400';
-        case 'dismissed':    return 'text-gray-500';
+        case 'accepted_risk':return 'text-muted-foreground';
+        case 'dismissed':    return 'text-muted-foreground';
         case 'resolved':     return 'text-emerald-400';
-        default:             return 'text-gray-400';
+        default:             return 'text-muted-foreground';
     }
 }
 
@@ -95,9 +95,9 @@ function actionIcon(actionType: string) {
 
 function PostureCard({ label, value, accent }: { label: string; value: number; accent: string }) {
     return (
-        <div className="bg-white/[0.03] border border-white/10 rounded-xl p-4">
+        <div className="bg-card border border-border rounded-xl p-4">
             <p className={`text-2xl font-bold ${accent}`}>{value}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
         </div>
     );
 }
@@ -106,28 +106,28 @@ function PostureCard({ label, value, accent }: { label: string; value: number; a
 
 function ActionTimeline({ actions, loading }: { actions: FindingAction[]; loading: boolean }) {
     if (loading) return (
-        <div className="flex items-center gap-2 text-gray-600 py-4 pl-2">
+        <div className="flex items-center gap-2 text-muted-foreground py-4 pl-2">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             <span className="text-xs">Carregando timeline...</span>
         </div>
     );
     if (actions.length === 0) return (
-        <p className="text-xs text-gray-600 py-4 pl-2">Nenhuma ação registrada.</p>
+        <p className="text-xs text-muted-foreground py-4 pl-2">Nenhuma ação registrada.</p>
     );
 
     return (
-        <div className="space-y-2 pl-2 border-l border-white/10 ml-2">
+        <div className="space-y-2 pl-2 border-l border-border ml-2">
             {actions.map(a => (
                 <div key={a.id} className="relative pl-4">
-                    <div className="absolute -left-[9px] top-1 w-3.5 h-3.5 rounded-full bg-[#0f0f0f] border border-white/20 flex items-center justify-center text-[8px]">
+                    <div className="absolute -left-[9px] top-1 w-3.5 h-3.5 rounded-full bg-card border border-border flex items-center justify-center text-[8px]">
                         {actionIcon(a.action_type)}
                     </div>
                     <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-xs font-medium text-gray-300 capitalize">{a.action_type.replace('_', ' ')}</span>
-                        <span className="text-[10px] text-gray-600 shrink-0">{fmtDate(a.created_at)}</span>
+                        <span className="text-xs font-medium text-foreground/80 capitalize">{a.action_type.replace('_', ' ')}</span>
+                        <span className="text-[10px] text-muted-foreground shrink-0">{fmtDate(a.created_at)}</span>
                     </div>
-                    <p className="text-[10px] text-gray-500 mt-0.5">por {a.actor_id}</p>
-                    {a.note && <p className="text-[10px] text-gray-400 bg-white/5 rounded px-2 py-1 mt-1 italic">"{a.note}"</p>}
+                    <p className="text-[10px] text-muted-foreground mt-0.5">por {a.actor_id}</p>
+                    {a.note && <p className="text-[10px] text-muted-foreground bg-secondary/50 rounded px-2 py-1 mt-1 italic">"{a.note}"</p>}
                 </div>
             ))}
         </div>
@@ -162,14 +162,14 @@ function FindingRow({ finding, tenantOrgId }: { finding: ConsultantFinding; tena
     return (
         <>
             <tr
-                className="border-t border-white/5 hover:bg-white/[0.02] cursor-pointer transition-colors"
+                className="border-t border-border/50 hover:bg-secondary/30 cursor-pointer transition-colors"
                 onClick={toggle}
             >
                 <td className="py-3 px-4">
                     <div className="flex items-center gap-2">
-                        {expanded ? <ChevronDown className="w-3.5 h-3.5 text-gray-600" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-600" />}
-                        <span className="text-sm text-white font-medium">{finding.tool_name_normalized}</span>
-                        <span className="text-xs text-gray-600 hidden sm:inline">({finding.tool_name})</span>
+                        {expanded ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+                        <span className="text-sm text-foreground font-medium">{finding.tool_name_normalized}</span>
+                        <span className="text-xs text-muted-foreground hidden sm:inline">({finding.tool_name})</span>
                     </div>
                 </td>
                 <td className="py-3 px-4">
@@ -183,15 +183,15 @@ function FindingRow({ finding, tenantOrgId }: { finding: ConsultantFinding; tena
                     </span>
                 </td>
                 <td className="py-3 px-4 text-xs text-amber-400 font-mono">{finding.risk_score.toFixed(2)}</td>
-                <td className="py-3 px-4 text-xs text-gray-500">{finding.observation_count}</td>
-                <td className="py-3 px-4 text-xs text-gray-500 hidden md:table-cell">{fmtDate(finding.last_seen_at)}</td>
+                <td className="py-3 px-4 text-xs text-muted-foreground">{finding.observation_count}</td>
+                <td className="py-3 px-4 text-xs text-muted-foreground hidden md:table-cell">{fmtDate(finding.last_seen_at)}</td>
             </tr>
             {expanded && (
-                <tr className="border-t border-white/5 bg-white/[0.01]">
+                <tr className="border-t border-border/50 bg-secondary/10">
                     <td colSpan={6} className="px-6 py-4">
                         <div className="flex items-center gap-2 mb-3">
-                            <MessageSquare className="w-3.5 h-3.5 text-gray-500" />
-                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Timeline de Ações</span>
+                            <MessageSquare className="w-3.5 h-3.5 text-muted-foreground" />
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Timeline de Ações</span>
                         </div>
                         <ActionTimeline actions={actions} loading={loadingActions} />
                     </td>
@@ -234,40 +234,40 @@ function TenantPanel({ tenant }: { tenant: ConsultantTenant }) {
     useEffect(() => { load(); }, [load]);
 
     return (
-        <div className="bg-white/[0.02] border border-white/10 rounded-xl overflow-hidden">
+        <div className="bg-secondary/30 border border-border rounded-xl overflow-hidden">
             {/* Tenant header */}
             <button
                 onClick={() => setCollapsed(v => !v)}
-                className="w-full flex items-center justify-between p-5 hover:bg-white/[0.02] transition-colors"
+                className="w-full flex items-center justify-between p-5 hover:bg-secondary/30 transition-colors"
             >
                 <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
                         <Shield className="w-4 h-4 text-amber-400" />
                     </div>
                     <div className="text-left">
-                        <p className="text-sm font-semibold text-white">{tenant.orgName}</p>
-                        <p className="text-[10px] text-gray-600 font-mono">{tenant.orgId}</p>
+                        <p className="text-sm font-semibold text-foreground">{tenant.orgName}</p>
+                        <p className="text-[10px] text-muted-foreground font-mono">{tenant.orgId}</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
                     {posture && !loading && (
-                        <div className="flex items-center gap-4 text-xs text-gray-500">
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
                             <span className="text-rose-400 font-semibold">{posture.criticalFindings} crítico{posture.criticalFindings !== 1 ? 's' : ''}</span>
                             <span className="text-amber-400">{posture.openFindings} aberto{posture.openFindings !== 1 ? 's' : ''}</span>
-                            <span className="text-gray-600">Score: <span className="text-white">{posture.overallScore.toFixed(0)}</span></span>
+                            <span className="text-muted-foreground">Score: <span className="text-foreground">{posture.overallScore.toFixed(0)}</span></span>
                         </div>
                     )}
-                    <button onClick={(e) => { e.stopPropagation(); load(); }} className="text-gray-600 hover:text-gray-400 p-1">
+                    <button onClick={(e) => { e.stopPropagation(); load(); }} className="text-muted-foreground hover:text-muted-foreground p-1">
                         <RefreshCw className="w-3.5 h-3.5" />
                     </button>
-                    {collapsed ? <ChevronRight className="w-4 h-4 text-gray-600" /> : <ChevronDown className="w-4 h-4 text-gray-600" />}
+                    {collapsed ? <ChevronRight className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
                 </div>
             </button>
 
             {!collapsed && (
-                <div className="px-5 pb-5 space-y-5 border-t border-white/5">
+                <div className="px-5 pb-5 space-y-5 border-t border-border/50">
                     {loading && (
-                        <div className="flex items-center gap-2 text-gray-600 py-8 justify-center">
+                        <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
                             <Loader2 className="w-5 h-5 animate-spin" />
                             <span className="text-sm">Carregando dados do tenant...</span>
                         </div>
@@ -287,30 +287,30 @@ function TenantPanel({ tenant }: { tenant: ConsultantTenant }) {
                                 <PostureCard label="Findings Abertos" value={posture.openFindings} accent="text-amber-400" />
                                 <PostureCard label="Críticos" value={posture.criticalFindings} accent="text-rose-400" />
                                 <PostureCard label="Promovidos" value={posture.promotedFindings} accent="text-emerald-400" />
-                                <PostureCard label="Risco Aceito" value={posture.acceptedRisk} accent="text-gray-400" />
+                                <PostureCard label="Risco Aceito" value={posture.acceptedRisk} accent="text-muted-foreground" />
                             </div>
 
                             {/* Findings Table */}
                             <div>
                                 <div className="flex items-center gap-2 mb-3">
-                                    <Eye className="w-3.5 h-3.5 text-gray-500" />
-                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                         Findings ({findings.length})
                                     </span>
                                 </div>
                                 {findings.length === 0 ? (
-                                    <p className="text-xs text-gray-600 py-4">Nenhum finding encontrado para este tenant.</p>
+                                    <p className="text-xs text-muted-foreground py-4">Nenhum finding encontrado para este tenant.</p>
                                 ) : (
-                                    <div className="overflow-x-auto rounded-lg border border-white/10">
+                                    <div className="overflow-x-auto rounded-lg border border-border">
                                         <table className="w-full text-left">
                                             <thead>
-                                                <tr className="bg-white/[0.03]">
-                                                    <th className="py-2.5 px-4 text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Ferramenta</th>
-                                                    <th className="py-2.5 px-4 text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Severidade</th>
-                                                    <th className="py-2.5 px-4 text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                                                    <th className="py-2.5 px-4 text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Score</th>
-                                                    <th className="py-2.5 px-4 text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Obs.</th>
-                                                    <th className="py-2.5 px-4 text-[10px] font-semibold text-gray-600 uppercase tracking-wider hidden md:table-cell">Última vez</th>
+                                                <tr className="bg-card/30">
+                                                    <th className="py-2.5 px-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Ferramenta</th>
+                                                    <th className="py-2.5 px-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Severidade</th>
+                                                    <th className="py-2.5 px-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+                                                    <th className="py-2.5 px-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Score</th>
+                                                    <th className="py-2.5 px-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Obs.</th>
+                                                    <th className="py-2.5 px-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Última vez</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -365,11 +365,8 @@ export default function ConsultantPage() {
     useEffect(() => { loadTenants(); }, [loadTenants]);
 
     return (
-        <div className="flex-1 overflow-auto bg-black text-white relative">
-            <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-[0.03] pointer-events-none" />
-            <div className="absolute inset-0 bg-gradient-to-b from-amber-500/5 via-transparent to-transparent pointer-events-none" />
-
-            <div className="relative max-w-[1400px] mx-auto px-6 py-8 space-y-8">
+        <div className="flex-1 overflow-auto">
+            <div className="max-w-7xl mx-auto p-6 space-y-8">
 
                 {/* Header */}
                 <div className="flex items-start justify-between gap-4">
@@ -378,8 +375,8 @@ export default function ConsultantPage() {
                             <UserCog className="w-5 h-5 text-amber-400" />
                         </div>
                         <div>
-                            <h1 className="text-xl font-bold text-white tracking-tight">Painel do Consultor</h1>
-                            <p className="text-sm text-gray-500">Visão cross-tenant de postura e findings — somente leitura.</p>
+                            <h1 className="text-xl font-bold text-foreground tracking-tight">Painel do Consultor</h1>
+                            <p className="text-sm text-muted-foreground">Visão cross-tenant de postura e findings — somente leitura.</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-amber-500/20 bg-amber-500/5">
@@ -396,12 +393,12 @@ export default function ConsultantPage() {
 
                 {/* Tenants */}
                 {loading ? (
-                    <div className="flex items-center justify-center py-24 text-gray-600">
+                    <div className="flex items-center justify-center py-24 text-muted-foreground">
                         <Loader2 className="w-8 h-8 animate-spin mr-3" />
                         Carregando tenants...
                     </div>
                 ) : tenants.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-24 text-gray-600 gap-3">
+                    <div className="flex flex-col items-center justify-center py-24 text-muted-foreground gap-3">
                         <UserCog className="w-10 h-10 opacity-30" />
                         <p className="text-sm">Nenhum tenant acessível encontrado.</p>
                     </div>

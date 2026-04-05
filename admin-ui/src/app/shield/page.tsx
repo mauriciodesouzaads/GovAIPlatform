@@ -80,12 +80,12 @@ function NoteModal({
 }) {
     const [note, setNote] = useState('');
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-            <div className="bg-[#111] border border-white/10 rounded-2xl p-6 w-full max-w-md space-y-4">
-                <h3 className="text-white font-bold text-lg">{title}</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
+            <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md space-y-4">
+                <h3 className="text-foreground font-bold text-lg">{title}</h3>
                 <p className="text-muted-foreground text-sm">Justificativa Obrigatória</p>
                 <textarea
-                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white text-sm resize-none focus:outline-none focus:border-amber-400/50 placeholder:text-muted-foreground"
+                    className="w-full bg-secondary/50 border border-border rounded-lg p-3 text-foreground text-sm resize-none focus:outline-none focus:border-amber-400/50 placeholder:text-muted-foreground"
                     rows={4}
                     placeholder="Descreva o motivo (mínimo 20 caracteres)"
                     value={note}
@@ -93,7 +93,7 @@ function NoteModal({
                 />
                 <div className="flex gap-3 justify-end">
                     <button onClick={onCancel}
-                        className="px-4 py-2 text-sm text-muted-foreground hover:text-white border border-white/10 rounded-lg transition-colors">
+                        className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg transition-colors">
                         Cancelar
                     </button>
                     <button
@@ -251,9 +251,7 @@ export default function ShieldPage() {
     };
 
     return (
-        <div className="flex-1 overflow-auto p-4 md:p-8 bg-black relative">
-            <div className="absolute inset-0 bg-[url('/grid.svg')] bg-cover bg-center bg-no-repeat opacity-20 pointer-events-none" />
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[400px] bg-amber-500/8 blur-[120px] rounded-full pointer-events-none" />
+        <div className="flex-1 overflow-auto">
 
             {modal && (
                 <NoteModal
@@ -264,11 +262,11 @@ export default function ShieldPage() {
                 />
             )}
 
-            <div className="max-w-7xl mx-auto space-y-6 relative z-10">
+            <div className="max-w-7xl mx-auto p-6 space-y-6">
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                     <div>
-                        <h1 className="text-3xl font-black tracking-tight text-white flex items-center gap-3">
+                        <h1 className="text-3xl font-black tracking-tight text-foreground flex items-center gap-3">
                             <ScanEye className="h-8 w-8 text-amber-400" />
                             <span className="bg-clip-text text-transparent bg-gradient-to-r from-amber-400 to-amber-600">
                                 Shadow AI Shield
@@ -292,16 +290,16 @@ export default function ShieldPage() {
                 {/* Section A — Posture Cards */}
                 {loadingPosture ? (
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-pulse">
-                        {[1, 2, 3, 4].map(i => <div key={i} className="h-28 bg-white/5 border border-white/10 rounded-2xl" />)}
+                        {[1, 2, 3, 4].map(i => <div key={i} className="h-28 bg-secondary/50 border border-border rounded-2xl" />)}
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {/* Card 1 */}
-                        <div className="bg-[#111] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all">
+                        <div className="bg-card border border-border rounded-2xl p-5 hover:border-white/20 transition-all">
                             <div className="w-9 h-9 rounded-xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center mb-3">
                                 <Eye className="w-4.5 h-4.5 text-amber-400" />
                             </div>
-                            <div className="text-2xl font-black text-white">{posture?.openFindings ?? 0}</div>
+                            <div className="text-2xl font-black text-foreground">{posture?.openFindings ?? 0}</div>
                             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-1">Ferramentas Detectadas</p>
                             <p className="text-xs text-amber-400/70 mt-0.5">findings ativos</p>
                         </div>
@@ -311,25 +309,25 @@ export default function ShieldPage() {
                             <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-3">
                                 <AlertTriangle className="w-4.5 h-4.5 text-rose-500" />
                             </div>
-                            <div className="text-2xl font-black text-white">{posture?.criticalFindings ?? 0}</div>
+                            <div className="text-2xl font-black text-foreground">{posture?.criticalFindings ?? 0}</div>
                             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-1">Risco Crítico</p>
                             <p className="text-xs text-rose-400/70 mt-0.5">requerem ação imediata</p>
                         </div>
                         {/* Card 3 */}
-                        <div className="bg-[#111] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all">
+                        <div className="bg-card border border-border rounded-2xl p-5 hover:border-white/20 transition-all">
                             <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-3">
                                 <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500" />
                             </div>
-                            <div className="text-2xl font-black text-white">{posture?.promotedFindings ?? 0}</div>
+                            <div className="text-2xl font-black text-foreground">{posture?.promotedFindings ?? 0}</div>
                             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-1">Em Governança</p>
                             <p className="text-xs text-emerald-400/70 mt-0.5">promovidos ao catálogo</p>
                         </div>
                         {/* Card 4 */}
-                        <div className="bg-[#111] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all">
+                        <div className="bg-card border border-border rounded-2xl p-5 hover:border-white/20 transition-all">
                             <div className="w-9 h-9 rounded-xl bg-gray-400/10 border border-gray-400/20 flex items-center justify-center mb-3">
                                 <ShieldOff className="w-4.5 h-4.5 text-gray-400" />
                             </div>
-                            <div className="text-2xl font-black text-white">{posture?.acceptedRisk ?? 0}</div>
+                            <div className="text-2xl font-black text-foreground">{posture?.acceptedRisk ?? 0}</div>
                             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-1">Risco Aceito</p>
                             <p className="text-xs text-gray-400/70 mt-0.5">aceitos formalmente</p>
                         </div>
@@ -338,16 +336,16 @@ export default function ShieldPage() {
 
                 {/* Section B — Top Tools */}
                 {posture?.topTools && posture.topTools.length > 0 && (
-                    <div className="bg-[#111] border border-white/10 rounded-2xl p-5">
-                        <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <div className="bg-card border border-border rounded-2xl p-5">
+                        <h2 className="text-sm font-bold text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
                             <Activity className="w-4 h-4 text-amber-400" />
                             Top Ferramentas em Risco
                         </h2>
                         <div className="flex flex-wrap gap-3">
                             {posture.topTools.map((t, i) => (
-                                <div key={i} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-3 py-2">
-                                    <span className="text-sm font-semibold text-white capitalize">{t.toolName}</span>
-                                    <div className="w-20 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                                <div key={i} className="flex items-center gap-3 bg-secondary/50 border border-border rounded-xl px-3 py-2">
+                                    <span className="text-sm font-semibold text-foreground capitalize">{t.toolName}</span>
+                                    <div className="w-20 h-1.5 bg-secondary/50 rounded-full overflow-hidden">
                                         <div
                                             className="h-full bg-amber-400 rounded-full"
                                             style={{ width: `${Math.min(100, t.riskScore)}%` }}
@@ -364,9 +362,9 @@ export default function ShieldPage() {
                 )}
 
                 {/* Section C — Findings Table */}
-                <div className="bg-[#111] border border-white/10 rounded-2xl overflow-hidden">
-                    <div className="p-5 border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <div className="bg-card border border-border rounded-2xl overflow-hidden">
+                    <div className="p-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <h2 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
                             <Layers className="w-4 h-4 text-amber-400" />
                             Findings de Detecção
                         </h2>
@@ -374,7 +372,7 @@ export default function ShieldPage() {
                             <select
                                 value={statusFilter}
                                 onChange={e => setStatusFilter(e.target.value)}
-                                className="bg-white/5 border border-white/10 text-white text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-amber-400/50">
+                                className="bg-secondary/50 border border-border text-foreground text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-amber-400/50">
                                 <option value="">Todos os Status</option>
                                 <option value="open">open</option>
                                 <option value="acknowledged">acknowledged</option>
@@ -385,7 +383,7 @@ export default function ShieldPage() {
                             <select
                                 value={severityFilter}
                                 onChange={e => setSeverityFilter(e.target.value)}
-                                className="bg-white/5 border border-white/10 text-white text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-amber-400/50">
+                                className="bg-secondary/50 border border-border text-foreground text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-amber-400/50">
                                 <option value="">Todas as Severidades</option>
                                 <option value="critical">critical</option>
                                 <option value="high">high</option>
@@ -410,7 +408,7 @@ export default function ShieldPage() {
 
                     {loadingFindings ? (
                         <div className="p-5 space-y-2 animate-pulse">
-                            {[1, 2, 3].map(i => <div key={i} className="h-10 bg-white/5 rounded-lg" />)}
+                            {[1, 2, 3].map(i => <div key={i} className="h-10 bg-secondary/50 rounded-lg" />)}
                         </div>
                     ) : findings.length === 0 ? (
                         <div className="p-10 text-center text-muted-foreground text-sm">
@@ -420,7 +418,7 @@ export default function ShieldPage() {
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
                                 <thead>
-                                    <tr className="text-xs text-muted-foreground uppercase tracking-wider border-b border-white/5">
+                                    <tr className="text-xs text-muted-foreground uppercase tracking-wider border-b border-border/50">
                                         <th className="px-4 py-3 text-left">Ferramenta</th>
                                         <th className="px-4 py-3 text-left">Severidade</th>
                                         <th className="px-4 py-3 text-left">Status</th>
@@ -433,8 +431,8 @@ export default function ShieldPage() {
                                 </thead>
                                 <tbody className="divide-y divide-white/5">
                                     {findings.map(f => (
-                                        <tr key={f.id} className="hover:bg-white/3 transition-colors">
-                                            <td className="px-4 py-3 font-semibold text-white capitalize">{f.tool_name}</td>
+                                        <tr key={f.id} className="hover:bg-secondary/20 transition-colors">
+                                            <td className="px-4 py-3 font-semibold text-foreground capitalize">{f.tool_name}</td>
                                             <td className="px-4 py-3">
                                                 <span className={`text-[10px] font-black uppercase tracking-widest rounded px-1.5 py-0.5 border ${severityColor(f.severity)}`}>
                                                     {f.severity}
@@ -494,23 +492,23 @@ export default function ShieldPage() {
                 </div>
 
                 {/* Section D — Collector Health */}
-                <div className="bg-[#111] border border-white/10 rounded-2xl p-5">
-                    <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2">
+                <div className="bg-card border border-border rounded-2xl p-5">
+                    <h2 className="text-sm font-bold text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
                         <Activity className="w-4 h-4 text-amber-400" />
                         Health dos Collectors
                     </h2>
                     {loadingCollectors ? (
                         <div className="flex gap-3 animate-pulse">
-                            {[1, 2, 3].map(i => <div key={i} className="h-16 w-48 bg-white/5 rounded-xl" />)}
+                            {[1, 2, 3].map(i => <div key={i} className="h-16 w-48 bg-secondary/50 rounded-xl" />)}
                         </div>
                     ) : collectors.length === 0 ? (
                         <p className="text-xs text-muted-foreground">Nenhum collector configurado.</p>
                     ) : (
                         <div className="flex flex-wrap gap-3">
                             {collectors.map(c => (
-                                <div key={c.id} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 min-w-[200px]">
+                                <div key={c.id} className="bg-secondary/50 border border-border rounded-xl px-4 py-3 min-w-[200px]">
                                     <div className="flex items-center justify-between mb-1.5">
-                                        <span className="text-xs font-bold text-white uppercase tracking-wide">{c.source_kind}</span>
+                                        <span className="text-xs font-bold text-foreground uppercase tracking-wide">{c.source_kind}</span>
                                         <span className={`text-[10px] font-black uppercase tracking-widest rounded px-1.5 py-0.5 border ${healthColor(c.health_status)}`}>
                                             {c.health_status}
                                         </span>

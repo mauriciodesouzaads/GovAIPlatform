@@ -900,7 +900,7 @@ export default function ArchitectPage() {
 
             {/* Section C: New Case Modal */}
             {showNewCase && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
                     <div className="w-full max-w-lg rounded-2xl border border-border/50 bg-card shadow-2xl p-6 space-y-4 mx-4">
                         <div className="flex items-center justify-between">
                             <h2 className="text-base font-bold text-foreground">Nova Demanda</h2>

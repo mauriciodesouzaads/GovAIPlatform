@@ -1,35 +1,35 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #09090b;
-  /* Zinc 950 */
-  --color-foreground: #fafafa;
+  /* Warm dark navy — not pure black */
+  --color-background: #0C0F14;
+  --color-foreground: #F0F2F5;
 
-  --color-card: #09090b;
-  --color-card-foreground: #fafafa;
+  --color-card: #141820;
+  --color-card-foreground: #F0F2F5;
 
-  --color-popover: #09090b;
-  --color-popover-foreground: #fafafa;
+  --color-popover: #141820;
+  --color-popover-foreground: #F0F2F5;
 
-  --color-primary: #10b981;
-  /* Emerald 500 */
-  --color-primary-foreground: #022c22;
+  --color-primary: #10B981;
+  --color-primary-foreground: #022C22;
 
-  --color-secondary: #27272a;
-  --color-secondary-foreground: #fafafa;
+  --color-secondary: #1C2030;
+  --color-secondary-foreground: #F0F2F5;
 
-  --color-muted: #18181b;
-  --color-muted-foreground: #a1a1aa;
+  --color-muted: #1C2030;
+  --color-muted-foreground: #8B92A5;
 
-  --color-accent: #27272a;
-  --color-accent-foreground: #fafafa;
+  --color-accent: #1E2435;
+  --color-accent-foreground: #F0F2F5;
 
   --color-destructive: #ef4444;
   --color-destructive-foreground: #fef2f2;
 
-  --color-border: #27272a;
-  --color-input: #27272a;
-  --color-ring: #10b981;
+  /* Visible border — not invisible */
+  --color-border: #252A38;
+  --color-input: #252A38;
+  --color-ring: #10B981;
 
   --radius-lg: 0.75rem;
   --radius-md: 0.5rem;
@@ -48,29 +48,29 @@ body {
 
 /* Glassmorphism utilities */
 .glass {
-  background: rgba(24, 24, 27, 0.7);
+  background: color-mix(in srgb, var(--color-card) 80%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border);
 }
 
-/* Custom scrollbar for dark UI */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
-  border-radius: 10px;
+  background: var(--color-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted-foreground);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+/* Smooth scroll */
+* { scroll-behavior: smooth; }
+
+/* Selection color */
+::selection {
+  background: rgb(16 185 129 / 0.3);
 }
 
 /* Table overrides */

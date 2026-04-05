@@ -91,9 +91,8 @@ export default function ApprovalsPage() {
     const pendingCount = tab === 'pending' ? approvals.length : 0;
 
     return (
-        <main className="flex-1 overflow-auto p-8 bg-[url('/grid.svg')] bg-cover bg-center bg-no-repeat relative">
-            <div className="absolute inset-0 bg-background/90 backdrop-blur-3xl z-0" />
-            <div className="max-w-4xl mx-auto space-y-8 relative z-10">
+        <div className="flex-1 overflow-auto">
+            <div className="max-w-4xl mx-auto p-6 space-y-8">
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                     <div>
@@ -108,8 +107,7 @@ export default function ApprovalsPage() {
                 </div>
 
                 {/* Tabs */}
-                <div className="flex gap-2 p-1.5 glass rounded-xl w-fit shadow-sm relative overflow-hidden">
-                    <div className="absolute inset-0 bg-gradient-to-r from-white/5 to-transparent pointer-events-none" />
+                <div className="flex gap-2 p-1.5 bg-card border border-border rounded-xl w-fit shadow-sm">
                     {(['pending', 'approved', 'rejected'] as const).map(t => (
                         <button
                             key={t}
@@ -137,9 +135,14 @@ export default function ApprovalsPage() {
 
                 {/* Loading */}
                 {loading && (
-                    <div className="flex flex-col items-center justify-center py-24 space-y-4">
-                        <Loader2 className="w-10 h-10 animate-spin text-amber-500" />
-                        <p className="text-muted-foreground font-medium animate-pulse">Sincronizando fila de quarentena OPA...</p>
+                    <div className="space-y-4">
+                        {[1,2,3].map(i => (
+                            <div key={i} className="bg-card border border-border rounded-xl p-6 space-y-3">
+                                <div className="animate-pulse bg-secondary rounded h-5 w-1/3" />
+                                <div className="animate-pulse bg-secondary rounded h-4 w-full" />
+                                <div className="animate-pulse bg-secondary rounded h-4 w-2/3" />
+                            </div>
+                        ))}
                     </div>
                 )}
 
@@ -160,7 +163,7 @@ export default function ApprovalsPage() {
                 {!loading && approvals.length > 0 && (
                     <div className="space-y-6">
                         {approvals.map((a: Approval) => (
-                            <div key={a.id} className="glass rounded-2xl p-6 md:p-8 space-y-6 border-l-4 hover:border-l-8 transition-all duration-300 relative overflow-hidden group"
+                            <div key={a.id} className="bg-card border border-border rounded-xl p-6 md:p-8 space-y-6 border-l-4 hover:border-l-8 transition-all duration-300 relative overflow-hidden group"
                                 style={{
                                     borderLeftColor: a.status === 'pending' ? '#f43f5e' : a.status === 'approved' ? '#10b981' : '#f43f5e'
                                 }}
@@ -311,6 +314,6 @@ export default function ApprovalsPage() {
                     </div>
                 )}
             </div>
-        </main>
+        </div>
     );
 }

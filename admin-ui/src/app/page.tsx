@@ -44,15 +44,12 @@ export default function DashboardPage() {
     : 0;
 
   return (
-    <div className="flex-1 overflow-auto p-4 md:p-8 bg-black relative">
-      <div className="absolute inset-0 bg-[url('/grid.svg')] bg-cover bg-center bg-no-repeat opacity-20 pointer-events-none" />
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-emerald-500/10 blur-[120px] rounded-full pointer-events-none" />
-
-      <div className="max-w-7xl mx-auto space-y-6 relative z-10 transition-all duration-500 ease-out">
+    <div className="flex-1 overflow-auto bg-background">
+      <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-6">
         {/* Header Section */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
-            <h2 className="text-3xl font-black tracking-tight text-white flex items-center gap-3">
+            <h2 className="text-3xl font-black tracking-tight text-foreground flex items-center gap-3">
               <span className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-emerald-600">
                 GovAI
               </span>
@@ -68,14 +65,14 @@ export default function DashboardPage() {
               <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
             </span>
             <span className="text-xs font-bold text-emerald-500 tracking-wider uppercase">System Operational</span>
-            <Link href="/reports" className="ml-4 bg-white/5 hover:bg-white/10 text-white border border-white/10 text-xs font-semibold px-4 py-2 rounded-full transition-all">
+            <Link href="/reports" className="ml-4 bg-secondary/50 hover:bg-secondary/70 text-foreground border border-border text-xs font-semibold px-4 py-2 rounded-full transition-all">
               Gerar PDF de Auditoria
             </Link>
           </div>
         </div>
 
         {/* Health Monitoring Section */}
-        <div className="flex gap-4 p-4 bg-white/5 border border-white/10 rounded-2xl relative z-10 items-center justify-between">
+        <div className="flex gap-4 p-4 bg-secondary/50 border border-border rounded-2xl relative z-10 items-center justify-between">
           <HealthStatus />
         </div>
 
@@ -83,26 +80,26 @@ export default function DashboardPage() {
           <div className="flex flex-col items-center justify-center gap-4 py-24">
             <AlertTriangle className="w-10 h-10 text-destructive/70" />
             <p className="text-sm text-destructive font-medium">{error}</p>
-            <button onClick={fetchStats} className="text-xs text-muted-foreground underline hover:text-white transition-colors">Tentar novamente</button>
+            <button onClick={fetchStats} className="text-xs text-muted-foreground underline hover:text-foreground transition-colors">Tentar novamente</button>
           </div>
         ) : loading ? (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-pulse">
             {[1, 2, 3, 4].map(i => (
-              <div key={i} className="h-32 bg-white/5 border border-white/10 rounded-2xl" />
+              <div key={i} className="h-32 bg-secondary/50 border border-border rounded-2xl" />
             ))}
-            <div className="col-span-1 md:col-span-3 h-[400px] bg-white/5 border border-white/10 rounded-2xl" />
-            <div className="col-span-1 h-[400px] bg-white/5 border border-white/10 rounded-2xl" />
+            <div className="col-span-1 md:col-span-3 h-[400px] bg-secondary/50 border border-border rounded-2xl" />
+            <div className="col-span-1 h-[400px] bg-secondary/50 border border-border rounded-2xl" />
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
 
             {/* 1. Bento Box: Executions (Standard) */}
-            <div className="bg-[#111] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all group flex flex-col justify-between">
+            <div className="bg-card border border-border rounded-2xl p-5 hover:border-border transition-all group flex flex-col justify-between">
               <div className="flex justify-between items-start">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
                   <Activity className="h-5 w-5 text-emerald-400" />
                 </div>
-                <Link href="/logs" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-white flex items-center gap-1">
+                <Link href="/logs" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-foreground flex items-center gap-1">
                   Ver Logs <ArrowUpRight className="w-3 h-3" />
                 </Link>
               </div>
@@ -111,7 +108,7 @@ export default function DashboardPage() {
                   Processamento de IA
                   <span title="Volume total de prompts processados. Metrificação exigida para rastreabilidade de acessos (LGPD Art. 37)."><Info className="w-3.5 h-3.5 opacity-50 hover:opacity-100 cursor-help transition-opacity" /></span>
                 </p>
-                <div className="text-3xl font-black text-white">{stats?.total_executions.toLocaleString() || 0}</div>
+                <div className="text-3xl font-black text-foreground">{stats?.total_executions.toLocaleString() || 0}</div>
                 <p className="text-xs text-emerald-400/80 mt-1 font-medium bg-emerald-500/10 inline-block px-2 py-0.5 rounded">Calls processadas</p>
               </div>
             </div>
@@ -132,7 +129,7 @@ export default function DashboardPage() {
                   Violações OPA Barradas
                   <span title="Incidentes de segurança mitigados automaticamente. Previne vazamento de PII (LGPD Art. 46) e ataques (BCB 4.557 Art. 21)."><Info className="w-3.5 h-3.5 opacity-60 hover:opacity-100 cursor-help text-rose-300 transition-opacity" /></span>
                 </p>
-                <div className="text-3xl font-black text-white flex items-baseline gap-2">
+                <div className="text-3xl font-black text-foreground flex items-baseline gap-2">
                   {stats?.total_violations.toLocaleString() || 0}
                   <span className="text-sm font-medium text-rose-400/60 bg-rose-500/10 px-1.5 py-0.5 rounded">Bloqueios P0</span>
                 </div>
@@ -140,7 +137,7 @@ export default function DashboardPage() {
             </div>
 
             {/* 3. Bento Box: Tokens / Cost */}
-            <div className="bg-[#111] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all group flex flex-col justify-between">
+            <div className="bg-card border border-border rounded-2xl p-5 hover:border-border transition-all group flex flex-col justify-between">
               <div className="flex justify-between items-start">
                 <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center border border-violet-500/20">
                   <Coins className="h-5 w-5 text-violet-400" />
@@ -148,7 +145,7 @@ export default function DashboardPage() {
               </div>
               <div className="mt-4">
                 <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1">Consumo LLM</p>
-                <div className="text-3xl font-black text-white">{stats?.total_tokens?.toLocaleString() || 0}</div>
+                <div className="text-3xl font-black text-foreground">{stats?.total_tokens?.toLocaleString() || 0}</div>
                 <p className="text-xs text-violet-400/80 mt-1 font-bold bg-violet-500/10 inline-flex items-center gap-1 px-2 py-0.5 rounded">
                   <CreditCard className="w-3 h-3" /> ≈ ${stats?.estimated_cost_usd || '0.00'}
                 </p>
@@ -156,18 +153,18 @@ export default function DashboardPage() {
             </div>
 
             {/* 4. Bento Box: Agents */}
-            <div className="bg-[#111] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all group flex flex-col justify-between">
+            <div className="bg-card border border-border rounded-2xl p-5 hover:border-border transition-all group flex flex-col justify-between">
               <div className="flex justify-between items-start">
                 <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
                   <Bot className="h-5 w-5 text-blue-400" />
                 </div>
-                <Link href="/assistants" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-white flex items-center gap-1">
+                <Link href="/assistants" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-foreground flex items-center gap-1">
                   Gerenciar <ArrowUpRight className="w-3 h-3" />
                 </Link>
               </div>
               <div className="mt-4">
                 <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1">Agentes de IA Ativos</p>
-                <div className="text-3xl font-black text-white">{stats?.total_assistants.toLocaleString() || 0}</div>
+                <div className="text-3xl font-black text-foreground">{stats?.total_assistants.toLocaleString() || 0}</div>
                 <p className="text-xs text-blue-400/80 mt-1 font-medium bg-blue-500/10 inline-block px-2 py-0.5 rounded">Modelos em Prod</p>
               </div>
             </div>
@@ -176,10 +173,10 @@ export default function DashboardPage() {
             <SystemStatusCard />
 
             {/* 5. Bento Box: Gateway Traffic Chart (Large) */}
-            <div className="md:col-span-3 bg-[#111] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all flex flex-col min-h-[400px]">
+            <div className="md:col-span-3 bg-card border border-border rounded-2xl p-6 hover:border-border transition-all flex flex-col min-h-[400px]">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h3 className="font-bold text-white flex items-center gap-2 text-lg">
+                  <h3 className="font-bold text-foreground flex items-center gap-2 text-lg">
                     Gateway Telemetry
                   </h3>
                   <p className="text-xs text-muted-foreground mt-1">Tráfego limpo vs Requisições interceptadas no Edge.</p>
@@ -217,17 +214,17 @@ export default function DashboardPage() {
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="absolute inset-0 bg-[#161616] animate-pulse rounded-lg border border-white/5" />
+                  <div className="absolute inset-0 bg-card animate-pulse rounded-lg border border-border/50" />
                 )}
               </div>
             </div>
 
             {/* 6. Bento Box: Protection Gauge (Vertical layout) */}
-            <div className="bg-[#111] border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all flex flex-col min-h-[400px] relative overflow-hidden group">
+            <div className="bg-card border border-border rounded-2xl p-6 hover:border-border transition-all flex flex-col min-h-[400px] relative overflow-hidden group">
               <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-emerald-950/40 to-transparent pointer-events-none" />
 
               <div className="mb-4">
-                <h3 className="font-bold text-white text-lg flex items-center justify-between">
+                <h3 className="font-bold text-foreground text-lg flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="w-5 h-5 text-emerald-400" />
                     Protection Rate
@@ -264,9 +261,9 @@ export default function DashboardPage() {
                 )}
 
                 {stats && (
-                  <div className="mt-8 text-center bg-[#161616] border border-white/5 rounded-xl p-4 w-full">
+                  <div className="mt-8 text-center bg-card border border-border/50 rounded-xl p-4 w-full">
                     <p className="text-sm text-gray-300 font-medium leading-tight">
-                      <span className="text-rose-400 font-bold">{stats.total_violations}</span> incidentes isolados de um total de <span className="text-white font-bold">{stats.total_executions + stats.total_violations}</span> transações.
+                      <span className="text-rose-400 font-bold">{stats.total_violations}</span> incidentes isolados de um total de <span className="text-foreground font-bold">{stats.total_executions + stats.total_violations}</span> transações.
                     </p>
                   </div>
                 )}
@@ -301,7 +298,7 @@ function HealthStatus() {
     <div className="flex items-center gap-6">
       <div className="flex items-center gap-2">
         <Database className={`w-4 h-4 ${status?.db === 'connected' ? 'text-emerald-500' : 'text-rose-500'}`} />
-        <span className="text-xs font-bold text-white uppercase tracking-tighter">Database</span>
+        <span className="text-xs font-bold text-foreground uppercase tracking-tighter">Database</span>
         <span className={`text-[10px] px-1.5 py-0.5 rounded font-black ${status?.db === 'connected' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
           {status?.db === 'connected' ? 'UP' : 'DOWN'}
         </span>
@@ -309,7 +306,7 @@ function HealthStatus() {
       <div className="w-px h-4 bg-white/10" />
       <div className="flex items-center gap-2">
         <Activity className={`w-4 h-4 ${status?.redis === 'connected' ? 'text-emerald-500' : 'text-rose-500'}`} />
-        <span className="text-xs font-bold text-white uppercase tracking-tighter">Redis Cache</span>
+        <span className="text-xs font-bold text-foreground uppercase tracking-tighter">Redis Cache</span>
         <span className={`text-[10px] px-1.5 py-0.5 rounded font-black ${status?.redis === 'connected' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
           {status?.redis === 'connected' ? 'UP' : 'DOWN'}
         </span>
@@ -336,7 +333,7 @@ function SystemStatusCard() {
   }, [toast]);
 
   return (
-    <div className="bg-[#111] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all group flex flex-col justify-between overflow-hidden relative">
+    <div className="bg-card border border-border rounded-2xl p-5 hover:border-border transition-all group flex flex-col justify-between overflow-hidden relative">
       <div className="absolute top-0 right-0 p-2 opacity-20 group-hover:opacity-100 transition-opacity">
         <Zap className="w-4 h-4 text-indigo-400" />
       </div>
@@ -348,19 +345,19 @@ function SystemStatusCard() {
       <div className="mt-4">
         <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-3">Infraestrutura</p>
         <div className="space-y-3">
-          <div className="flex items-center justify-between bg-white/[0.02] p-2 rounded-lg border border-white/5">
+          <div className="flex items-center justify-between bg-secondary/20 p-2 rounded-lg border border-border/50">
             <div className="flex items-center gap-2">
               <div className={`w-1.5 h-1.5 rounded-full ${status?.db === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
-              <span className="text-[10px] font-black tracking-widest text-white/50 uppercase">Database</span>
+              <span className="text-[10px] font-black tracking-widest text-foreground/50 uppercase">Database</span>
             </div>
             <span className={`text-[9px] font-black ${status?.db === 'connected' ? 'text-emerald-400' : 'text-red-400'}`}>
               {status?.db === 'connected' ? 'OPERATIONAL' : 'DEGRADED'}
             </span>
           </div>
-          <div className="flex items-center justify-between bg-white/[0.02] p-2 rounded-lg border border-white/5">
+          <div className="flex items-center justify-between bg-secondary/20 p-2 rounded-lg border border-border/50">
             <div className="flex items-center gap-2">
               <div className={`w-1.5 h-1.5 rounded-full ${status?.redis === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
-              <span className="text-[10px] font-black tracking-widest text-white/50 uppercase">Redis</span>
+              <span className="text-[10px] font-black tracking-widest text-foreground/50 uppercase">Redis</span>
             </div>
             <span className={`text-[9px] font-black ${status?.redis === 'connected' ? 'text-emerald-400' : 'text-red-400'}`}>
               {status?.redis === 'connected' ? 'OPERATIONAL' : 'DEGRADED'}

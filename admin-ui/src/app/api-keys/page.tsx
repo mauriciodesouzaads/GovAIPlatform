@@ -5,6 +5,10 @@ import api, { ENDPOINTS } from '@/lib/api';
 import { Key, Copy, Trash2, Plus, ShieldCheck, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 
+function Skeleton({ className }: { className?: string }) {
+    return <div className={`animate-pulse bg-secondary rounded ${className ?? 'h-4 w-full'}`} />;
+}
+
 interface ApiKey {
     id: string;
     name: string;
@@ -73,9 +77,8 @@ export default function ApiKeysPage() {
     };
 
     return (
-        <div className="flex-1 overflow-auto p-8 bg-[url('/grid.svg')] bg-cover bg-center bg-no-repeat relative">
-            <div className="absolute inset-0 bg-background/90 backdrop-blur-3xl z-0" />
-            <div className="max-w-5xl mx-auto space-y-8 relative z-10">
+        <div className="flex-1 overflow-auto">
+            <div className="max-w-5xl mx-auto p-6 space-y-8">
                 <div>
                     <h2 className="text-3xl font-black tracking-tight flex items-center gap-3 bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-emerald-600">
                         <Key className="w-8 h-8 text-emerald-500" />
@@ -85,7 +88,7 @@ export default function ApiKeysPage() {
                 </div>
 
                 {/* Create New Key */}
-                <div className="glass rounded-xl p-8 shadow-sm space-y-6 relative overflow-hidden group">
+                <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-6 relative overflow-hidden group">
                     <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-bl-[100px] pointer-events-none group-hover:bg-emerald-500/10 transition-colors duration-500" />
 
                     <div className="relative z-10">
@@ -137,7 +140,7 @@ export default function ApiKeysPage() {
                 </div>
 
                 {/* Keys List */}
-                <div className="glass rounded-xl shadow-sm overflow-hidden">
+                <div className="bg-card border border-border rounded-xl overflow-hidden">
                     <div className="px-6 py-4 border-b border-border/50 bg-secondary/20">
                         <h3 className="font-bold text-lg flex items-center gap-2">
                             <ShieldCheck className="w-5 h-5 text-indigo-400" />
@@ -155,7 +158,11 @@ export default function ApiKeysPage() {
                         </thead>
                         <tbody className="divide-y divide-border/50">
                             {loading ? (
-                                <tr><td colSpan={4} className="px-6 py-12 text-center text-muted-foreground animate-pulse font-medium">Loading security keys...</td></tr>
+                                <>
+                                    {[1,2,3].map(i => (
+                                        <tr key={i}><td colSpan={4} className="px-6 py-3"><Skeleton className="h-6 w-full" /></td></tr>
+                                    ))}
+                                </>
                             ) : error ? (
                                 <tr><td colSpan={4} className="px-6 py-12 text-center">
                                     <div className="flex flex-col items-center gap-3">
