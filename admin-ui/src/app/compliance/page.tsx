@@ -181,18 +181,28 @@ export default function CompliancePage() {
 
             {/* Summary bar */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="rounded-xl border border-border bg-card/60 p-4">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Total de Tenants</p>
-                    <p className="text-2xl font-bold text-foreground">{orgs.length}</p>
-                </div>
-                <div className="rounded-xl border border-border bg-card/60 p-4">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Com Consentimento</p>
-                    <p className="text-2xl font-bold text-emerald-500">{consentedCount}</p>
-                </div>
-                <div className="rounded-xl border border-border bg-card/60 p-4">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Sem Consentimento</p>
-                    <p className="text-2xl font-bold text-yellow-500">{orgs.length - consentedCount}</p>
-                </div>
+                {loading ? (
+                    <>
+                        <div className="rounded-xl border border-border bg-card/60 p-4 space-y-2"><div className="h-3 bg-secondary/60 rounded animate-pulse w-2/3" /><div className="h-7 bg-secondary/60 rounded animate-pulse w-1/2" /></div>
+                        <div className="rounded-xl border border-border bg-card/60 p-4 space-y-2"><div className="h-3 bg-secondary/60 rounded animate-pulse w-2/3" /><div className="h-7 bg-secondary/60 rounded animate-pulse w-1/2" /></div>
+                        <div className="rounded-xl border border-border bg-card/60 p-4 space-y-2"><div className="h-3 bg-secondary/60 rounded animate-pulse w-2/3" /><div className="h-7 bg-secondary/60 rounded animate-pulse w-1/2" /></div>
+                    </>
+                ) : (
+                    <>
+                        <div className="rounded-xl border border-border bg-card/60 p-4">
+                            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Total de Tenants</p>
+                            <p className="text-2xl font-bold text-foreground">{orgs.length}</p>
+                        </div>
+                        <div className="rounded-xl border border-border bg-card/60 p-4">
+                            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Com Consentimento</p>
+                            <p className="text-2xl font-bold text-emerald-500">{consentedCount}</p>
+                        </div>
+                        <div className="rounded-xl border border-border bg-card/60 p-4">
+                            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Sem Consentimento</p>
+                            <p className="text-2xl font-bold text-yellow-500">{orgs.length - consentedCount}</p>
+                        </div>
+                    </>
+                )}
             </div>
 
             {/* Warning banner */}
@@ -249,8 +259,8 @@ export default function CompliancePage() {
                                         PII Strip
                                     </span>
                                 </th>
-                                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Consentido em</th>
-                                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Por</th>
+                                <th className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Consentido em</th>
+                                <th className="hidden lg:table-cell text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Por</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -325,7 +335,7 @@ export default function CompliancePage() {
                                         </td>
 
                                         {/* Consent date */}
-                                        <td className="px-4 py-3 text-muted-foreground text-xs">
+                                        <td className="hidden md:table-cell px-4 py-3 text-muted-foreground text-xs">
                                             {org.telemetry_consent
                                                 ? <span className="text-foreground/80">{formatDate(org.telemetry_consent_at)}</span>
                                                 : <span className="text-muted-foreground/40">—</span>
@@ -333,7 +343,7 @@ export default function CompliancePage() {
                                         </td>
 
                                         {/* Consented by */}
-                                        <td className="px-4 py-3 text-xs text-muted-foreground">
+                                        <td className="hidden lg:table-cell px-4 py-3 text-xs text-muted-foreground">
                                             {org.telemetry_consent && org.consented_by_email
                                                 ? <span className="text-foreground/70 font-mono">{org.consented_by_email}</span>
                                                 : <span className="text-muted-foreground/40">—</span>

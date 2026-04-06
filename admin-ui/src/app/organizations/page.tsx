@@ -294,8 +294,15 @@ export default function OrganizationsPage() {
                 />
 
                 {/* Stats row */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-                    {[
+                <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-4 mb-8">
+                    {loading ? (
+                        [1,2,3].map(i => (
+                            <div key={i} className="bg-card border border-border rounded-2xl p-5 flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-xl bg-secondary/60 animate-pulse shrink-0" />
+                                <div className="flex-1 space-y-2"><div className="h-6 bg-secondary/60 rounded animate-pulse w-1/2" /><div className="h-3 bg-secondary/60 rounded animate-pulse w-3/4" /></div>
+                            </div>
+                        ))
+                    ) : [
                         { label: 'Total de orgs', value: orgs.length, icon: Building2, color: 'indigo' },
                         { label: 'Total de usuários', value: orgs.reduce((s, o) => s + (o.user_count ?? 0), 0), icon: Users, color: 'emerald' },
                         { label: 'Total de assistentes', value: orgs.reduce((s, o) => s + (o.assistant_count ?? 0), 0), icon: Bot, color: 'amber' },
@@ -333,9 +340,17 @@ export default function OrganizationsPage() {
                             <table className="w-full text-sm">
                                 <thead>
                                     <tr className="border-b border-border">
-                                        {['Nome', 'Admin Email', 'Usuários', 'Assistentes', 'HITL Timeout', 'Criado em', 'Ações'].map(h => (
-                                            <th key={h} className="px-5 py-3 text-left text-xs font-semibold text-foreground/40 uppercase tracking-wider whitespace-nowrap">
-                                                {h}
+                                        {[
+                                            { label: 'Nome', cls: '' },
+                                            { label: 'Admin Email', cls: 'hidden sm:table-cell' },
+                                            { label: 'Usuários', cls: 'hidden md:table-cell' },
+                                            { label: 'Assistentes', cls: 'hidden md:table-cell' },
+                                            { label: 'HITL Timeout', cls: 'hidden lg:table-cell' },
+                                            { label: 'Criado em', cls: 'hidden lg:table-cell' },
+                                            { label: 'Ações', cls: '' },
+                                        ].map(({ label, cls }) => (
+                                            <th key={label} className={`px-5 py-3 text-left text-xs font-semibold text-foreground/40 uppercase tracking-wider whitespace-nowrap ${cls}`}>
+                                                {label}
                                             </th>
                                         ))}
                                     </tr>
@@ -352,28 +367,28 @@ export default function OrganizationsPage() {
                                                     <span className="font-medium text-foreground">{org.name}</span>
                                                 </div>
                                             </td>
-                                            <td className="px-5 py-4 text-foreground/60 max-w-[180px] truncate" title={org.admin_email ?? ''}>
+                                            <td className="hidden sm:table-cell px-5 py-4 text-foreground/60 max-w-[180px] truncate" title={org.admin_email ?? ''}>
                                                 {org.admin_email ?? <span className="text-foreground/25 italic">—</span>}
                                             </td>
-                                            <td className="px-5 py-4">
+                                            <td className="hidden md:table-cell px-5 py-4">
                                                 <div className="flex items-center gap-1.5 text-foreground/60">
                                                     <Users className="w-3.5 h-3.5 text-foreground/30" />
                                                     {org.user_count ?? 0}
                                                 </div>
                                             </td>
-                                            <td className="px-5 py-4">
+                                            <td className="hidden md:table-cell px-5 py-4">
                                                 <div className="flex items-center gap-1.5 text-foreground/60">
                                                     <Bot className="w-3.5 h-3.5 text-foreground/30" />
                                                     {org.assistant_count ?? 0}
                                                 </div>
                                             </td>
-                                            <td className="px-5 py-4">
+                                            <td className="hidden lg:table-cell px-5 py-4">
                                                 <div className="flex items-center gap-1.5 text-foreground/60">
                                                     <Clock className="w-3.5 h-3.5 text-foreground/30" />
                                                     {org.hitl_timeout_hours ?? 4}h
                                                 </div>
                                             </td>
-                                            <td className="px-5 py-4 text-foreground/40 whitespace-nowrap">
+                                            <td className="hidden lg:table-cell px-5 py-4 text-foreground/40 whitespace-nowrap">
                                                 <div className="flex items-center gap-1.5">
                                                     <Calendar className="w-3.5 h-3.5 text-foreground/25" />
                                                     {new Date(org.created_at).toLocaleDateString('pt-BR')}

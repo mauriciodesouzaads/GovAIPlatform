@@ -270,9 +270,8 @@ function TenantPanel({ tenant }: { tenant: ConsultantTenant }) {
             {!collapsed && (
                 <div className="px-5 pb-5 space-y-5 border-t border-border/50">
                     {loading && (
-                        <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            <span className="text-sm">Carregando dados do tenant...</span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                            {[1,2,3,4].map(i => <div key={i} className="bg-secondary/60 rounded-xl h-16 animate-pulse" />)}
                         </div>
                     )}
 
@@ -385,9 +384,14 @@ export default function ConsultantPage() {
 
                 {/* Tenants */}
                 {loading ? (
-                    <div className="flex items-center justify-center py-24 text-muted-foreground">
-                        <Loader2 className="w-8 h-8 animate-spin mr-3" />
-                        Carregando tenants...
+                    <div className="space-y-4">
+                        {[1,2,3].map(i => (
+                            <div key={i} className="bg-card border border-border rounded-xl p-5 space-y-3">
+                                <div className="h-5 bg-secondary/60 rounded animate-pulse w-1/2" />
+                                <div className="h-4 bg-secondary/60 rounded animate-pulse w-3/4" />
+                                <div className="h-4 bg-secondary/60 rounded animate-pulse w-2/3" />
+                            </div>
+                        ))}
                     </div>
                 ) : tenants.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-24 text-muted-foreground gap-3">

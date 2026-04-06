@@ -184,7 +184,7 @@ export default function AssistantsPage() {
                 />
 
                 {/* Header Action */}
-                <div className="bg-card border border-border rounded-xl p-6 shadow-sm flex justify-between items-center">
+                <div className="bg-card border border-border rounded-xl p-6 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
                         <h3 className="font-semibold flex items-center gap-2"><Plus className="w-4 h-4" /> Gestão de Assistentes</h3>
                         <p className="text-sm text-muted-foreground">Adicione novos agentes ou publique novas versões de políticas.</p>

@@ -715,7 +715,7 @@ export default function CatalogPage() {
                                 {f === 'all' ? 'Todos' : f}
                             </button>
                         ))}
-                        <div className="w-px bg-white/10 self-stretch mx-1" />
+                        <div className="w-px bg-border self-stretch mx-1" />
                         {RISK_FILTERS.map(f => (
                             <button
                                 key={f}
@@ -748,9 +748,14 @@ export default function CatalogPage() {
 
                 {/* Grid */}
                 {loading ? (
-                    <div className="flex items-center justify-center py-24 text-muted-foreground">
-                        <Loader2 className="w-8 h-8 animate-spin mr-3" />
-                        Carregando catálogo...
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {[1,2,3,4,5,6].map(i => (
+                            <div key={i} className="bg-card border border-border rounded-xl p-5 space-y-3">
+                                <div className="h-5 bg-secondary/60 rounded animate-pulse w-3/4" />
+                                <div className="h-4 bg-secondary/60 rounded animate-pulse w-full" />
+                                <div className="h-4 bg-secondary/60 rounded animate-pulse w-2/3" />
+                            </div>
+                        ))}
                     </div>
                 ) : filtered.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-24 text-muted-foreground gap-3">

@@ -71,18 +71,18 @@ export default function AuditLogsPage() {
                                 <tr className="border-b border-border bg-secondary/40">
                                     <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Timestamp</th>
                                     <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Action</th>
-                                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Trace ID</th>
-                                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                                    <th className="hidden md:table-cell px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Trace ID</th>
+                                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-center">Status</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {loading ? (
                                     Array.from({ length: 8 }).map((_, i) => (
-                                        <tr key={i} className="border-b border-border/50 animate-pulse">
-                                            <td className="px-4 py-3"><div className="h-4 bg-secondary/60 rounded w-36" /></td>
-                                            <td className="px-4 py-3"><div className="h-4 bg-secondary/60 rounded w-28" /></td>
-                                            <td className="px-4 py-3"><div className="h-4 bg-secondary/60 rounded w-48" /></td>
-                                            <td className="px-4 py-3"><div className="h-4 bg-secondary/60 rounded w-8 mx-auto" /></td>
+                                        <tr key={i} className="border-b border-border/50">
+                                            <td className="px-4 py-3"><div className="h-4 bg-secondary/60 rounded animate-pulse w-36" /></td>
+                                            <td className="px-4 py-3"><div className="h-4 bg-secondary/60 rounded animate-pulse w-28" /></td>
+                                            <td className="hidden md:table-cell px-4 py-3"><div className="h-4 bg-secondary/60 rounded animate-pulse w-48" /></td>
+                                            <td className="px-4 py-3"><div className="h-4 bg-secondary/60 rounded animate-pulse w-8 mx-auto" /></td>
                                         </tr>
                                     ))
                                 ) : logs.length === 0 ? (
@@ -110,7 +110,7 @@ export default function AuditLogsPage() {
                                                     {log.action.replace(/_/g, ' ')}
                                                 </Badge>
                                             </td>
-                                            <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                                            <td className="hidden md:table-cell px-4 py-3 font-mono text-xs text-muted-foreground">
                                                 {log.trace_id}
                                             </td>
                                             <td className="px-4 py-3">
