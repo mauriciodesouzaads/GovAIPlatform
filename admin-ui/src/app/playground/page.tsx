@@ -10,6 +10,7 @@ import {
     History, Zap, Cpu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/PageHeader';
 
 interface Assistant { id: string; name: string; status: string; }
 interface ApiKey { id: string; prefix: string; created_at: string; }
@@ -211,39 +212,30 @@ export default function PlaygroundPage() {
     };
 
     return (
-        <div className="flex-1 overflow-auto p-8 bg-background">
-            <div className="max-w-4xl mx-auto space-y-8">
+        <div className="flex-1 overflow-auto p-4 sm:p-6">
+            <div className="max-w-4xl mx-auto space-y-6">
 
-                {/* Header */}
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                    <div>
-                        <h2 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                                <Play className="w-5 h-5 text-emerald-400" />
-                            </div>
-                            Playground
-                        </h2>
-                        <p className="text-muted-foreground mt-1 text-sm">
-                            Teste assistentes publicados com o pipeline de governança completo (OPA + DLP + HITL).
-                        </p>
-                    </div>
+                <PageHeader
+                    title="Playground"
+                    subtitle="Teste assistentes com governança completa"
+                    icon={<Play className="w-5 h-5" />}
+                />
 
-                    {/* History toggle */}
-                    {history.length > 0 && (
-                        <button
-                            onClick={() => setShowHistory(v => !v)}
-                            className={cn(
-                                "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors",
-                                showHistory
-                                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                                    : "bg-secondary border-border text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            <History className="w-3.5 h-3.5" />
-                            Histórico ({history.length})
-                        </button>
-                    )}
-                </div>
+                {/* History toggle */}
+                {history.length > 0 && (
+                    <button
+                        onClick={() => setShowHistory(v => !v)}
+                        className={cn(
+                            "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors",
+                            showHistory
+                                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                                : "bg-secondary border-border text-muted-foreground hover:text-foreground"
+                        )}
+                    >
+                        <History className="w-3.5 h-3.5" />
+                        Histórico ({history.length})
+                    </button>
+                )}
 
                 {/* History Panel */}
                 {showHistory && history.length > 0 && (

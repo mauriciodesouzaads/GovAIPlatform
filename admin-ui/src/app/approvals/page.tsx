@@ -6,6 +6,8 @@ import { Clock, CheckCircle, XCircle, AlertTriangle, Loader2, ShieldAlert, UserC
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useToast } from '@/components/Toast';
+import { PageHeader } from '@/components/PageHeader';
+import { Badge, approvalBadge, riskBadge } from '@/components/Badge';
 
 interface Approval {
     id: string;
@@ -92,19 +94,12 @@ export default function ApprovalsPage() {
 
     return (
         <div className="flex-1 overflow-auto">
-            <div className="max-w-4xl mx-auto p-6 space-y-8">
-                {/* Header */}
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-                    <div>
-                        <h1 className="text-3xl font-black tracking-tight flex items-center gap-3 bg-clip-text text-transparent bg-gradient-to-r from-rose-400 to-rose-600">
-                            <ShieldAlert className="w-8 h-8 text-rose-500" />
-                            Quarentena HITL
-                        </h1>
-                        <p className="text-muted-foreground mt-2 font-medium">
-                            Human-in-the-Loop — Revisão manual obrigatória de ações de alto risco antes da execução pela IA, regidas pelas políticas do OPA.
-                        </p>
-                    </div>
-                </div>
+            <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6">
+                <PageHeader
+                    title="Aprovações HITL"
+                    subtitle="Fila de aprovação humana"
+                    icon={<ShieldAlert className="w-5 h-5" />}
+                />
 
                 {/* Tabs */}
                 <div role="tablist" className="flex gap-2 p-1.5 bg-card border border-border rounded-xl w-fit shadow-sm">
@@ -125,7 +120,7 @@ export default function ApprovalsPage() {
                             {t === 'pending' ? 'Fila Pendente' : t === 'approved' ? 'Aprovados' : 'Rejeitados (Blocks)'}
 
                             {t === 'pending' && pendingCount > 0 && (
-                                <span className={`ml-1.5 px-2 py-0.5 rounded-full text-[10px] bg-rose-500 text-white animate-pulse font-black`}>
+                                <span className="ml-1 px-2 py-0.5 rounded-full text-xs bg-rose-500 text-white font-semibold">
                                     {pendingCount}
                                 </span>
                             )}
@@ -150,9 +145,9 @@ export default function ApprovalsPage() {
 
                 {/* Empty state */}
                 {!loading && approvals.length === 0 && (
-                    <div className="text-center py-24 glass rounded-2xl border-dashed border-2 border-border/50">
-                        <ShieldAlert className="w-16 h-16 mx-auto mb-4 text-muted-foreground/30" />
-                        <h3 className="text-xl font-bold mb-2 text-foreground/80">Quarentena Vazia</h3>
+                    <div className="text-center py-16 bg-card border border-border rounded-xl">
+                        <ShieldAlert className="w-10 h-10 mx-auto mb-3 text-muted-foreground/30" />
+                        <h3 className="text-base font-semibold mb-1 text-foreground">Quarentena Vazia</h3>
                         <p className="text-muted-foreground max-w-md mx-auto">
                             {tab === 'pending'
                                 ? 'Nenhuma transação interceptada aguardando revisão. O fluxo corporativo está limpo.'
@@ -163,41 +158,26 @@ export default function ApprovalsPage() {
 
                 {/* Approval Cards */}
                 {!loading && approvals.length > 0 && (
-                    <div className="space-y-6">
+                    <div className="space-y-4">
                         {approvals.map((a: Approval) => (
-                            <div key={a.id} className="bg-card border border-border rounded-xl p-6 md:p-8 space-y-6 border-l-4 hover:border-l-8 transition-all duration-300 relative overflow-hidden group"
+                            <div key={a.id} className="bg-card border border-border rounded-xl p-5 space-y-5 border-l-4 hover:border-primary/30 transition-colors"
                                 style={{
-                                    borderLeftColor: a.status === 'pending' ? '#f43f5e' : a.status === 'approved' ? '#10b981' : '#f43f5e'
+                                    borderLeftColor: a.status === 'approved' ? '#10b981' : a.status === 'rejected' ? 'hsl(var(--destructive))' : '#f59e0b'
                                 }}
                             >
-                                {/* Decorative background glow */}
-                                <div className={`absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl -mr-32 -mt-32 opacity-20 pointer-events-none transition-opacity duration-500 ${a.status === 'pending' ? 'bg-rose-500 group-hover:opacity-40' : a.status === 'approved' ? 'bg-emerald-500' : 'bg-rose-500'
-                                    }`} />
-
-                                <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 relative z-10">
+                                <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
                                     <div className="space-y-2">
-                                        <div className="flex items-center gap-3">
-                                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${a.status === 'pending'
-                                                ? 'bg-rose-500/10 text-rose-500 border-rose-500/20'
-                                                : a.status === 'approved'
-                                                    ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                                                    : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
-                                                }`}>
-                                                {a.status === 'pending' && <Clock className="w-3.5 h-3.5" />}
-                                                {a.status === 'approved' && <CheckCircle className="w-3.5 h-3.5" />}
-                                                {a.status === 'rejected' && <XCircle className="w-3.5 h-3.5" />}
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <Badge variant={approvalBadge(a.status)}>
+                                                {a.status === 'pending' && <Clock className="w-3 h-3 mr-0.5" />}
+                                                {a.status === 'approved' && <CheckCircle className="w-3 h-3 mr-0.5" />}
+                                                {a.status === 'rejected' && <XCircle className="w-3 h-3 mr-0.5" />}
                                                 {a.status.toUpperCase()}
-                                            </span>
+                                            </Badge>
                                             {a.risk_level && (
-                                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-sm ${a.risk_level === 'high'
-                                                    ? 'bg-rose-600/10 text-rose-500 border-rose-500/20'
-                                                    : a.risk_level === 'medium'
-                                                        ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-                                                        : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                                                    }`}>
-                                                    <ShieldAlert className="w-3.5 h-3.5" />
-                                                    {a.risk_level} RISK
-                                                </span>
+                                                <Badge variant={riskBadge(a.risk_level)}>
+                                                    {a.risk_level.toUpperCase()} RISK
+                                                </Badge>
                                             )}
                                             <span className="text-sm font-bold flex items-center gap-2">
                                                 <Database className="w-4 h-4 text-indigo-400" />
@@ -215,19 +195,19 @@ export default function ApprovalsPage() {
                                     </span>
                                 </div>
 
-                                <div className="grid md:grid-cols-2 gap-6 relative z-10 p-1">
+                                <div className="grid md:grid-cols-2 gap-4">
                                     {/* Risk Reason */}
-                                    <div className="p-5 bg-rose-500/5 border border-rose-500/10 rounded-xl shadow-inner group-hover:bg-rose-500/10 transition-colors">
-                                        <div className="flex items-center gap-2 text-rose-500 text-[10px] font-black uppercase tracking-widest mb-3">
-                                            <AlertTriangle className="w-4 h-4" /> Motivo da Interceptação (OPA)
+                                    <div className="p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl">
+                                        <div className="flex items-center gap-2 text-rose-400 text-xs font-semibold uppercase tracking-wider mb-2">
+                                            <AlertTriangle className="w-3.5 h-3.5" /> Motivo da Interceptação (OPA)
                                         </div>
                                         <p className="text-sm font-medium leading-relaxed">{a.justification || a.policy_reason}</p>
                                     </div>
 
                                     {/* Message */}
-                                    <div className="p-5 bg-background border border-border/50 rounded-xl shadow-inner">
-                                        <div className="flex items-center gap-2 text-indigo-400 text-xs font-bold uppercase tracking-widest mb-3">
-                                            <MessageSquare className="w-4 h-4" /> Prompt Original (Input do Usuário)
+                                    <div className="p-4 bg-secondary/30 border border-border/50 rounded-xl">
+                                        <div className="flex items-center gap-2 text-indigo-400 text-xs font-semibold uppercase tracking-wider mb-2">
+                                            <MessageSquare className="w-3.5 h-3.5" /> Prompt Original
                                         </div>
                                         <p className="text-sm font-mono text-foreground/80 break-words whitespace-pre-wrap leading-relaxed">{a.message}</p>
                                     </div>

@@ -11,6 +11,8 @@ import {
 import api, { ENDPOINTS } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import { useAuth } from '@/components/AuthProvider';
+import { PageHeader } from '@/components/PageHeader';
+import { Badge } from '@/components/Badge';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -357,34 +359,12 @@ export default function ArchitectPage() {
         <div className="flex flex-col h-full overflow-hidden">
 
             {/* Header */}
-            <div className="flex items-center justify-between px-8 py-5 border-b border-border/50 bg-background/30 backdrop-blur-sm shrink-0">
-                <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
-                        <BrainCircuit className="w-5 h-5 text-violet-400" />
-                    </div>
-                    <div>
-                        <h1 className="text-xl font-bold text-foreground">Arquiteto de IA</h1>
-                        <p className="text-xs text-muted-foreground">Gestão de demandas, decisões e fluxos de implantação</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={loadCases}
-                        className="p-2 rounded-lg hover:bg-secondary/40 text-muted-foreground hover:text-foreground transition-colors"
-                        title="Recarregar"
-                    >
-                        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                    </button>
-                    {['admin', 'operator'].includes(role) && (
-                        <button
-                            onClick={() => setShowNewCase(true)}
-                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium transition-colors"
-                        >
-                            <Plus className="w-4 h-4" />
-                            Nova Demanda
-                        </button>
-                    )}
-                </div>
+            <div className="p-4 sm:p-6 border-b border-border/50 shrink-0">
+                <PageHeader
+                    title="Arquiteto"
+                    subtitle="Intake e decisão arquitetural"
+                    icon={<BrainCircuit className="w-5 h-5" />}
+                />
             </div>
 
             {/* Section A: Status bar */}

@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import api, { ENDPOINTS } from '@/lib/api';
-import { FileDown, ShieldCheck, AlertTriangle, Activity, Bot, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { FileDown, FileText, ShieldCheck, AlertTriangle, Activity, Bot, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { PageHeader } from '@/components/PageHeader';
+import { Badge } from '@/components/Badge';
 import { SkeletonCard, SkeletonTable } from '@/components/Skeleton';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -85,22 +87,22 @@ export default function ReportsPage() {
 
     return (
         <div className="flex-1 overflow-auto">
-            <div className="max-w-7xl mx-auto p-6 space-y-8">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight">Compliance Reports</h1>
-                    <p className="text-muted-foreground text-sm mt-1">BCB 4.557 / LGPD — Relatórios de conformidade regulatória</p>
-                </div>
-                <button
-                    onClick={downloadPDF}
-                    disabled={downloading || loading || !data}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
-                >
-                    {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-                    {downloading ? 'Gerando...' : 'Baixar PDF'}
-                </button>
-            </div>
+            <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
+            <PageHeader
+                title="Relatórios"
+                subtitle="Relatórios de conformidade e auditoria"
+                icon={<FileText className="w-5 h-5" />}
+                actions={
+                    <button
+                        onClick={downloadPDF}
+                        disabled={downloading || loading || !data}
+                        className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                    >
+                        {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+                        {downloading ? 'Gerando...' : 'Baixar PDF'}
+                    </button>
+                }
+            />
 
             {/* Date Range Selector */}
             <div className="flex items-center gap-4 p-4 bg-card border border-border rounded-xl">
@@ -147,7 +149,7 @@ export default function ReportsPage() {
                     {/* Summary Cards */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                         <div className={`p-5 rounded-xl border ${badgeColor} text-center`}>
-                            <div className="text-3xl font-bold">{data.summary.complianceRate}%</div>
+                            <div className="text-2xl font-bold">{data.summary.complianceRate}%</div>
                             <div className="text-xs mt-1 opacity-70">Taxa de Compliance</div>
                         </div>
                         <SummaryCard icon={Activity} label="Execuções" value={data.summary.totalExecutions} color="text-blue-400" />

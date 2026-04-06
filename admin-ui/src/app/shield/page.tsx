@@ -9,6 +9,8 @@ import {
 import api, { ENDPOINTS } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import { useAuth } from '@/components/AuthProvider';
+import { PageHeader } from '@/components/PageHeader';
+import { Badge, riskBadge, findingBadge } from '@/components/Badge';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -269,30 +271,12 @@ export default function ShieldPage() {
                 />
             )}
 
-            <div className="max-w-7xl mx-auto p-6 space-y-6">
-                {/* Header */}
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-                    <div>
-                        <h1 className="text-3xl font-black tracking-tight text-foreground flex items-center gap-3">
-                            <ScanEye className="h-8 w-8 text-amber-400" />
-                            <span className="bg-clip-text text-transparent bg-gradient-to-r from-amber-400 to-amber-600">
-                                Shadow AI Shield
-                            </span>
-                        </h1>
-                        <p className="text-muted-foreground mt-1.5 font-medium text-sm">
-                            Detecção de uso não autorizado de IA e inteligência de risco em tempo real.
-                        </p>
-                    </div>
-                    {isAdmin && (
-                        <button
-                            onClick={handleGeneratePosture}
-                            disabled={generatingPosture}
-                            className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 rounded-xl text-sm font-semibold transition-all disabled:opacity-50">
-                            <RefreshCw className={`w-4 h-4 ${generatingPosture ? 'animate-spin' : ''}`} />
-                            Gerar Postura
-                        </button>
-                    )}
-                </div>
+            <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
+                <PageHeader
+                    title="Shield Detection"
+                    subtitle="Detecção de uso não autorizado de IA"
+                    icon={<ScanEye className="w-5 h-5" />}
+                />
 
                 {/* Section A — Posture Cards */}
                 {loadingPosture ? (
@@ -306,7 +290,7 @@ export default function ShieldPage() {
                             <div className="w-9 h-9 rounded-xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center mb-3">
                                 <Eye className="w-4.5 h-4.5 text-amber-400" />
                             </div>
-                            <div className="text-2xl font-black text-foreground">{posture?.openFindings ?? 0}</div>
+                            <div className="text-2xl font-semibold text-foreground">{posture?.openFindings ?? 0}</div>
                             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-1">Ferramentas Detectadas</p>
                             <p className="text-xs text-amber-400/70 mt-0.5">findings ativos</p>
                         </div>
@@ -316,7 +300,7 @@ export default function ShieldPage() {
                             <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-3">
                                 <AlertTriangle className="w-4.5 h-4.5 text-rose-500" />
                             </div>
-                            <div className="text-2xl font-black text-foreground">{posture?.criticalFindings ?? 0}</div>
+                            <div className="text-2xl font-semibold text-foreground">{posture?.criticalFindings ?? 0}</div>
                             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-1">Risco Crítico</p>
                             <p className="text-xs text-rose-400/70 mt-0.5">requerem ação imediata</p>
                         </div>
@@ -325,7 +309,7 @@ export default function ShieldPage() {
                             <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-3">
                                 <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500" />
                             </div>
-                            <div className="text-2xl font-black text-foreground">{posture?.promotedFindings ?? 0}</div>
+                            <div className="text-2xl font-semibold text-foreground">{posture?.promotedFindings ?? 0}</div>
                             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-1">Em Governança</p>
                             <p className="text-xs text-emerald-400/70 mt-0.5">promovidos ao catálogo</p>
                         </div>
@@ -334,7 +318,7 @@ export default function ShieldPage() {
                             <div className="w-9 h-9 rounded-xl bg-gray-400/10 border border-gray-400/20 flex items-center justify-center mb-3">
                                 <ShieldOff className="w-4.5 h-4.5 text-gray-400" />
                             </div>
-                            <div className="text-2xl font-black text-foreground">{posture?.acceptedRisk ?? 0}</div>
+                            <div className="text-2xl font-semibold text-foreground">{posture?.acceptedRisk ?? 0}</div>
                             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-1">Risco Aceito</p>
                             <p className="text-xs text-gray-400/70 mt-0.5">aceitos formalmente</p>
                         </div>
@@ -359,7 +343,7 @@ export default function ShieldPage() {
                                         />
                                     </div>
                                     <span className="text-xs text-amber-400 font-bold">{t.riskScore}</span>
-                                    <span className={`text-[10px] font-black uppercase tracking-widest rounded px-1.5 py-0.5 border ${severityColor(t.severity)}`}>
+                                    <span className={`text-xs font-semibold uppercase tracking-widest rounded px-1.5 py-0.5 border ${severityColor(t.severity)}`}>
                                         {t.severity}
                                     </span>
                                 </div>
@@ -441,7 +425,7 @@ export default function ShieldPage() {
                                         <tr key={f.id} className="hover:bg-secondary/20 transition-colors">
                                             <td className="px-4 py-3 font-semibold text-foreground capitalize">{f.tool_name}</td>
                                             <td className="px-4 py-3">
-                                                <span className={`text-[10px] font-black uppercase tracking-widest rounded px-1.5 py-0.5 border ${severityColor(f.severity)}`}>
+                                                <span className={`text-xs font-semibold uppercase tracking-widest rounded px-1.5 py-0.5 border ${severityColor(f.severity)}`}>
                                                     {f.severity}
                                                 </span>
                                             </td>
@@ -461,7 +445,7 @@ export default function ShieldPage() {
                                                             <button
                                                                 onClick={() => handleAcknowledge(f.id)}
                                                                 disabled={processingId === f.id}
-                                                                className="px-2 py-1 text-[10px] font-bold bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-lg transition-all disabled:opacity-40">
+                                                                className="px-2 py-1 text-xs font-bold bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-lg transition-all disabled:opacity-40">
                                                                 Acknowledger
                                                             </button>
                                                         )}
@@ -469,21 +453,21 @@ export default function ShieldPage() {
                                                             <button
                                                                 onClick={() => handlePromote(f.id)}
                                                                 disabled={processingId === f.id}
-                                                                className="px-2 py-1 text-[10px] font-bold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg transition-all disabled:opacity-40">
+                                                                className="px-2 py-1 text-xs font-bold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg transition-all disabled:opacity-40">
                                                                 Promover
                                                             </button>
                                                         )}
                                                         {!['accepted_risk', 'dismissed', 'resolved'].includes(f.status) && (
                                                             <button
                                                                 onClick={() => setModal({ type: 'accept_risk', findingId: f.id })}
-                                                                className="px-2 py-1 text-[10px] font-bold bg-gray-400/10 hover:bg-gray-400/20 text-gray-400 border border-gray-400/20 rounded-lg transition-all">
+                                                                className="px-2 py-1 text-xs font-bold bg-gray-400/10 hover:bg-gray-400/20 text-gray-400 border border-gray-400/20 rounded-lg transition-all">
                                                                 Aceitar Risco
                                                             </button>
                                                         )}
                                                         {!['dismissed', 'resolved'].includes(f.status) && (
                                                             <button
                                                                 onClick={() => setModal({ type: 'dismiss', findingId: f.id })}
-                                                                className="px-2 py-1 text-[10px] font-bold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-lg transition-all">
+                                                                className="px-2 py-1 text-xs font-bold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-lg transition-all">
                                                                 Dispensar
                                                             </button>
                                                         )}
@@ -516,7 +500,7 @@ export default function ShieldPage() {
                                 <div key={c.id} className="bg-secondary/50 border border-border rounded-xl px-4 py-3 min-w-[200px]">
                                     <div className="flex items-center justify-between mb-1.5">
                                         <span className="text-xs font-bold text-foreground uppercase tracking-wide">{c.source_kind}</span>
-                                        <span className={`text-[10px] font-black uppercase tracking-widest rounded px-1.5 py-0.5 border ${healthColor(c.health_status)}`}>
+                                        <span className={`text-xs font-semibold uppercase tracking-widest rounded px-1.5 py-0.5 border ${healthColor(c.health_status)}`}>
                                             {c.health_status}
                                         </span>
                                     </div>

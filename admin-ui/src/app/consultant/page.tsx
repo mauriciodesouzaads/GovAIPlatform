@@ -9,6 +9,8 @@ import {
 import api from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import { useAuth } from '@/components/AuthProvider';
+import { PageHeader } from '@/components/PageHeader';
+import { Badge, riskBadge, findingBadge } from '@/components/Badge';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -367,24 +369,13 @@ export default function ConsultantPage() {
 
     return (
         <div className="flex-1 overflow-auto">
-            <div className="max-w-7xl mx-auto p-6 space-y-8">
+            <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-8">
 
-                {/* Header */}
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-                            <UserCog className="w-5 h-5 text-amber-400" />
-                        </div>
-                        <div>
-                            <h1 className="text-xl font-bold text-foreground tracking-tight">Painel do Consultor</h1>
-                            <p className="text-sm text-muted-foreground">Visão cross-tenant de postura e findings — somente leitura.</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-amber-500/20 bg-amber-500/5">
-                        <Activity className="w-3.5 h-3.5 text-amber-400" />
-                        <span className="text-xs text-amber-400 font-medium capitalize">{role}</span>
-                    </div>
-                </div>
+                <PageHeader
+                    title="Painel do Consultor"
+                    subtitle="Visão multi-tenant"
+                    icon={<UserCog className="w-5 h-5" />}
+                />
 
                 {/* Readonly notice */}
                 <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-500/5 border border-blue-500/20 text-blue-400 text-xs">

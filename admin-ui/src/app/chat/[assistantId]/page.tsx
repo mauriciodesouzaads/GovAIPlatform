@@ -6,7 +6,7 @@ import axios from 'axios';
 import { API_BASE } from '@/lib/api';
 import {
     Send, Loader2, ShieldCheck, AlertTriangle,
-    MessageSquare, Clock, ShieldAlert,
+    MessageSquare, Clock, ShieldAlert, Copy, Check,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -27,6 +27,64 @@ interface ChatMessage {
     content: string;
     traceId?: string;
     status?: MessageStatus;
+    timestamp: Date;
+}
+
+// ── Markdown renderer (lightweight, no external deps) ─────────────────────
+
+function renderMarkdown(text: string): string {
+    return text
+        // Code blocks
+        .replace(/```([\s\S]*?)```/g, '<pre class="bg-secondary/50 border border-border rounded-lg p-3 text-xs font-mono overflow-x-auto my-2 whitespace-pre-wrap"><code>$1</code></pre>')
+        // Inline code
+        .replace(/`([^`]+)`/g, '<code class="bg-secondary/50 border border-border rounded px-1.5 py-0.5 text-xs font-mono">$1</code>')
+        // Bold
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        // Italic
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        // Unordered lists
+        .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
+        // Ordered lists
+        .replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
+        // Wrap consecutive list items
+        .replace(/(<li.*<\/li>\n?)+/g, (match) => `<ul class="my-2 space-y-0.5">${match}</ul>`)
+        // Line breaks
+        .replace(/\n\n/g, '</p><p class="mt-2">')
+        .replace(/\n/g, '<br/>');
+}
+
+function MessageContent({ content, isAssistant }: { content: string; isAssistant: boolean }) {
+    if (!isAssistant) {
+        return <span className="text-sm leading-relaxed whitespace-pre-wrap">{content}</span>;
+    }
+    return (
+        <div
+            className="text-sm leading-relaxed prose-sm"
+            dangerouslySetInnerHTML={{ __html: `<p>${renderMarkdown(content)}</p>` }}
+        />
+    );
+}
+
+// ── Copy button ────────────────────────────────────────────────────────────
+
+function CopyButton({ text }: { text: string }) {
+    const [copied, setCopied] = useState(false);
+    const handleCopy = () => {
+        navigator.clipboard.writeText(text).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        });
+    };
+    return (
+        <button
+            onClick={handleCopy}
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground shrink-0"
+            title="Copiar mensagem"
+            aria-label="Copiar mensagem"
+        >
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+        </button>
+    );
 }
 
 // ── Chat UI ────────────────────────────────────────────────────────────────
@@ -42,28 +100,33 @@ function ChatUI({ assistantId }: { assistantId: string }) {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [loadingInfo, setLoadingInfo] = useState(true);
-    // sessionId is stable per component mount — one UUID per chat session
     const [sessionId] = useState(() =>
         typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).slice(2)
     );
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
-    // Extract API key from URL or sessionStorage
+    // Auto-resize textarea
+    useEffect(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.style.height = 'auto';
+        const maxHeight = 5 * 24; // 5 lines × approx line height
+        el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+    }, [input]);
+
+    // Extract API key
     useEffect(() => {
         const urlKey = searchParams.get('key');
         if (urlKey) {
             setApiKey(urlKey);
-            if (typeof window !== 'undefined') {
-                sessionStorage.setItem('govai_chat_key', urlKey);
-            }
+            if (typeof window !== 'undefined') sessionStorage.setItem('govai_chat_key', urlKey);
         } else {
-            const stored = typeof window !== 'undefined'
-                ? sessionStorage.getItem('govai_chat_key')
-                : null;
+            const stored = typeof window !== 'undefined' ? sessionStorage.getItem('govai_chat_key') : null;
             if (stored) {
                 setApiKey(stored);
             } else {
@@ -81,8 +144,9 @@ function ChatUI({ assistantId }: { assistantId: string }) {
                 { headers: { Authorization: `Bearer ${key}` } }
             );
             setAssistantInfo(res.data as AssistantInfo);
-        } catch (e: any) {
-            setAssistantError(e.response?.data?.error ?? 'Assistente não encontrado ou não disponível.');
+        } catch (e: unknown) {
+            const err = e as { response?: { data?: { error?: string } } };
+            setAssistantError(err.response?.data?.error ?? 'Assistente não encontrado ou não disponível.');
         } finally {
             setLoadingInfo(false);
         }
@@ -99,6 +163,7 @@ function ChatUI({ assistantId }: { assistantId: string }) {
             id: crypto.randomUUID(),
             role: 'user',
             content: input.trim(),
+            timestamp: new Date(),
         };
         setMessages(m => [...m, userMsg]);
         setInput('');
@@ -109,70 +174,43 @@ function ChatUI({ assistantId }: { assistantId: string }) {
                 `${API_BASE}/v1/execute/${assistantId}`,
                 { message: userMsg.content, sessionId },
                 {
-                    headers: {
-                        Authorization: `Bearer ${apiKey}`,
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
                     validateStatus: () => true,
                 }
             );
-            const data = res.data as any;
-            const traceId = data?.traceId || data?._govai?.traceId;
+            const data = res.data as Record<string, unknown>;
+            const traceId = (data?.traceId || (data?._govai as Record<string, unknown>)?.traceId) as string | undefined;
 
             let asstMsg: ChatMessage;
-
             if (res.status === 200) {
                 const content =
-                    data?.choices?.[0]?.message?.content ||
-                    data?.response ||
+                    (((data?.choices as unknown[])?.[0] as Record<string, unknown>)?.message as Record<string, unknown>)?.content as string ||
+                    data?.response as string ||
                     JSON.stringify(data, null, 2);
-                asstMsg = { id: crypto.randomUUID(), role: 'assistant', content, traceId, status: 'success' };
-
+                asstMsg = { id: crypto.randomUUID(), role: 'assistant', content, traceId, status: 'success', timestamp: new Date() };
             } else if (res.status === 202) {
-                asstMsg = {
-                    id: crypto.randomUUID(), role: 'system',
-                    content: '⏳ Esta mensagem requer aprovação humana antes de ser respondida. Aguarde ou entre em contato com o administrador.',
-                    traceId, status: 'hitl',
-                };
-
+                asstMsg = { id: crypto.randomUUID(), role: 'system', content: 'Esta mensagem requer aprovação humana antes de ser respondida. Aguarde ou entre em contato com o administrador.', traceId, status: 'hitl', timestamp: new Date() };
             } else if (res.status === 403) {
-                asstMsg = {
-                    id: crypto.randomUUID(), role: 'system',
-                    content: '🚫 Esta mensagem não está de acordo com as políticas da organização e foi bloqueada.',
-                    traceId, status: 'blocked',
-                };
-
+                asstMsg = { id: crypto.randomUUID(), role: 'system', content: 'Esta mensagem não está de acordo com as políticas da organização e foi bloqueada.', traceId, status: 'blocked', timestamp: new Date() };
             } else if (res.status === 429) {
-                asstMsg = {
-                    id: crypto.randomUUID(), role: 'system',
-                    content: '⚠ Limite de uso atingido. Entre em contato com o administrador.',
-                    traceId, status: 'quota',
-                };
-
+                asstMsg = { id: crypto.randomUUID(), role: 'system', content: 'Limite de uso atingido. Entre em contato com o administrador.', traceId, status: 'quota', timestamp: new Date() };
             } else {
-                const reason = data?.error || data?.details || `HTTP ${res.status}`;
-                asstMsg = {
-                    id: crypto.randomUUID(), role: 'system',
-                    content: `Erro: ${reason}`,
-                    traceId, status: 'error',
-                };
+                const reason = (data?.error || data?.details || `HTTP ${res.status}`) as string;
+                asstMsg = { id: crypto.randomUUID(), role: 'system', content: `Erro: ${reason}`, traceId, status: 'error', timestamp: new Date() };
             }
-
             setMessages(m => [...m, asstMsg]);
-
-        } catch (e: any) {
-            setMessages(m => [...m, {
-                id: crypto.randomUUID(), role: 'system',
-                content: `Erro de rede: ${e.message || 'Falha ao conectar ao servidor.'}`,
-                status: 'error',
-            }]);
+        } catch (e: unknown) {
+            const err = e as { message?: string };
+            setMessages(m => [...m, { id: crypto.randomUUID(), role: 'system', content: `Erro de rede: ${err.message || 'Falha ao conectar ao servidor.'}`, status: 'error', timestamp: new Date() }]);
         } finally {
             setLoading(false);
         }
     };
 
-    // ── Missing key ────────────────────────────────────────────────────────
+    const formatTime = (d: Date) =>
+        d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
+    // ── Missing key ──────────────────────────────────────────────────────────
     if (keyMissing) {
         return (
             <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
@@ -181,15 +219,11 @@ function ChatUI({ assistantId }: { assistantId: string }) {
                         <AlertTriangle className="w-6 h-6 text-amber-600" />
                     </div>
                     <h1 className="text-lg font-semibold text-gray-900">Chave de acesso não fornecida</h1>
-                    <p className="text-sm text-gray-600">
-                        Solicite ao administrador da plataforma um link de acesso válido com a chave de API.
-                    </p>
+                    <p className="text-sm text-gray-600">Solicite ao administrador da plataforma um link de acesso válido com a chave de API.</p>
                 </div>
             </div>
         );
     }
-
-    // ── Loading info ───────────────────────────────────────────────────────
 
     if (loadingInfo) {
         return (
@@ -198,8 +232,6 @@ function ChatUI({ assistantId }: { assistantId: string }) {
             </div>
         );
     }
-
-    // ── Assistant error ────────────────────────────────────────────────────
 
     if (assistantError) {
         return (
@@ -215,8 +247,7 @@ function ChatUI({ assistantId }: { assistantId: string }) {
         );
     }
 
-    // ── Chat ───────────────────────────────────────────────────────────────
-
+    // ── Chat ─────────────────────────────────────────────────────────────────
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col">
 
@@ -233,30 +264,28 @@ function ChatUI({ assistantId }: { assistantId: string }) {
                 </div>
                 <span className="flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full shrink-0">
                     <ShieldCheck className="w-3 h-3" />
-                    {assistantInfo?.policyCount ?? 0} {assistantInfo?.policyCount === 1 ? 'política' : 'políticas'} ativas
+                    {assistantInfo?.policyCount ?? 0} {assistantInfo?.policyCount === 1 ? 'política' : 'políticas'}
                 </span>
             </header>
 
-            {/* Governance banner — cannot be dismissed */}
-            <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-start gap-2">
+            {/* Governance banner */}
+            <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <p className="text-xs text-amber-800 leading-relaxed">
-                    <strong>⚠ Esta sessão é monitorada e governada pela política da sua organização.</strong>{' '}
+                    <strong>Esta sessão é monitorada e governada pela política da sua organização.</strong>{' '}
                     Todo acesso é registrado e auditável.
                 </p>
             </div>
 
             {/* Assistant description */}
             {assistantInfo?.description && (
-                <div className="bg-white border-b border-gray-100 px-4 py-2.5">
-                    <p className="text-xs text-gray-500 max-w-2xl mx-auto leading-relaxed">
-                        {assistantInfo.description}
-                    </p>
+                <div className="bg-white border-b border-gray-100 px-4 py-2">
+                    <p className="text-xs text-gray-500 max-w-2xl mx-auto">{assistantInfo.description}</p>
                 </div>
             )}
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-4 py-6 pb-28">
+            <div className="flex-1 overflow-y-auto px-4 py-6 pb-36">
                 <div className="max-w-2xl mx-auto space-y-4">
 
                     {messages.length === 0 && (
@@ -271,17 +300,15 @@ function ChatUI({ assistantId }: { assistantId: string }) {
                             key={msg.id}
                             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                         >
-                            <div className="max-w-[80%] space-y-1">
+                            <div className="max-w-[85%] space-y-1">
 
-                                {/* Status icon for system messages */}
+                                {/* Status label for system messages */}
                                 {msg.role === 'system' && (
                                     <div className="flex items-center gap-1.5 px-1">
                                         {msg.status === 'hitl' && <Clock className="w-3.5 h-3.5 text-amber-500" />}
                                         {msg.status === 'blocked' && <ShieldAlert className="w-3.5 h-3.5 text-red-500" />}
-                                        {(msg.status === 'error' || msg.status === 'quota') && (
-                                            <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
-                                        )}
-                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                                        {(msg.status === 'error' || msg.status === 'quota') && <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />}
+                                        <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
                                             {msg.status === 'hitl' ? 'Aguardando aprovação'
                                                 : msg.status === 'blocked' ? 'Bloqueado'
                                                 : msg.status === 'quota' ? 'Limite atingido'
@@ -290,27 +317,33 @@ function ChatUI({ assistantId }: { assistantId: string }) {
                                     </div>
                                 )}
 
-                                {/* Bubble */}
-                                <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                                    msg.role === 'user'
-                                        ? 'bg-emerald-500 text-white rounded-tr-sm'
-                                        : msg.status === 'blocked'
-                                        ? 'bg-red-50 text-red-800 border border-red-200 rounded-tl-sm'
-                                        : msg.status === 'hitl'
-                                        ? 'bg-amber-50 text-amber-800 border border-amber-200 rounded-tl-sm'
-                                        : msg.status === 'error' || msg.status === 'quota'
-                                        ? 'bg-orange-50 text-orange-800 border border-orange-200 rounded-tl-sm'
-                                        : 'bg-white text-gray-800 border border-gray-200 rounded-tl-sm shadow-sm'
-                                }`}>
-                                    {msg.content}
+                                {/* Bubble + copy button */}
+                                <div className={`group flex items-start gap-1.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                                    <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                                        msg.role === 'user'
+                                            ? 'bg-emerald-500 text-white rounded-tr-sm'
+                                            : msg.status === 'blocked'
+                                            ? 'bg-red-50 text-red-800 border border-red-200 rounded-tl-sm'
+                                            : msg.status === 'hitl'
+                                            ? 'bg-amber-50 text-amber-800 border border-amber-200 rounded-tl-sm'
+                                            : msg.status === 'error' || msg.status === 'quota'
+                                            ? 'bg-orange-50 text-orange-800 border border-orange-200 rounded-tl-sm'
+                                            : 'bg-white text-gray-800 border border-gray-200 rounded-tl-sm shadow-sm'
+                                    }`}>
+                                        <MessageContent content={msg.content} isAssistant={msg.role === 'assistant'} />
+                                    </div>
+                                    {msg.role === 'assistant' && <CopyButton text={msg.content} />}
                                 </div>
 
-                                {/* Trace ID — audit transparency */}
-                                {msg.traceId && (
-                                    <p className="text-[10px] text-gray-400 px-1 font-mono">
-                                        Trace: {msg.traceId}
-                                    </p>
-                                )}
+                                {/* Timestamp + Trace ID */}
+                                <div className={`flex items-center gap-2 px-1 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <span className="text-xs text-gray-400">{formatTime(msg.timestamp)}</span>
+                                    {msg.traceId && (
+                                        <span className="text-xs text-gray-300 font-mono">
+                                            · {msg.traceId.substring(0, 8)}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     ))}
@@ -335,6 +368,7 @@ function ChatUI({ assistantId }: { assistantId: string }) {
             <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-10">
                 <div className="max-w-2xl mx-auto flex gap-2 items-end">
                     <textarea
+                        ref={textareaRef}
                         value={input}
                         onChange={e => setInput(e.target.value)}
                         onKeyDown={e => {
@@ -345,8 +379,8 @@ function ChatUI({ assistantId }: { assistantId: string }) {
                         }}
                         placeholder="Digite sua mensagem… (Enter para enviar, Shift+Enter para nova linha)"
                         rows={1}
-                        className="flex-1 resize-none bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 placeholder-gray-400 max-h-32 overflow-y-auto"
-                        style={{ minHeight: '42px' }}
+                        className="flex-1 resize-none bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 placeholder-gray-400 overflow-y-auto"
+                        style={{ minHeight: '42px', maxHeight: '120px' }}
                     />
                     <button
                         onClick={sendMessage}
@@ -360,7 +394,7 @@ function ChatUI({ assistantId }: { assistantId: string }) {
                         }
                     </button>
                 </div>
-                <p className="text-[10px] text-gray-400 text-center mt-1 font-mono">
+                <p className="text-xs text-gray-400 text-center mt-1.5 font-mono">
                     Session: {sessionId.substring(0, 8)}…
                 </p>
             </div>
@@ -368,7 +402,7 @@ function ChatUI({ assistantId }: { assistantId: string }) {
     );
 }
 
-// ── Page export with Suspense boundary (required for useSearchParams) ──────
+// ── Page export ────────────────────────────────────────────────────────────
 
 export default function ChatPage({ params }: { params: { assistantId: string } }) {
     return (

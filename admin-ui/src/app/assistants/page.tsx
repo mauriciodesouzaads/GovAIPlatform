@@ -5,6 +5,8 @@ import api, { ENDPOINTS } from '@/lib/api';
 import { Plus, Upload, CheckCircle2, Bot, Database, Lock, FileText, AlertTriangle, X } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
+import { PageHeader } from '@/components/PageHeader';
+import { Badge, lifecycleBadge } from '@/components/Badge';
 
 interface Assistant { id: string; name: string; status: string; created_at: string; draft_version_id?: string; }
 export default function AssistantsPage() {
@@ -165,14 +167,21 @@ export default function AssistantsPage() {
     };
 
     return (
-        <div className="flex-1 overflow-auto p-4 sm:p-6 bg-background">
+        <div className="flex-1 overflow-auto p-4 sm:p-6">
             <div className="max-w-6xl mx-auto space-y-8">
-                <div className="flex justify-between items-center">
-                    <div>
-                        <h2 className="text-3xl font-bold tracking-tight">AI Assistants & RAG</h2>
-                        <p className="text-muted-foreground mt-2">Crie agentes e alimente-os com conhecimento proprietário (RAG).</p>
-                    </div>
-                </div>
+                <PageHeader
+                    title="Assistants & RAG"
+                    subtitle="Gerenciamento de assistentes"
+                    icon={<Bot className="w-5 h-5" />}
+                    actions={
+                        <button
+                            onClick={() => setShowNewVersionModal(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-secondary border border-border rounded-lg text-sm font-semibold hover:bg-secondary/80 transition-colors"
+                        >
+                            <Upload className="w-4 h-4" /> Nova Versão
+                        </button>
+                    }
+                />
 
                 {/* Header Action */}
                 <div className="bg-card border border-border rounded-xl p-6 shadow-sm flex justify-between items-center">
@@ -305,7 +314,7 @@ export default function AssistantsPage() {
                     >
                         <div className="bg-card w-full max-w-2xl rounded-3xl p-8 shadow-[0_0_50px_-12px_rgba(16,185,129,0.3)] border border-emerald-500/20 space-y-6 animate-in zoom-in-95 duration-200">
                             <div className="flex items-start justify-between">
-                            <h3 id="new-version-title" className="text-2xl font-black text-foreground flex items-center gap-3">
+                            <h3 id="new-version-title" className="text-2xl font-bold text-foreground flex items-center gap-3">
                                 <div className="p-2 bg-emerald-500/20 rounded-xl border border-emerald-500/30">
                                     <Upload className="w-6 h-6 text-emerald-500" />
                                 </div>
