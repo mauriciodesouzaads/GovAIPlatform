@@ -99,7 +99,7 @@ export default function DashboardPage() {
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
                   <Activity className="h-5 w-5 text-emerald-400" />
                 </div>
-                <Link href="/logs" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-foreground flex items-center gap-1">
+                <Link href="/logs" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-secondary/50 hover:bg-secondary px-2 py-1 rounded text-foreground flex items-center gap-1">
                   Ver Logs <ArrowUpRight className="w-3 h-3" />
                 </Link>
               </div>
@@ -114,7 +114,7 @@ export default function DashboardPage() {
             </div>
 
             {/* 2. Bento Box: Policy Violations (Highlighted/Danger) */}
-            <div className="bg-gradient-to-br from-rose-950/40 to-[#111] border border-rose-500/20 rounded-2xl p-5 hover:border-rose-500/40 transition-all group flex flex-col justify-between relative overflow-hidden">
+            <div className="bg-gradient-to-br from-rose-950/40 to-background border border-rose-500/20 rounded-2xl p-5 hover:border-rose-500/40 transition-all group flex flex-col justify-between relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/10 blur-3xl pointer-events-none" />
               <div className="flex justify-between items-start relative z-10">
                 <div className="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center border border-rose-500/20">
@@ -158,7 +158,7 @@ export default function DashboardPage() {
                 <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
                   <Bot className="h-5 w-5 text-blue-400" />
                 </div>
-                <Link href="/assistants" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-foreground flex items-center gap-1">
+                <Link href="/assistants" className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-secondary/50 hover:bg-secondary px-2 py-1 rounded text-foreground flex items-center gap-1">
                   Gerenciar <ArrowUpRight className="w-3 h-3" />
                 </Link>
               </div>
@@ -205,7 +205,7 @@ export default function DashboardPage() {
                       <XAxis dataKey="name" stroke="#666" fontSize={11} tickLine={false} axisLine={false} dy={10} />
                       <YAxis stroke="#666" fontSize={11} tickLine={false} axisLine={false} />
                       <Tooltip
-                        contentStyle={{ backgroundColor: '#111', borderColor: '#333', borderRadius: '12px', color: '#fff', padding: '12px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)' }}
+                        contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '12px', color: 'hsl(var(--foreground))', padding: '12px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)' }}
                         itemStyle={{ fontWeight: 600 }}
                         cursor={{ stroke: '#555', strokeWidth: 1, strokeDasharray: '4 4' }}
                       />
@@ -262,7 +262,7 @@ export default function DashboardPage() {
 
                 {stats && (
                   <div className="mt-8 text-center bg-card border border-border/50 rounded-xl p-4 w-full">
-                    <p className="text-sm text-gray-300 font-medium leading-tight">
+                    <p className="text-sm text-muted-foreground font-medium leading-tight">
                       <span className="text-rose-400 font-bold">{stats.total_violations}</span> incidentes isolados de um total de <span className="text-foreground font-bold">{stats.total_executions + stats.total_violations}</span> transações.
                     </p>
                   </div>
@@ -303,7 +303,7 @@ function HealthStatus() {
           {status?.db === 'connected' ? 'UP' : 'DOWN'}
         </span>
       </div>
-      <div className="w-px h-4 bg-white/10" />
+      <div className="w-px h-4 bg-border" />
       <div className="flex items-center gap-2">
         <Activity className={`w-4 h-4 ${status?.redis === 'connected' ? 'text-emerald-500' : 'text-rose-500'}`} />
         <span className="text-xs font-bold text-foreground uppercase tracking-tighter">Redis Cache</span>

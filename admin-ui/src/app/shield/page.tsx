@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 import {
     Eye, AlertTriangle, CheckCircle2, ShieldOff, RefreshCw,
     ScanEye, RotateCcw, Layers, Activity,
@@ -79,8 +80,14 @@ function NoteModal({
     loading: boolean;
 }) {
     const [note, setNote] = useState('');
+    useEscapeClose(onCancel);
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+        >
             <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md space-y-4">
                 <h3 className="text-foreground font-bold text-lg">{title}</h3>
                 <p className="text-muted-foreground text-sm">Justificativa Obrigatória</p>
@@ -295,7 +302,7 @@ export default function ShieldPage() {
                 ) : (
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {/* Card 1 */}
-                        <div className="bg-card border border-border rounded-2xl p-5 hover:border-white/20 transition-all">
+                        <div className="bg-card border border-border rounded-2xl p-5 hover:border-border transition-all">
                             <div className="w-9 h-9 rounded-xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center mb-3">
                                 <Eye className="w-4.5 h-4.5 text-amber-400" />
                             </div>
@@ -304,7 +311,7 @@ export default function ShieldPage() {
                             <p className="text-xs text-amber-400/70 mt-0.5">findings ativos</p>
                         </div>
                         {/* Card 2 */}
-                        <div className="bg-gradient-to-br from-rose-950/40 to-[#111] border border-rose-500/20 rounded-2xl p-5 hover:border-rose-500/40 transition-all relative overflow-hidden">
+                        <div className="bg-gradient-to-br from-rose-950/40 to-background border border-rose-500/20 rounded-2xl p-5 hover:border-rose-500/40 transition-all relative overflow-hidden">
                             <div className="absolute top-0 right-0 w-20 h-20 bg-rose-500/10 blur-2xl pointer-events-none" />
                             <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-3">
                                 <AlertTriangle className="w-4.5 h-4.5 text-rose-500" />
@@ -314,7 +321,7 @@ export default function ShieldPage() {
                             <p className="text-xs text-rose-400/70 mt-0.5">requerem ação imediata</p>
                         </div>
                         {/* Card 3 */}
-                        <div className="bg-card border border-border rounded-2xl p-5 hover:border-white/20 transition-all">
+                        <div className="bg-card border border-border rounded-2xl p-5 hover:border-border transition-all">
                             <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-3">
                                 <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500" />
                             </div>
@@ -323,7 +330,7 @@ export default function ShieldPage() {
                             <p className="text-xs text-emerald-400/70 mt-0.5">promovidos ao catálogo</p>
                         </div>
                         {/* Card 4 */}
-                        <div className="bg-card border border-border rounded-2xl p-5 hover:border-white/20 transition-all">
+                        <div className="bg-card border border-border rounded-2xl p-5 hover:border-border transition-all">
                             <div className="w-9 h-9 rounded-xl bg-gray-400/10 border border-gray-400/20 flex items-center justify-center mb-3">
                                 <ShieldOff className="w-4.5 h-4.5 text-gray-400" />
                             </div>
@@ -429,7 +436,7 @@ export default function ShieldPage() {
                                         {isAdmin && <th className="px-4 py-3 text-right">Ações</th>}
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-white/5">
+                                <tbody className="divide-y divide-border/30">
                                     {findings.map(f => (
                                         <tr key={f.id} className="hover:bg-secondary/20 transition-colors">
                                             <td className="px-4 py-3 font-semibold text-foreground capitalize">{f.tool_name}</td>

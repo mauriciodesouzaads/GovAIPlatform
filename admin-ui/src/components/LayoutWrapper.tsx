@@ -30,6 +30,7 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
                         className="lg:hidden fixed top-4 left-4 z-40 p-2 bg-card border border-border rounded-lg text-muted-foreground hover:text-foreground transition-colors shadow-sm"
                         onClick={() => setSidebarOpen(true)}
                         aria-label="Abrir menu"
+                        aria-expanded={sidebarOpen}
                     >
                         <Menu className="w-5 h-5" />
                     </button>

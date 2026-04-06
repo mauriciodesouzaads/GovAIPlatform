@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 import {
     BookOpen, ChevronRight, X, Tag, Calendar, User,
     AlertTriangle, CheckCircle2, Clock, Loader2, ExternalLink,
@@ -79,12 +80,13 @@ function ActionModal({
     confirmLabel, confirmClass, onConfirm, onClose, loading,
 }: ActionModalProps) {
     const [value, setValue] = useState('');
+    useEscapeClose(onClose);
     const canConfirm = !inputRequired || value.trim().length >= inputMin;
 
     return (
         <>
             <div className="fixed inset-0 bg-background/70 backdrop-blur-sm z-[60]" onClick={onClose} />
-            <div className="fixed inset-0 flex items-center justify-center z-[70] p-4">
+            <div className="fixed inset-0 flex items-center justify-center z-[70] p-4" role="dialog" aria-modal="true">
                 <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md shadow-2xl space-y-4">
                     <div className="flex items-start justify-between">
                         <h3 className="font-semibold text-foreground text-base">{title}</h3>
@@ -151,6 +153,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
     const [actionLoading, setActionLoading] = useState(false);
     const [modal, setModal] = useState<null | { type: 'approve' | 'reject' | 'suspend' | 'archive' }>(null);
     const { toast } = useToast();
+    useEscapeClose(onClose, modal === null);
 
     useEffect(() => { setAssistant(initialAssistant); }, [initialAssistant]);
 
@@ -222,12 +225,12 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
             <div className="fixed inset-0 bg-background/70 backdrop-blur-sm z-40" onClick={onClose} />
 
             {/* Panel */}
-            <aside className="fixed right-0 top-0 h-full w-full max-w-lg bg-card border-l border-border z-50 flex flex-col overflow-hidden shadow-2xl">
+            <aside role="dialog" aria-modal="true" aria-labelledby="drawer-title" className="fixed right-0 top-0 h-full w-full max-w-lg bg-card border-l border-border z-50 flex flex-col overflow-hidden shadow-2xl">
 
                 {/* Header */}
                 <div className="flex items-start justify-between p-6 border-b border-border">
                     <div>
-                        <h2 className="text-lg font-semibold text-foreground">{assistant.name}</h2>
+                        <h2 id="drawer-title" className="text-lg font-semibold text-foreground">{assistant.name}</h2>
                         <p className="text-sm text-muted-foreground mt-0.5">{assistant.id}</p>
                     </div>
                     <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors p-1">

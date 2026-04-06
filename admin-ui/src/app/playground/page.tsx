@@ -215,7 +215,7 @@ export default function PlaygroundPage() {
             <div className="max-w-4xl mx-auto space-y-8">
 
                 {/* Header */}
-                <div className="flex items-start justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                     <div>
                         <h2 className="text-3xl font-bold tracking-tight flex items-center gap-3">
                             <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">

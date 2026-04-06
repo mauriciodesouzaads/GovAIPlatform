@@ -26,6 +26,7 @@ export default function ApiKeysPage() {
     const [createdKey, setCreatedKey] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
 
     const fetchKeys = async () => {
         setError(null);
@@ -56,11 +57,9 @@ export default function ApiKeysPage() {
     };
 
     const revokeKey = async (keyId: string) => {
-        if (!window.confirm('Tem certeza que deseja revogar esta chave? Esta ação não pode ser desfeita.')) {
-            return;
-        }
         try {
             await api.delete(`${ENDPOINTS.API_KEYS}/${keyId}`);
+            setConfirmRevoke(null);
             fetchKeys();
         } catch (e) {
             console.error(e);
@@ -147,6 +146,7 @@ export default function ApiKeysPage() {
                             Chaves de Acesso Ativas
                         </h3>
                     </div>
+                    <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
                         <thead className="text-xs text-muted-foreground bg-secondary/30 uppercase tracking-wider">
                             <tr>
@@ -192,12 +192,30 @@ export default function ApiKeysPage() {
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             {k.is_active ? (
-                                                <button
-                                                    onClick={() => revokeKey(k.id)}
-                                                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-destructive/80 hover:text-destructive hover:bg-destructive/10 transition-colors text-xs font-semibold"
-                                                >
-                                                    <Trash2 className="w-4 h-4" /> Revogar
-                                                </button>
+                                                confirmRevoke === k.id ? (
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        <span className="text-xs text-muted-foreground">Confirmar?</span>
+                                                        <button
+                                                            onClick={() => revokeKey(k.id)}
+                                                            className="px-2 py-1 rounded text-xs font-semibold bg-destructive text-foreground hover:bg-destructive/80 transition-colors"
+                                                        >
+                                                            Revogar
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setConfirmRevoke(null)}
+                                                            className="px-2 py-1 rounded text-xs font-semibold border border-border text-muted-foreground hover:text-foreground transition-colors"
+                                                        >
+                                                            Cancelar
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => setConfirmRevoke(k.id)}
+                                                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-destructive/80 hover:text-destructive hover:bg-destructive/10 transition-colors text-xs font-semibold"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" /> Revogar
+                                                    </button>
+                                                )
                                             ) : (
                                                 <span className="text-xs text-muted-foreground/50 font-medium">Inativa</span>
                                             )}
@@ -207,6 +225,7 @@ export default function ApiKeysPage() {
                             )}
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
         </div>

@@ -164,6 +164,7 @@ function FindingRow({ finding, tenantOrgId }: { finding: ConsultantFinding; tena
             <tr
                 className="border-t border-border/50 hover:bg-secondary/30 cursor-pointer transition-colors"
                 onClick={toggle}
+                aria-expanded={expanded}
             >
                 <td className="py-3 px-4">
                     <div className="flex items-center gap-2">

@@ -39,6 +39,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 {toasts.map((t) => (
                     <div
                         key={t.id}
+                        role="alert"
+                        aria-live="polite"
                         className={`
               pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border backdrop-blur-md animate-in slide-in-from-right-full duration-300
               ${t.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : ''}
@@ -54,7 +56,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
                         <button
                             onClick={() => removeToast(t.id)}
-                            className="ml-2 p-1 hover:bg-white/10 rounded-lg transition-colors"
+                            className="ml-2 p-1 hover:bg-secondary/50 rounded-lg transition-colors"
                         >
                             <X className="w-4 h-4" />
                         </button>

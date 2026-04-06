@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import api, { ENDPOINTS } from '@/lib/api';
-import { Plus, Upload, CheckCircle2, Bot, Database, Lock, FileText } from 'lucide-react';
+import { Plus, Upload, CheckCircle2, Bot, Database, Lock, FileText, AlertTriangle, X } from 'lucide-react';
 import { useToast } from '@/components/Toast';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 
 interface Assistant { id: string; name: string; status: string; created_at: string; draft_version_id?: string; }
 export default function AssistantsPage() {
@@ -35,14 +36,22 @@ export default function AssistantsPage() {
     const [showNewVersionModal, setShowNewVersionModal] = useState(false);
     const [versionData, setVersionData] = useState({ assistantId: '', policyJson: '{\n  "version": "1.0",\n  "rules": []\n}' });
 
+    const [fetchError, setFetchError] = useState(false);
     const { toast } = useToast();
-    const fetchAssistants = async () => {
+
+    useEscapeClose(() => setShowNewVersionModal(false), showNewVersionModal);
+    useEscapeClose(() => setPublishModalAst(null), publishModalAst !== null && !showNewVersionModal);
+
+    const fetchAssistants = useCallback(async () => {
+        setFetchError(false);
         try {
             const res = await api.get(ENDPOINTS.ASSISTANTS);
             setAssistants(res.data);
-        } catch (e) { console.error(e); }
-        finally { setLoading(false); }
-    };
+        } catch (e) {
+            console.error(e);
+            setFetchError(true);
+        } finally { setLoading(false); }
+    }, []);
 
     const fetchSelectables = async () => {
         try {
@@ -204,6 +213,15 @@ export default function AssistantsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {loading ? (
                         <div className="col-span-full h-40 bg-secondary rounded-xl animate-pulse" />
+                    ) : fetchError ? (
+                        <div className="col-span-full bg-destructive/10 border border-destructive/20 rounded-xl p-8 text-center space-y-3">
+                            <AlertTriangle className="w-8 h-8 text-destructive mx-auto" />
+                            <h3 className="text-lg font-semibold text-foreground">Erro ao carregar assistentes</h3>
+                            <p className="text-sm text-muted-foreground">Não foi possível conectar ao servidor.</p>
+                            <button onClick={fetchAssistants} className="text-sm text-primary hover:underline">
+                                Tentar novamente
+                            </button>
+                        </div>
                     ) : assistants.length === 0 ? (
                         <div className="col-span-full py-12 text-center border border-dashed border-border rounded-xl text-muted-foreground">
                             Nenhum assistente criado. Crie o seu primeiro agente governado acima.
@@ -278,14 +296,25 @@ export default function AssistantsPage() {
 
                 {/* New Version Publication Modal */}
                 {showNewVersionModal && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-md p-4">
+                    <div
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-md p-4"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="new-version-title"
+                        onClick={(e) => { if (e.target === e.currentTarget) setShowNewVersionModal(false); }}
+                    >
                         <div className="bg-card w-full max-w-2xl rounded-3xl p-8 shadow-[0_0_50px_-12px_rgba(16,185,129,0.3)] border border-emerald-500/20 space-y-6 animate-in zoom-in-95 duration-200">
-                            <h3 className="text-2xl font-black text-foreground flex items-center gap-3">
+                            <div className="flex items-start justify-between">
+                            <h3 id="new-version-title" className="text-2xl font-black text-foreground flex items-center gap-3">
                                 <div className="p-2 bg-emerald-500/20 rounded-xl border border-emerald-500/30">
                                     <Upload className="w-6 h-6 text-emerald-500" />
                                 </div>
                                 Publicar Versão de Segurança
                             </h3>
+                            <button onClick={() => setShowNewVersionModal(false)} className="text-muted-foreground hover:text-foreground transition-colors p-1 -mt-1 -mr-1">
+                                <X className="w-5 h-5" />
+                            </button>
+                            </div>
                             <p className="text-sm text-muted-foreground font-medium">As novas políticas entrarão em modo rascunho e exigem homologação HITL.</p>
 
                             <div className="space-y-4">
@@ -329,9 +358,20 @@ export default function AssistantsPage() {
 
                 {/* Homologation Modal */}
                 {publishModalAst && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm p-4">
+                    <div
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm p-4"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="homolog-title"
+                        onClick={(e) => { if (e.target === e.currentTarget) setPublishModalAst(null); }}
+                    >
                         <div className="bg-card w-full max-w-lg rounded-2xl p-6 shadow-2xl border border-border">
-                            <h3 className="text-xl font-bold mb-2">Homologação de Agente</h3>
+                            <div className="flex items-center justify-between mb-2">
+                            <h3 id="homolog-title" className="text-xl font-bold">Homologação de Agente</h3>
+                            <button onClick={() => setPublishModalAst(null)} className="text-muted-foreground hover:text-foreground transition-colors p-1">
+                                <X className="w-5 h-5" />
+                            </button>
+                            </div>
                             <p className="text-sm text-muted-foreground mb-6">
                                 Você está publicando o agente <strong className="text-foreground">{publishModalAst.name}</strong>. Assine o Termo de Ajustamento de Conduta confirmando as validações abaixo.
                             </p>

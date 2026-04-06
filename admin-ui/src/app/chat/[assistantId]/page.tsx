@@ -351,6 +351,7 @@ function ChatUI({ assistantId }: { assistantId: string }) {
                     <button
                         onClick={sendMessage}
                         disabled={loading || !input.trim()}
+                        aria-label="Enviar mensagem"
                         className="w-10 h-10 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors shrink-0"
                     >
                         {loading

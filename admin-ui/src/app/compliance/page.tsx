@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import api, { ENDPOINTS, API_BASE } from '@/lib/api';
 import { useAuth } from '@/components/AuthProvider';
-import { ToggleRight, ToggleLeft, ShieldCheck, AlertTriangle, RefreshCw, Eye, EyeOff, Download } from 'lucide-react';
+import { ToggleRight, ToggleLeft, ShieldCheck, AlertTriangle, RefreshCw, Eye, EyeOff, Download, Building2 } from 'lucide-react';
+import { SkeletonTable } from '@/components/Skeleton';
 import { useToast } from '@/components/Toast';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ function formatDate(iso: string | null): string {
 export default function CompliancePage() {
     const [orgs, setOrgs] = useState<OrgConsent[]>([]);
     const [loading, setLoading] = useState(true);
+    const [fetchError, setFetchError] = useState(false);
     const [updateState, setUpdateState] = useState<UpdateState>({});
     const { toast } = useToast();
     // GA-014: use role to select the correct endpoint
@@ -47,6 +49,7 @@ export default function CompliancePage() {
 
     const fetchOrgs = useCallback(async () => {
         setLoading(true);
+        setFetchError(false);
         try {
             if (role === 'dpo') {
                 // GA-014: DPO uses the restricted /compliance/dpo-summary endpoint
@@ -61,6 +64,7 @@ export default function CompliancePage() {
                 setOrgs(res.data);
             }
         } catch (err: any) {
+            setFetchError(true);
             toast(err?.response?.data?.error ?? 'Erro ao carregar organizações. Verifique sua conexão.', 'error');
         } finally {
             setLoading(false);
@@ -210,16 +214,32 @@ export default function CompliancePage() {
             </div>
 
             {/* Organizations table */}
+            {fetchError && !loading && (
+                <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-8 text-center space-y-3">
+                    <AlertTriangle className="w-8 h-8 text-destructive mx-auto" />
+                    <p className="text-sm font-semibold text-foreground">Erro ao carregar organizações</p>
+                    <p className="text-xs text-muted-foreground">Verifique sua conexão e tente novamente.</p>
+                    <button
+                        onClick={fetchOrgs}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 border border-border rounded-lg text-sm font-medium transition-colors"
+                    >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        Tentar novamente
+                    </button>
+                </div>
+            )}
+
             {loading ? (
-                <div className="rounded-xl border border-border bg-card/40 p-8 text-center text-muted-foreground">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500" />
-                    Carregando organizações...
+                <SkeletonTable rows={4} cols={5} />
+            ) : !fetchError && orgs.length === 0 ? (
+                <div className="rounded-xl border border-border bg-card/40 p-12 text-center space-y-3">
+                    <Building2 className="w-10 h-10 text-muted-foreground/30 mx-auto" />
+                    <p className="text-sm font-semibold text-foreground">Nenhuma organização encontrada</p>
+                    <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                        Não há organizações configuradas para gerenciar consentimento de telemetria.
+                    </p>
                 </div>
-            ) : orgs.length === 0 ? (
-                <div className="rounded-xl border border-border bg-card/40 p-8 text-center text-muted-foreground">
-                    Nenhuma organização encontrada.
-                </div>
-            ) : (
+            ) : !fetchError ? (
                 <div className="rounded-xl border border-border bg-card/60 overflow-hidden">
                     <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -333,7 +353,7 @@ export default function CompliancePage() {
                     </table>
                     </div>
                 </div>
-            )}
+            ) : null}
 
             {/* LGPD footer note */}
             <p className="text-xs text-muted-foreground/50 text-center">

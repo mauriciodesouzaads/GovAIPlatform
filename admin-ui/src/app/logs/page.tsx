@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Shield, Clock } from 'lucide-react';
+import { Shield, Clock, AlertTriangle } from 'lucide-react';
 import api, { ENDPOINTS } from '@/lib/api';
 
 interface AuditLog {
@@ -16,24 +16,28 @@ interface AuditLog {
 export default function AuditLogsPage() {
     const [logs, setLogs] = useState<AuditLog[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(false);
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
 
-    useEffect(() => {
-        const fetchLogs = async () => {
-            setLoading(true);
-            try {
-                const response = await api.get(`${ENDPOINTS.AUDIT_LOGS}?page=${page}&limit=20`);
-                setLogs(response.data.logs);
-                setTotalPages(response.data.pagination.pages);
-            } catch {
-                console.error("Error fetching audit logs");
-            } finally {
-                setLoading(false);
-            }
-        };
+    const fetchLogs = async () => {
+        setLoading(true);
+        setError(false);
+        try {
+            const response = await api.get(`${ENDPOINTS.AUDIT_LOGS}?page=${page}&limit=20`);
+            setLogs(response.data.logs);
+            setTotalPages(response.data.pagination.pages);
+        } catch {
+            console.error("Error fetching audit logs");
+            setError(true);
+        } finally {
+            setLoading(false);
+        }
+    };
 
+    useEffect(() => {
         fetchLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [page]);
 
     return (
@@ -50,6 +54,20 @@ export default function AuditLogsPage() {
                         </p>
                     </div>
                 </div>
+
+                {error && !loading && (
+                    <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-8 text-center space-y-3">
+                        <AlertTriangle className="w-8 h-8 text-destructive mx-auto" />
+                        <h3 className="text-lg font-semibold text-foreground">Erro ao carregar logs</h3>
+                        <p className="text-sm text-muted-foreground">Não foi possível conectar ao servidor.</p>
+                        <button
+                            onClick={() => { setError(false); fetchLogs(); }}
+                            className="text-sm text-primary hover:underline"
+                        >
+                            Tentar novamente
+                        </button>
+                    </div>
+                )}
 
                 <div className="bg-card border border-border rounded-xl overflow-hidden">
                     <div className="overflow-x-auto">

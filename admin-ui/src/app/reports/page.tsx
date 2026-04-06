@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import api, { ENDPOINTS } from '@/lib/api';
 import { FileDown, ShieldCheck, AlertTriangle, Activity, Bot, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { SkeletonCard, SkeletonTable } from '@/components/Skeleton';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -134,9 +135,10 @@ export default function ReportsPage() {
 
             {loading && (
                 <div className="space-y-4">
-                    {[1,2,3,4].map(i => (
-                        <div key={i} className="animate-pulse bg-secondary rounded h-10 w-full" />
-                    ))}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                        {[1,2,3,4,5].map(i => <SkeletonCard key={i} />)}
+                    </div>
+                    <SkeletonTable rows={5} cols={4} />
                 </div>
             )}
 
@@ -204,6 +206,7 @@ export default function ReportsPage() {
                             </div>
                         ) : (
                             <div className="bg-card border border-border rounded-xl overflow-hidden">
+                                <div className="overflow-x-auto">
                                 <table className="w-full text-sm">
                                     <thead>
                                         <tr className="border-b border-border bg-secondary/50">
@@ -230,6 +233,7 @@ export default function ReportsPage() {
                                         })}
                                     </tbody>
                                 </table>
+                                </div>
                             </div>
                         )}
                     </section>
@@ -241,6 +245,7 @@ export default function ReportsPage() {
                             Cada registro contém uma assinatura HMAC-SHA256. O status &quot;Válida&quot; confirma integridade do registro.
                         </p>
                         <div className="bg-card border border-border rounded-xl overflow-hidden">
+                            <div className="overflow-x-auto">
                             <table className="w-full text-sm">
                                 <thead>
                                     <tr className="border-b border-border bg-secondary/50">
@@ -285,6 +290,7 @@ export default function ReportsPage() {
                                     ))}
                                 </tbody>
                             </table>
+                            </div>
                             {data.executions.length > 50 && (
                                 <div className="px-4 py-3 text-xs text-muted-foreground border-t border-border bg-secondary/30">
                                     Exibindo 50 de {data.executions.length} registros. Baixe o PDF para o relatório completo.

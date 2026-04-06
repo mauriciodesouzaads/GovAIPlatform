@@ -107,10 +107,12 @@ export default function ApprovalsPage() {
                 </div>
 
                 {/* Tabs */}
-                <div className="flex gap-2 p-1.5 bg-card border border-border rounded-xl w-fit shadow-sm">
+                <div role="tablist" className="flex gap-2 p-1.5 bg-card border border-border rounded-xl w-fit shadow-sm">
                     {(['pending', 'approved', 'rejected'] as const).map(t => (
                         <button
                             key={t}
+                            role="tab"
+                            aria-selected={tab === t}
                             onClick={() => setTab(t)}
                             className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-300 relative z-10 flex items-center gap-2 ${tab === t
                                 ? 'bg-background shadow-md text-foreground ring-1 ring-border/50'
@@ -272,7 +274,7 @@ export default function ApprovalsPage() {
                                                 <button
                                                     onClick={() => { setShowRejectModal(a.id); setRejectNote(''); }}
                                                     disabled={processing === a.id}
-                                                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-transparent border-2 border-destructive/50 hover:bg-destructive hover:border-destructive text-destructive hover:text-white rounded-xl text-sm font-bold transition-all"
+                                                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-transparent border-2 border-destructive/50 hover:bg-destructive hover:border-destructive text-destructive hover:text-foreground rounded-xl text-sm font-bold transition-all"
                                                 >
                                                     <XCircle className="w-5 h-5" /> Iniciar Rejeição
                                                 </button>

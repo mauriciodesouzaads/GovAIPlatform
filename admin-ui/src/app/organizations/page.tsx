@@ -1,9 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
 import api, { ENDPOINTS } from '@/lib/api';
 import { useAuth } from '@/components/AuthProvider';
+import { useToast } from '@/components/Toast';
 import { Building2, Plus, UserPlus, Pencil, X, Users, Bot, Clock, Calendar } from 'lucide-react';
+import { SkeletonTable } from '@/components/Skeleton';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,30 +20,17 @@ interface OrgRow {
     created_at: string;
 }
 
-// ── Toast ─────────────────────────────────────────────────────────────────────
-
-function Toast({ message, type, onClose }: { message: string; type: 'success' | 'error'; onClose: () => void }) {
-    useEffect(() => {
-        const t = setTimeout(onClose, 4000);
-        return () => clearTimeout(t);
-    }, [onClose]);
-
-    return (
-        <div className={`fixed top-5 right-5 z-[100] flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg text-sm font-medium border transition-all
-            ${type === 'success'
-                ? 'bg-emerald-900/90 text-emerald-300 border-emerald-700/60'
-                : 'bg-rose-900/90 text-rose-300 border-rose-700/60'}`}>
-            <span>{message}</span>
-            <button onClick={onClose} className="opacity-60 hover:opacity-100"><X className="w-4 h-4" /></button>
-        </div>
-    );
-}
-
 // ── Modal shell ───────────────────────────────────────────────────────────────
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+    useEscapeClose(onClose);
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm p-4">
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm p-4"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
             <div className="bg-card border border-border rounded-2xl w-full max-w-md shadow-2xl">
                 <div className="flex items-center justify-between px-6 py-4 border-b border-border">
                     <h2 className="text-base font-semibold text-foreground">{title}</h2>
@@ -255,9 +245,9 @@ function EditOrgModal({ org, onClose, onSuccess }: {
 
 export default function OrganizationsPage() {
     const { role } = useAuth();
+    const { toast } = useToast();
     const [orgs, setOrgs] = useState<OrgRow[]>([]);
     const [loading, setLoading] = useState(true);
-    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [showCreate, setShowCreate] = useState(false);
     const [inviteOrg, setInviteOrg] = useState<OrgRow | null>(null);
     const [editOrg, setEditOrg] = useState<OrgRow | null>(null);
@@ -268,7 +258,7 @@ export default function OrganizationsPage() {
             const res = await api.get(ENDPOINTS.PLATFORM_ORGS);
             setOrgs(res.data as OrgRow[]);
         } catch {
-            setToast({ message: 'Erro ao carregar organizações.', type: 'error' });
+            toast('Erro ao carregar organizações.', 'error');
         } finally {
             setLoading(false);
         }
@@ -277,7 +267,7 @@ export default function OrganizationsPage() {
     useEffect(() => { load(); }, [load]);
 
     function showSuccess(msg: string) {
-        setToast({ message: msg, type: 'success' });
+        toast(msg, 'success');
         load();
     }
 
@@ -343,7 +333,7 @@ export default function OrganizationsPage() {
                     </div>
 
                     {loading ? (
-                        <div className="px-6 py-12 text-center text-foreground/30 text-sm">Carregando...</div>
+                        <SkeletonTable rows={4} cols={7} />
                     ) : orgs.length === 0 ? (
                         <div className="px-6 py-12 text-center">
                             <Building2 className="w-8 h-8 text-foreground/15 mx-auto mb-3" />
@@ -441,10 +431,6 @@ export default function OrganizationsPage() {
                 <EditOrgModal org={editOrg} onClose={() => setEditOrg(null)} onSuccess={showSuccess} />
             )}
 
-            {/* Toast */}
-            {toast && (
-                <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
-            )}
         </div>
     );
 }

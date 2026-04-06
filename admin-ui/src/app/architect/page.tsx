@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useEscapeClose } from '@/hooks/useEscapeClose';
+import { SkeletonCard, SkeletonTable } from '@/components/Skeleton';
 import {
     BrainCircuit, Plus, RefreshCw, ChevronRight,
     ClipboardList, Search, CheckCircle2, GitBranch,
@@ -386,7 +388,7 @@ export default function ArchitectPage() {
             </div>
 
             {/* Section A: Status bar */}
-            <div className="grid grid-cols-4 gap-4 px-8 py-4 border-b border-border/30 shrink-0">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 px-8 py-4 border-b border-border/30 shrink-0">
                 {[
                     { label: 'Casos Ativos', value: activeCases, icon: ClipboardList, color: 'text-violet-400' },
                     { label: 'Em Discovery', value: discoveryCases, icon: Search, color: 'text-blue-400' },
@@ -411,9 +413,7 @@ export default function ArchitectPage() {
                 {/* Table */}
                 <div className="flex-1 overflow-auto px-8 py-4">
                     {loading && cases.length === 0 ? (
-                        <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
-                            Carregando...
-                        </div>
+                        <SkeletonTable rows={5} cols={5} />
                     ) : loadError ? (
                         <div className="flex flex-col items-center justify-center h-48 gap-3">
                             <AlertTriangle className="w-8 h-8 text-destructive/70" />
@@ -427,6 +427,7 @@ export default function ArchitectPage() {
                         </div>
                     ) : (
                         <div className="rounded-xl border border-border/40 overflow-hidden">
+                            <div className="overflow-x-auto">
                             <table className="w-full text-sm">
                                 <thead className="bg-secondary/20 border-b border-border/40">
                                     <tr>
@@ -467,6 +468,7 @@ export default function ArchitectPage() {
                                     ))}
                                 </tbody>
                             </table>
+                            </div>
                             <div className="px-4 py-2 border-t border-border/20 bg-secondary/10 text-xs text-muted-foreground">
                                 {total} caso{total !== 1 ? 's' : ''} no total
                             </div>
@@ -476,7 +478,7 @@ export default function ArchitectPage() {
 
                 {/* Side drawer */}
                 {selected !== null && (
-                    <div className="w-[480px] border-l border-border/50 bg-card/40 flex flex-col overflow-hidden shrink-0">
+                    <div className="w-full lg:w-[480px] border-l border-border/50 bg-card/40 flex flex-col overflow-hidden shrink-0">
                         {/* Drawer header */}
                         <div className="flex items-center justify-between px-5 py-4 border-b border-border/40">
                             <div className="flex-1 min-w-0">
@@ -494,7 +496,7 @@ export default function ArchitectPage() {
                         </div>
 
                         {/* Tabs */}
-                        <div className="flex border-b border-border/40 px-2 shrink-0">
+                        <div role="tablist" className="flex border-b border-border/40 px-2 shrink-0">
                             {[
                                 { id: 'demand', label: 'Demanda', icon: ClipboardList },
                                 { id: 'discovery', label: 'Discovery', icon: Search },
@@ -502,6 +504,8 @@ export default function ArchitectPage() {
                             ].map(tab => (
                                 <button
                                     key={tab.id}
+                                    role="tab"
+                                    aria-selected={drawerTab === tab.id}
                                     onClick={() => setDrawerTab(tab.id as typeof drawerTab)}
                                     className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors ${
                                         drawerTab === tab.id
@@ -517,15 +521,16 @@ export default function ArchitectPage() {
 
                         {/* Drawer body */}
                         {drawerLoading ? (
-                            <div className="flex items-center justify-center flex-1 text-muted-foreground text-sm">
-                                Carregando...
+                            <div className="p-5 space-y-3">
+                                <SkeletonCard />
+                                <SkeletonCard />
                             </div>
                         ) : (
                             <div className="flex-1 overflow-y-auto p-5 space-y-4">
 
                                 {/* ── TAB: Demanda ── */}
                                 {drawerTab === 'demand' && (
-                                    <div className="space-y-4">
+                                    <div role="tabpanel" className="space-y-4">
                                         <div className="space-y-1">
                                             <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Descrição</p>
                                             <p className="text-sm text-foreground">{selected.case.description ?? '—'}</p>
@@ -619,7 +624,7 @@ export default function ArchitectPage() {
 
                                 {/* ── TAB: Discovery ── */}
                                 {drawerTab === 'discovery' && (
-                                    <div className="space-y-4">
+                                    <div role="tabpanel" className="space-y-4">
                                         {/* Confidence score */}
                                         {discoveryStatus && (
                                             <div className="rounded-lg border border-border/40 bg-secondary/10 p-4">
@@ -756,7 +761,7 @@ export default function ArchitectPage() {
 
                                 {/* ── TAB: Decisão ── */}
                                 {drawerTab === 'decision' && (
-                                    <div className="space-y-4">
+                                    <div role="tabpanel" className="space-y-4">
                                         {selected.decisions.length === 0 ? (
                                             <p className="text-sm text-muted-foreground">Nenhuma decisão arquitetural criada ainda.</p>
                                         ) : (
@@ -900,11 +905,42 @@ export default function ArchitectPage() {
 
             {/* Section C: New Case Modal */}
             {showNewCase && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
+                <NewCaseModal
+                    newTitle={newTitle} setNewTitle={setNewTitle}
+                    newDesc={newDesc} setNewDesc={setNewDesc}
+                    newSourceType={newSourceType} setNewSourceType={setNewSourceType}
+                    newPriority={newPriority} setNewPriority={setNewPriority}
+                    creating={creating} onClose={() => setShowNewCase(false)} onCreate={createCase}
+                    role={role}
+                />
+            )}
+        </div>
+    );
+}
+
+// ── New Case Modal (extracted to enable useEscapeClose hook) ─────────────────
+
+function NewCaseModal({ newTitle, setNewTitle, newDesc, setNewDesc, newSourceType, setNewSourceType, newPriority, setNewPriority, creating, onClose, onCreate, role }: {
+    newTitle: string; setNewTitle: (v: string) => void;
+    newDesc: string; setNewDesc: (v: string) => void;
+    newSourceType: string; setNewSourceType: (v: string) => void;
+    newPriority: string; setNewPriority: (v: string) => void;
+    creating: boolean; onClose: () => void; onCreate: () => void; role: string;
+}) {
+    useEscapeClose(onClose);
+
+    return (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="new-case-title"
+                    onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+                >
                     <div className="w-full max-w-lg rounded-2xl border border-border/50 bg-card shadow-2xl p-6 space-y-4 mx-4">
                         <div className="flex items-center justify-between">
-                            <h2 className="text-base font-bold text-foreground">Nova Demanda</h2>
-                            <button onClick={() => setShowNewCase(false)} className="p-1.5 rounded-lg hover:bg-secondary/40 text-muted-foreground transition-colors">
+                            <h2 id="new-case-title" className="text-base font-bold text-foreground">Nova Demanda</h2>
+                            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary/40 text-muted-foreground transition-colors">
                                 <X className="w-4 h-4" />
                             </button>
                         </div>
@@ -961,13 +997,13 @@ export default function ArchitectPage() {
 
                         <div className="flex justify-end gap-2 pt-1">
                             <button
-                                onClick={() => setShowNewCase(false)}
+                                onClick={onClose}
                                 className="px-4 py-2 rounded-lg border border-border/40 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/30 transition-colors"
                             >
                                 Cancelar
                             </button>
                             <button
-                                onClick={createCase}
+                                onClick={onCreate}
                                 disabled={creating || !newTitle.trim()}
                                 className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
                             >
@@ -976,7 +1012,5 @@ export default function ArchitectPage() {
                         </div>
                     </div>
                 </div>
-            )}
-        </div>
     );
 }
