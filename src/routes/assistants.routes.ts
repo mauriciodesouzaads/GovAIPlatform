@@ -798,4 +798,103 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
 
     // List Pending Approvals
 
+    // POST /v1/admin/assistants/:assistantId/exit-perimeter
+    // Hard clickwrap audit: records the user's voluntary exit from the governed environment.
+    // Creates a cryptographic audit log entry (HMAC-SHA256) before redirecting to the external AI tool.
+    app.post('/v1/admin/assistants/:assistantId/exit-perimeter', {
+        preHandler: requireRole(['admin', 'operator', 'user']),
+    }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { assistantId } = request.params as { assistantId: string };
+        const body = request.body as {
+            target_url?: string;
+            acknowledgment?: boolean;
+            confirmation_method?: string;
+        };
+
+        // Validate acknowledgment — must be true; a false value means user did not accept
+        if (body.acknowledgment !== true) {
+            return reply.status(400).send({ error: 'Reconhecimento obrigatório: o usuário deve aceitar os termos antes de sair do perímetro governado.' });
+        }
+
+        const targetUrl = body.target_url;
+        if (!targetUrl || typeof targetUrl !== 'string' || !targetUrl.startsWith('http')) {
+            return reply.status(400).send({ error: "Campo 'target_url' é obrigatório e deve ser uma URL válida." });
+        }
+
+        const signingSecret = process.env.SIGNING_SECRET;
+        if (!signingSecret) {
+            app.log.error('SIGNING_SECRET não configurado — exit-perimeter audit log não pode ser assinado');
+            return reply.status(500).send({ error: 'Configuração de segurança incompleta.' });
+        }
+
+        const authUser = request.user as { userId?: string; sub?: string; email?: string };
+        const userId = authUser.userId ?? authUser.sub ?? 'unknown';
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            // Verify assistant exists and belongs to this org
+            const assistantCheck = await client.query(
+                `SELECT id, name, lifecycle_state FROM assistants WHERE id = $1 AND org_id = $2`,
+                [assistantId, orgId]
+            );
+            if (assistantCheck.rows.length === 0) {
+                return reply.status(404).send({ error: 'Assistente não encontrado.' });
+            }
+
+            const traceId = crypto.randomUUID();
+            const sessionHash = crypto
+                .createHash('sha256')
+                .update(userId + (request.headers.authorization ?? ''))
+                .digest('hex');
+
+            const auditPayload = {
+                action: 'EXIT_GOVERNED_PERIMETER',
+                trace_id: traceId,
+                user_id: userId,
+                assistant_id: assistantId,
+                assistant_name: assistantCheck.rows[0].name,
+                target_url: targetUrl,
+                confirmation_method: body.confirmation_method ?? 'checkbox',
+                ip_address: request.ip,
+                user_agent: request.headers['user-agent'] ?? null,
+                timestamp: new Date().toISOString(),
+                session_hash: sessionHash,
+                org_id: orgId,
+            };
+
+            const signature = IntegrityService.signPayload(auditPayload, signingSecret);
+
+            await client.query(
+                `INSERT INTO audit_logs_partitioned (id, action, metadata, signature, org_id)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [traceId, 'EXIT_GOVERNED_PERIMETER', JSON.stringify(auditPayload), signature, orgId]
+            );
+
+            app.log.warn({
+                event: 'exit_governed_perimeter',
+                trace_id: traceId,
+                user_id: userId,
+                assistant_id: assistantId,
+                target_url: targetUrl,
+                ip: request.ip,
+            }, 'User exited governed perimeter — clickwrap audit log persisted');
+
+            return reply.send({
+                success: true,
+                redirect_url: targetUrl,
+                trace_id: traceId,
+            });
+        } catch (error) {
+            app.log.error(error, 'Error persisting exit-perimeter audit log');
+            return reply.status(500).send({ error: 'Erro ao registrar saída do perímetro.' });
+        } finally {
+            client.release();
+        }
+    });
+
 }

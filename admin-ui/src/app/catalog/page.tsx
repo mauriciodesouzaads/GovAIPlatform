@@ -12,6 +12,7 @@ import { useToast } from '@/components/Toast';
 import { useAuth } from '@/components/AuthProvider';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge, lifecycleBadge, riskBadge } from '@/components/Badge';
+import { ExitPerimeterModal } from '@/components/ExitPerimeterModal';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -147,9 +148,10 @@ interface DrawerProps {
     onClose: () => void;
     onReload: () => void;
     isAdmin: boolean;
+    onOpenExitModal: (a: Assistant) => void;
 }
 
-function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdmin }: DrawerProps) {
+function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdmin, onOpenExitModal }: DrawerProps) {
     const [tab, setTab] = useState<DrawerTab>('details');
     const [assistant, setAssistant] = useState(initialAssistant);
     const [actionLoading, setActionLoading] = useState(false);
@@ -495,6 +497,25 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                 )}
                             </div>
 
+                            {/* Modo 2: Abrir na Origem */}
+                            {state === 'official' && (
+                                <div className="border-t border-border pt-4 mt-2">
+                                    <p className="text-xs text-muted-foreground mb-2">
+                                        Execução fora do ambiente governado
+                                    </p>
+                                    <button
+                                        onClick={() => onOpenExitModal(assistant)}
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 text-sm font-medium transition-colors"
+                                    >
+                                        <ExternalLink className="w-4 h-4" />
+                                        Abrir na Origem ↗
+                                    </button>
+                                    <p className="text-[11px] text-amber-500/60 mt-1 text-center">
+                                        Dados não serão auditados nem mascarados
+                                    </p>
+                                </div>
+                            )}
+
                             {/* Playground admin link */}
                             <div className="space-y-2">
                                 <p className="text-xs text-muted-foreground">Teste no Playground com o pipeline completo (OPA + DLP + HITL).</p>
@@ -648,6 +669,7 @@ export default function CatalogPage() {
     const [lifecycleFilter, setLifecycleFilter] = useState('all');
     const [riskFilter, setRiskFilter] = useState('all');
     const [selected, setSelected] = useState<Assistant | null>(null);
+    const [exitModalAssistant, setExitModalAssistant] = useState<Assistant | null>(null);
     const { toast } = useToast();
     const { role } = useAuth();
     const isAdmin = role === 'admin';
@@ -778,8 +800,17 @@ export default function CatalogPage() {
                     onClose={() => setSelected(null)}
                     onReload={load}
                     isAdmin={isAdmin}
+                    onOpenExitModal={setExitModalAssistant}
                 />
             )}
+
+            {/* Exit Perimeter Modal */}
+            <ExitPerimeterModal
+                open={!!exitModalAssistant}
+                onClose={() => setExitModalAssistant(null)}
+                assistant={exitModalAssistant ?? { id: '', name: '' }}
+                targetUrl="https://chatgpt.com"
+            />
         </div>
     );
 }

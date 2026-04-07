@@ -8,6 +8,7 @@ import {
     Send, Loader2, ShieldCheck, AlertTriangle,
     MessageSquare, Clock, ShieldAlert, Copy, Check,
 } from 'lucide-react';
+import { ExitPerimeterModal } from '@/components/ExitPerimeterModal';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -100,6 +101,7 @@ function ChatUI({ assistantId }: { assistantId: string }) {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [loadingInfo, setLoadingInfo] = useState(true);
+    const [showExitModal, setShowExitModal] = useState(false);
     const [sessionId] = useState(() =>
         typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).slice(2)
     );
@@ -274,6 +276,12 @@ function ChatUI({ assistantId }: { assistantId: string }) {
                 <p className="text-xs text-amber-800 leading-relaxed">
                     <strong>Esta sessão é monitorada e governada pela política da sua organização.</strong>{' '}
                     Todo acesso é registrado e auditável.
+                    <button
+                        onClick={() => setShowExitModal(true)}
+                        className="text-xs text-amber-600/60 hover:text-amber-600 underline ml-2"
+                    >
+                        Usar fora do ambiente governado
+                    </button>
                 </p>
             </div>
 
@@ -398,6 +406,14 @@ function ChatUI({ assistantId }: { assistantId: string }) {
                     Session: {sessionId.substring(0, 8)}…
                 </p>
             </div>
+
+            {/* Exit Perimeter Modal */}
+            <ExitPerimeterModal
+                open={showExitModal}
+                onClose={() => setShowExitModal(false)}
+                assistant={{ id: assistantId, name: assistantInfo?.name ?? 'Este assistente' }}
+                targetUrl="https://chatgpt.com"
+            />
         </div>
     );
 }

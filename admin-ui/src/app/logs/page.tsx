@@ -103,11 +103,14 @@ export default function AuditLogsPage() {
                                             <td className="px-4 py-3">
                                                 <Badge
                                                     variant={
+                                                        log.action === 'EXIT_GOVERNED_PERIMETER' ? 'warning' :
                                                         log.action.includes('VIOLATION') ? 'error' :
                                                         log.action.includes('SUCCESS') ? 'success' : 'info'
                                                     }
                                                 >
-                                                    {log.action.replace(/_/g, ' ')}
+                                                    {log.action === 'EXIT_GOVERNED_PERIMETER'
+                                                        ? 'SAÍDA DO PERÍMETRO'
+                                                        : log.action.replace(/_/g, ' ')}
                                                 </Badge>
                                             </td>
                                             <td className="hidden md:table-cell px-4 py-3 font-mono text-xs text-muted-foreground">
@@ -115,7 +118,10 @@ export default function AuditLogsPage() {
                                             </td>
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center justify-center">
-                                                    <div className={`w-2 h-2 rounded-full ${log.action.includes('VIOLATION') ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+                                                    <div className={`w-2 h-2 rounded-full ${
+                                                        log.action === 'EXIT_GOVERNED_PERIMETER' ? 'bg-amber-500' :
+                                                        log.action.includes('VIOLATION') ? 'bg-rose-500' : 'bg-emerald-500'
+                                                    }`} />
                                                 </div>
                                             </td>
                                         </tr>

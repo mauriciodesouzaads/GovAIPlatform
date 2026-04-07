@@ -68,6 +68,7 @@ export const ENDPOINTS = {
     CATALOG_REVIEW:           (id: string) => `/v1/admin/assistants/${id}/catalog-review`,
     CATALOG_SUSPEND:          (id: string) => `/v1/admin/assistants/${id}/suspend`,
     CATALOG_ARCHIVE:          (id: string) => `/v1/admin/assistants/${id}/archive`,
+    CATALOG_EXIT_PERIMETER:   (id: string) => `/v1/admin/assistants/${id}/exit-perimeter`,
 
     // Platform Admin — Organization Management
     PLATFORM_ORGS:            '/v1/admin/organizations',

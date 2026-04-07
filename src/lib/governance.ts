@@ -13,6 +13,7 @@ export const ActionType = z.enum([
     'QUOTA_EXCEEDED',
     'TELEMETRY_CONSENT_GRANTED',
     'TELEMETRY_CONSENT_REVOKED',
+    'EXIT_GOVERNED_PERIMETER',
 ]);
 export type ActionType = z.infer<typeof ActionType>;
 
