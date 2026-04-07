@@ -22,8 +22,8 @@ describe('Assistant Versions Contract (Etapa 2.2)', () => {
                     if (q.includes('COMMIT')) return { rowCount: 1 };
                     if (q.includes('ROLLBACK')) return { rowCount: 1 };
 
-                    if (q.includes('SELECT name FROM assistants')) {
-                        if (values[0] === 'valid-id') return { rowCount: 1, rows: [{ name: 'Test Assistant' }] };
+                    if (q.includes('FROM assistants WHERE id')) {
+                        if (values[0] === 'valid-id') return { rowCount: 1, rows: [{ name: 'Test Assistant', risk_level: 'low' }] };
                         return { rowCount: 0, rows: [] };
                     }
                     if (q.includes('INSERT INTO policy_versions')) {

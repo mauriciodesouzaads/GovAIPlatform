@@ -37,7 +37,12 @@ export default function AssistantsPage() {
 
     // New Version Modal State
     const [showNewVersionModal, setShowNewVersionModal] = useState(false);
-    const [versionData, setVersionData] = useState({ assistantId: '', policyJson: '{\n  "version": "1.0",\n  "rules": []\n}' });
+    const [versionData, setVersionData] = useState({
+        assistantId: '',
+        policyJson: '{\n  "version": "1.0",\n  "rules": []\n}',
+        changeType: 'patch' as 'major' | 'minor' | 'patch',
+        changelog: '',
+    });
 
     const [fetchError, setFetchError] = useState(false);
     const { toast } = useToast();
@@ -155,6 +160,8 @@ export default function AssistantsPage() {
             const policy = JSON.parse(versionData.policyJson);
             await api.post(`${ENDPOINTS.ASSISTANTS}/${versionData.assistantId}/versions`, {
                 policy_json: policy,
+                change_type: versionData.changeType,
+                changelog: versionData.changelog || undefined,
             });
             toast('Versão criada em rascunho. Execute a homologação para publicar.', 'success');
             setShowNewVersionModal(false);
@@ -349,10 +356,35 @@ export default function AssistantsPage() {
                                     <textarea
                                         value={versionData.policyJson}
                                         onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setVersionData(v => ({ ...v, policyJson: e.target.value }))}
-                                        rows={10}
+                                        rows={8}
                                         className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-sm font-mono outline-none focus:ring-2 focus:ring-ring resize-none"
                                         placeholder='{ "rules": [...] }'
                                     />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold uppercase text-muted-foreground">Tipo de Mudança (Semver)</label>
+                                        <select
+                                            value={versionData.changeType}
+                                            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setVersionData(v => ({ ...v, changeType: e.target.value as 'major' | 'minor' | 'patch' }))}
+                                            className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                                        >
+                                            <option value="patch">patch — correção / ajuste</option>
+                                            <option value="minor">minor — nova funcionalidade</option>
+                                            <option value="major">major — breaking change</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold uppercase text-muted-foreground">Changelog (opcional)</label>
+                                        <input
+                                            type="text"
+                                            value={versionData.changelog}
+                                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVersionData(v => ({ ...v, changelog: e.target.value }))}
+                                            placeholder="Descreva a mudança..."
+                                            className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                                        />
+                                    </div>
                                 </div>
                             </div>
 

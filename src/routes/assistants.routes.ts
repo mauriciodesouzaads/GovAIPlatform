@@ -208,13 +208,13 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         }
     });
 
-    // Create new assistant version (Draft)
+    // Create new assistant version (Draft) — with semantic versioning
     app.post('/v1/admin/assistants/:assistantId/versions', { preHandler: requireRole(['admin']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
         const { assistantId } = request.params as { assistantId: string };
-        const { policy_json, publish } = request.body as any;
+        const { policy_json, publish, change_type, changelog } = request.body as any;
 
         if (!policy_json) return reply.status(400).send({ error: "Campo 'policy_json' obrigatório." });
 
@@ -224,6 +224,9 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                 error: 'Publicação direta não é permitida. Crie a versão em rascunho e use o endpoint formal de homologação.',
             });
         }
+
+        const VALID_CHANGE_TYPES = ['major', 'minor', 'patch'];
+        const changeType: string = VALID_CHANGE_TYPES.includes(change_type) ? change_type : 'patch';
         const versionStatus = 'draft';
 
         const client = await pgPool.connect();
@@ -231,7 +234,10 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
             await client.query('BEGIN');
 
-            const astRes = await client.query('SELECT name FROM assistants WHERE id = $1 AND org_id = $2', [assistantId, orgId]);
+            const astRes = await client.query(
+                'SELECT name, risk_level FROM assistants WHERE id = $1 AND org_id = $2',
+                [assistantId, orgId]
+            );
             if (astRes.rowCount === 0) {
                 await client.query('ROLLBACK');
                 return reply.status(404).send({ error: "Assistente não encontrado." });
@@ -250,15 +256,54 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             );
             const nextVersion = verRes.rows[0].max_v + 1;
 
+            // Compute semantic version based on previous version
+            const prevRes = await client.query(
+                `SELECT version_major, version_minor, version_patch
+                 FROM assistant_versions
+                 WHERE assistant_id = $1 AND org_id = $2
+                 ORDER BY created_at DESC LIMIT 1`,
+                [assistantId, orgId]
+            );
+
+            let major = 1, minor = 0, patch = 0;
+            if (prevRes.rows.length > 0) {
+                const prev = prevRes.rows[0];
+                major = prev.version_major ?? 1;
+                minor = prev.version_minor ?? 0;
+                patch = prev.version_patch ?? 0;
+                if (changeType === 'major') { major++; minor = 0; patch = 0; }
+                else if (changeType === 'minor') { minor++; patch = 0; }
+                else { patch++; }
+            }
+
+            // Log advisory for governance
+            if (changeType === 'major') {
+                app.log.warn({ assistantId, major, minor, patch },
+                    'Major version bump: full multi-track re-approval will be required.');
+            } else if (changeType === 'patch' && astRes.rows[0].risk_level === 'low') {
+                app.log.info({ assistantId }, 'Patch on low-risk assistant: auto-approval may be configured in future.');
+            }
+
             const newVerRes = await client.query(
-                `INSERT INTO assistant_versions (org_id, assistant_id, policy_version_id, prompt, version, status)
-                 VALUES ($1, $2, $3, 'Você é um assistente da GovAI.', $4, $5) RETURNING id`,
-                [orgId, assistantId, policyVersionId, nextVersion, versionStatus]
+                `INSERT INTO assistant_versions
+                    (org_id, assistant_id, policy_version_id, prompt, version, status,
+                     version_major, version_minor, version_patch, change_type, changelog)
+                 VALUES ($1, $2, $3, 'Você é um assistente da GovAI.', $4, $5, $6, $7, $8, $9, $10)
+                 RETURNING id`,
+                [orgId, assistantId, policyVersionId, nextVersion, versionStatus,
+                 major, minor, patch, changeType, changelog ?? null]
             );
             const newVersionId = newVerRes.rows[0].id;
 
             await client.query('COMMIT');
-            return reply.status(201).send({ id: newVersionId, status: versionStatus, version: nextVersion, assistant_id: assistantId });
+            return reply.status(201).send({
+                id: newVersionId,
+                status: versionStatus,
+                version: nextVersion,
+                version_label: `${major}.${minor}.${patch}`,
+                change_type: changeType,
+                assistant_id: assistantId,
+            });
         } catch (error) {
             await client.query('ROLLBACK');
             app.log.error(error, "Error creating assistant version");
@@ -459,11 +504,19 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                     a.risk_justification, a.capability_tags, a.owner_email,
                     a.reviewed_at, a.suspended_at, a.archived_at, a.created_at, a.updated_at,
                     COUNT(DISTINCT av.id)::int AS version_count,
-                    MAX(av.created_at) AS last_version_at
+                    MAX(av.created_at) AS last_version_at,
+                    lv.version_major, lv.version_minor, lv.version_patch, lv.change_type,
+                    CONCAT(lv.version_major, '.', lv.version_minor, '.', lv.version_patch) AS version_label
                  FROM assistants a
                  LEFT JOIN assistant_versions av ON av.assistant_id = a.id
+                 LEFT JOIN LATERAL (
+                     SELECT version_major, version_minor, version_patch, change_type
+                     FROM assistant_versions
+                     WHERE assistant_id = a.id AND org_id = a.org_id
+                     ORDER BY created_at DESC LIMIT 1
+                 ) lv ON true
                  WHERE ${conditions.join(' AND ')}
-                 GROUP BY a.id
+                 GROUP BY a.id, lv.version_major, lv.version_minor, lv.version_patch, lv.change_type
                  ORDER BY a.created_at DESC
                  LIMIT 50`,
                 params
@@ -587,6 +640,19 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                 metadata: { previousState: 'draft', newState: 'under_review' },
             });
 
+            // Create pending review_decisions for all org tracks
+            const tracksRes = await client.query(
+                `SELECT id FROM review_tracks WHERE org_id = $1 ORDER BY sort_order`,
+                [orgId]
+            );
+            for (const track of tracksRes.rows) {
+                await client.query(
+                    `INSERT INTO review_decisions (org_id, assistant_id, track_id, decision)
+                     VALUES ($1, $2, $3, 'pending')`,
+                    [orgId, id, track.id]
+                );
+            }
+
             return reply.send({ success: true, assistant: res.rows[0] });
         } catch (error) {
             app.log.error(error, 'Error submitting for review');
@@ -635,6 +701,31 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                  VALUES ($1, $2, $3, $4, 'under_review', $5, $6, $7)`,
                 [orgId, id, authUser.userId ?? null, authUser.email ?? null, newState, decision, comments ?? null]
             );
+
+            // Backward compat: auto-approve central track when decision is 'approved'
+            if (decision === 'approved') {
+                const centralRes = await client.query(
+                    `SELECT id FROM review_tracks WHERE org_id = $1 AND slug = 'central' LIMIT 1`,
+                    [orgId]
+                );
+                if (centralRes.rows.length > 0) {
+                    const centralTrackId = centralRes.rows[0].id;
+                    const pendingDecRes = await client.query(
+                        `SELECT id FROM review_decisions
+                         WHERE assistant_id = $1 AND track_id = $2 AND org_id = $3 AND decision = 'pending'
+                         ORDER BY created_at DESC LIMIT 1`,
+                        [id, centralTrackId, orgId]
+                    );
+                    if (pendingDecRes.rows.length > 0) {
+                        await client.query(
+                            `UPDATE review_decisions
+                             SET decision = 'approved', reviewer_id = $1, reviewer_email = $2, decided_at = now()
+                             WHERE id = $3`,
+                            [authUser.userId ?? null, authUser.email ?? null, pendingDecRes.rows[0].id]
+                        );
+                    }
+                }
+            }
 
             await client.query('COMMIT');
 
@@ -1387,6 +1478,180 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         } catch (error) {
             app.log.error(error, 'Error generating evidence PDF');
             return reply.status(500).send({ error: 'Erro ao gerar PDF de evidências.' });
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+    // ── REVIEW TRACKS (FASE-B1) ──────────────────────────────────────────────
+
+    // GET /v1/admin/review-tracks — list org's review tracks ordered by sort_order
+    app.get('/v1/admin/review-tracks', { preHandler: requireTenantRole(['admin', 'dpo', 'auditor', 'operator']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `SELECT id, name, slug, description, is_required, sla_hours, sort_order, created_at
+                 FROM review_tracks
+                 WHERE org_id = $1
+                 ORDER BY sort_order ASC`,
+                [orgId]
+            );
+            return reply.send({ total: res.rowCount, tracks: res.rows });
+        } catch (error) {
+            app.log.error(error, 'Error fetching review tracks');
+            return reply.status(500).send({ error: 'Erro ao buscar review tracks.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // GET /v1/admin/assistants/:id/review-status — per-track decisions for one assistant
+    app.get('/v1/admin/assistants/:id/review-status', { preHandler: requireTenantRole(['admin', 'dpo', 'auditor', 'operator']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { id } = request.params as { id: string };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            // Latest decision per track using DISTINCT ON
+            const res = await client.query(
+                `SELECT latest.id, latest.track_id, rt.name AS track_name, rt.slug AS track_slug,
+                        rt.is_required, rt.sla_hours, latest.decision, latest.reviewer_email,
+                        latest.notes, latest.decided_at, latest.created_at
+                 FROM (
+                     SELECT DISTINCT ON (track_id) id, track_id, decision, reviewer_email,
+                            notes, decided_at, created_at
+                     FROM review_decisions
+                     WHERE assistant_id = $1 AND org_id = $2
+                     ORDER BY track_id, created_at DESC
+                 ) latest
+                 JOIN review_tracks rt ON rt.id = latest.track_id
+                 WHERE rt.org_id = $2
+                 ORDER BY rt.sort_order ASC`,
+                [id, orgId]
+            );
+
+            const decisions = res.rows;
+            const all_required_approved = decisions
+                .filter(d => d.is_required)
+                .every(d => d.decision === 'approved');
+            const any_rejected = decisions.some(d => d.decision === 'rejected');
+            const pending_count = decisions.filter(d => d.decision === 'pending').length;
+
+            return reply.send({
+                assistant_id: id,
+                decisions,
+                summary: { all_required_approved, any_rejected, pending_count },
+            });
+        } catch (error) {
+            app.log.error(error, 'Error fetching review status');
+            return reply.status(500).send({ error: 'Erro ao buscar status de revisão.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // POST /v1/admin/assistants/:id/review/:trackId — approve or reject a specific track
+    app.post('/v1/admin/assistants/:id/review/:trackId', { preHandler: requireTenantRole(['admin', 'dpo']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const authUser = request.user as { userId?: string; email?: string };
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { id, trackId } = request.params as { id: string; trackId: string };
+        const { decision, notes } = request.body as { decision: string; notes?: string };
+
+        if (!['approved', 'rejected'].includes(decision)) {
+            return reply.status(400).send({ error: "decision deve ser 'approved' ou 'rejected'." });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            await client.query('BEGIN');
+
+            // Find the latest pending decision for this track
+            const pendingRes = await client.query(
+                `SELECT id FROM review_decisions
+                 WHERE assistant_id = $1 AND track_id = $2 AND org_id = $3 AND decision = 'pending'
+                 ORDER BY created_at DESC LIMIT 1`,
+                [id, trackId, orgId]
+            );
+            if (pendingRes.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return reply.status(404).send({ error: 'Nenhuma decisão pendente encontrada para esta track.' });
+            }
+
+            const decisionId = pendingRes.rows[0].id;
+            await client.query(
+                `UPDATE review_decisions
+                 SET decision = $1, reviewer_id = $2, reviewer_email = $3, notes = $4, decided_at = now()
+                 WHERE id = $5`,
+                [decision, authUser.userId ?? null, authUser.email ?? null, notes ?? null, decisionId]
+            );
+
+            // Check auto-transition: latest decision per track
+            const statusRes = await client.query(
+                `SELECT rt.is_required, latest.decision
+                 FROM (
+                     SELECT DISTINCT ON (track_id) track_id, decision
+                     FROM review_decisions
+                     WHERE assistant_id = $1 AND org_id = $2
+                     ORDER BY track_id, created_at DESC
+                 ) latest
+                 JOIN review_tracks rt ON rt.id = latest.track_id
+                 WHERE rt.org_id = $2`,
+                [id, orgId]
+            );
+
+            const allDecisions = statusRes.rows;
+            const anyRejected = allDecisions.some(d => d.decision === 'rejected');
+            const allRequiredApproved = allDecisions.filter(d => d.is_required).every(d => d.decision === 'approved');
+
+            let newLifecycleState: string | null = null;
+            if (anyRejected) {
+                const rejectRes = await client.query(
+                    `UPDATE assistants SET lifecycle_state = 'draft', updated_at = now()
+                     WHERE id = $1 AND org_id = $2 AND lifecycle_state = 'under_review'
+                     RETURNING id`,
+                    [id, orgId]
+                );
+                if (rejectRes.rows.length > 0) newLifecycleState = 'draft';
+            } else if (allRequiredApproved) {
+                const approveRes = await client.query(
+                    `UPDATE assistants
+                     SET lifecycle_state = 'approved', reviewed_by = $1, reviewed_at = now(), updated_at = now()
+                     WHERE id = $2 AND org_id = $3 AND lifecycle_state = 'under_review'
+                     RETURNING id`,
+                    [authUser.userId ?? null, id, orgId]
+                );
+                if (approveRes.rows.length > 0) newLifecycleState = 'approved';
+            }
+
+            await client.query('COMMIT');
+
+            if (newLifecycleState) {
+                await recordEvidence(client, {
+                    orgId, category: 'publication',
+                    eventType: newLifecycleState === 'approved' ? 'CATALOG_REVIEWED' : 'REVIEW_REJECTED',
+                    actorId: authUser.userId ?? null, actorEmail: authUser.email ?? null,
+                    resourceType: 'assistant', resourceId: id,
+                    metadata: { trackId, decision, newLifecycleState, notes: notes ?? null },
+                });
+            }
+
+            return reply.send({ success: true, decision_id: decisionId, decision, new_lifecycle_state: newLifecycleState });
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            app.log.error(error, 'Error processing track review decision');
+            return reply.status(500).send({ error: 'Erro ao processar decisão de track.' });
         } finally {
             await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
             client.release();

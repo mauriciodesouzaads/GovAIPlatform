@@ -638,4 +638,62 @@ VALUES (
     '00000000-0000-0000-0001-000000000003'
 ) ON CONFLICT (id) DO NOTHING;
 
+-- ── Review Tracks (3 default tracks for demo org) ────────────────────────────
+
+INSERT INTO review_tracks (id, org_id, name, slug, description, is_required, sla_hours, sort_order)
+VALUES
+    ('00000000-0000-0000-000D-000000000001', '00000000-0000-0000-0000-000000000001',
+     'Revisão Central', 'central',
+     'Revisão geral de qualidade, adequação ao caso de uso e alinhamento com padrões da organização.',
+     true, 72, 1),
+    ('00000000-0000-0000-000D-000000000002', '00000000-0000-0000-0000-000000000001',
+     'Revisão de Segurança', 'security',
+     'Revisão de conectores, classificação de dados, configuração de guardrails e permissões.',
+     true, 48, 2),
+    ('00000000-0000-0000-000D-000000000003', '00000000-0000-0000-0000-000000000001',
+     'Revisão de Compliance', 'compliance',
+     'Revisão de conformidade regulatória, adequação à LGPD, risco de responsabilização.',
+     false, 120, 3)
+ON CONFLICT (org_id, slug) DO NOTHING;
+
+-- ── Review Decisions (Chatbot Atendimento — currently under_review) ──────────
+
+INSERT INTO review_decisions (id, org_id, assistant_id, track_id, decision, notes, created_at)
+VALUES
+    ('00000000-0000-0000-000E-000000000001', '00000000-0000-0000-0000-000000000001',
+     '00000000-0000-0000-0002-000000000005',  -- Chatbot Atendimento
+     '00000000-0000-0000-000D-000000000001',  -- Central
+     'approved', 'Caso de uso adequado para atendimento N1. Prompts revisados.',
+     now() - interval '2 days'),
+    ('00000000-0000-0000-000E-000000000002', '00000000-0000-0000-0000-000000000001',
+     '00000000-0000-0000-0002-000000000005',
+     '00000000-0000-0000-000D-000000000002',  -- Segurança
+     'pending', NULL, now() - interval '1 day'),
+    ('00000000-0000-0000-000E-000000000003', '00000000-0000-0000-0000-000000000001',
+     '00000000-0000-0000-0002-000000000005',
+     '00000000-0000-0000-000D-000000000003',  -- Compliance
+     'pending', NULL, now() - interval '1 day')
+ON CONFLICT DO NOTHING;
+
+-- ── Review Decisions (Assistente Jurídico — all 3 tracks historically approved) ──
+
+INSERT INTO review_decisions (id, org_id, assistant_id, track_id, reviewer_id, reviewer_email, decision, notes, decided_at, created_at)
+VALUES
+    ('00000000-0000-0000-000E-000000000004', '00000000-0000-0000-0000-000000000001',
+     '00000000-0000-0000-0002-000000000001', '00000000-0000-0000-000D-000000000001',
+     '55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab', 'admin@orga.com',
+     'approved', 'Revisão central concluída.',
+     now() - interval '50 days', now() - interval '52 days'),
+    ('00000000-0000-0000-000E-000000000005', '00000000-0000-0000-0000-000000000001',
+     '00000000-0000-0000-0002-000000000001', '00000000-0000-0000-000D-000000000002',
+     '00000000-0000-0000-0001-000000000004', 'ciso@orga.com',
+     'approved', 'Segurança validada. Dados confidenciais com PII blocker ativo.',
+     now() - interval '48 days', now() - interval '52 days'),
+    ('00000000-0000-0000-000E-000000000006', '00000000-0000-0000-0000-000000000001',
+     '00000000-0000-0000-0002-000000000001', '00000000-0000-0000-000D-000000000003',
+     '00000000-0000-0000-0001-000000000002', 'compliance@orga.com',
+     'approved', 'Compliance LGPD validado.',
+     now() - interval '46 days', now() - interval '52 days')
+ON CONFLICT DO NOTHING;
+
 COMMIT;

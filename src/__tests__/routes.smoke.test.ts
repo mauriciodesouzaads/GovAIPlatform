@@ -99,8 +99,8 @@ function createSuccessClient() {
             if (sql.includes("INSERT INTO assistant_versions") && sql.includes("RETURNING id")) {
                 return { rows: [{ id: VER_ID }] };
             }
-            if (sql.includes('SELECT name FROM assistants WHERE id')) {
-                return { rows: [{ name: 'Test Assistant' }], rowCount: 1 };
+            if (sql.includes('risk_level') && sql.includes('FROM assistants WHERE id')) {
+                return { rows: [{ name: 'Test Assistant', risk_level: 'low' }], rowCount: 1 };
             }
             if (sql.includes('INSERT INTO policy_versions')) {
                 return { rows: [{ id: 'pv-2' }] };

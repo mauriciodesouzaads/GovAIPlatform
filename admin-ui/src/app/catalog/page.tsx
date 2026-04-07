@@ -14,6 +14,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge, lifecycleBadge, riskBadge } from '@/components/Badge';
 import { ExitPerimeterModal } from '@/components/ExitPerimeterModal';
+import { ReviewTracksPanel } from '@/components/ReviewTracksPanel';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -33,6 +34,8 @@ interface Assistant {
     created_at: string;
     updated_at?: string;
     version_count?: number;
+    version_label?: string;
+    change_type?: string;
     risk_score?: number;
     risk_breakdown?: Record<string, unknown>;
     risk_computed_at?: string;
@@ -164,6 +167,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
     const [actionLoading, setActionLoading] = useState(false);
     const [modal, setModal] = useState<null | { type: 'approve' | 'reject' | 'suspend' | 'archive' }>(null);
     const { toast } = useToast();
+    const { token, orgId } = useAuth();
     useEscapeClose(onClose, modal === null);
 
     useEffect(() => { setAssistant(initialAssistant); }, [initialAssistant]);
@@ -328,7 +332,22 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                 </div>
                                 <div>
                                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Versões</p>
-                                    <p className="text-sm text-foreground/80">{assistant.version_count ?? 0}</p>
+                                    <p className="text-sm text-foreground/80 flex items-center gap-2">
+                                        {assistant.version_count ?? 0}
+                                        {assistant.version_label && assistant.version_label !== '..' && (
+                                            <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-secondary border border-border text-muted-foreground">
+                                                v{assistant.version_label}
+                                            </span>
+                                        )}
+                                        {assistant.change_type && (
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium
+                                                ${assistant.change_type === 'major' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                                                  : assistant.change_type === 'minor' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                                                  : 'bg-secondary border-border text-muted-foreground'}`}>
+                                                {assistant.change_type}
+                                            </span>
+                                        )}
+                                    </p>
                                 </div>
                                 <div>
                                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Revisado em</p>
@@ -383,7 +402,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-sm transition-colors disabled:opacity-50"
                                         >
                                             <CheckCircle2 className="w-4 h-4" />
-                                            Aprovar
+                                            Aprovar (legacy)
                                         </button>
                                         <button
                                             onClick={() => setModal({ type: 'reject' })}
@@ -391,8 +410,22 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-rose-500/50 text-rose-400 hover:bg-rose-500/10 font-semibold text-sm transition-colors disabled:opacity-50"
                                         >
                                             <AlertTriangle className="w-4 h-4" />
-                                            Rejeitar
+                                            Rejeitar (legacy)
                                         </button>
+                                        <div className="pt-1">
+                                            <p className="text-xs text-muted-foreground font-medium mb-2">Tracks de Revisão</p>
+                                            <ReviewTracksPanel
+                                                assistantId={assistant.id}
+                                                orgId={orgId}
+                                                token={token ?? ''}
+                                                canDecide={isAdmin}
+                                                onDecisionMade={() => {
+                                                    onReload();
+                                                    // Refresh local state after a track decision
+                                                    setAssistant(a => ({ ...a }));
+                                                }}
+                                            />
+                                        </div>
                                     </>
                                 )}
 

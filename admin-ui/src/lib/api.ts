@@ -71,6 +71,9 @@ export const ENDPOINTS = {
     CATALOG_EXIT_PERIMETER:   (id: string) => `/v1/admin/assistants/${id}/exit-perimeter`,
     ASSISTANT_EVIDENCE:       (id: string) => `/v1/admin/assistants/${id}/evidence`,
     ASSISTANT_EVIDENCE_PDF:   (id: string) => `/v1/admin/assistants/${id}/evidence/pdf`,
+    REVIEW_TRACKS:            '/v1/admin/review-tracks',
+    REVIEW_STATUS:            (id: string) => `/v1/admin/assistants/${id}/review-status`,
+    REVIEW_TRACK_DECIDE:      (id: string, trackId: string) => `/v1/admin/assistants/${id}/review/${trackId}`,
 
     // Platform Admin — Organization Management
     PLATFORM_ORGS:            '/v1/admin/organizations',
