@@ -74,6 +74,16 @@ export const ENDPOINTS = {
     REVIEW_TRACKS:            '/v1/admin/review-tracks',
     REVIEW_STATUS:            (id: string) => `/v1/admin/assistants/${id}/review-status`,
     REVIEW_TRACK_DECIDE:      (id: string, trackId: string) => `/v1/admin/assistants/${id}/review/${trackId}`,
+    ASSISTANT_FAVORITE:       (id: string) => `/v1/admin/assistants/${id}/favorite`,
+    ASSISTANT_FAVORITES:      '/v1/admin/assistants/favorites',
+
+    // Webhooks
+    WEBHOOKS:                 '/v1/admin/webhooks',
+    WEBHOOK:                  (id: string) => `/v1/admin/webhooks/${id}`,
+    WEBHOOK_DELIVERIES:       (id: string) => `/v1/admin/webhooks/${id}/deliveries`,
+
+    // Audit Export
+    AUDIT_EXPORT:             '/v1/admin/audit-logs/export',
 
     // Platform Admin — Organization Management
     PLATFORM_ORGS:            '/v1/admin/organizations',

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2, X } from 'lucide-react';
+import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2, X, Bell } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -35,6 +35,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
 
     const platformItems = [
         { label: 'Organizações', href: '/organizations', icon: Building2, allowed: ['platform_admin'] },
+        { label: 'Webhooks', href: '/webhooks', icon: Bell, allowed: ['admin'] },
     ];
 
     const visibleCoreItems = coreItems.filter(item => item.allowed.includes(role));

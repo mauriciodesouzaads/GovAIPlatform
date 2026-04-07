@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Shield, Clock, AlertTriangle } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { Shield, Clock, AlertTriangle, Download } from 'lucide-react';
 import api, { ENDPOINTS } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge } from '@/components/Badge';
@@ -21,6 +21,33 @@ export default function AuditLogsPage() {
     const [error, setError] = useState(false);
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
+    const [exportLoading, setExportLoading] = useState<string | null>(null);
+
+    const exportLogs = useCallback(async (format: 'json' | 'csv' | 'cef') => {
+        setExportLoading(format);
+        try {
+            const res = await api.get(`${ENDPOINTS.AUDIT_EXPORT}?format=${format}`, {
+                responseType: 'blob',
+            });
+            const mimeMap: Record<string, string> = {
+                json: 'application/x-ndjson',
+                csv: 'text/csv',
+                cef: 'text/plain',
+            };
+            const extMap: Record<string, string> = { json: 'ndjson', csv: 'csv', cef: 'txt' };
+            const blob = new Blob([res.data], { type: mimeMap[format] });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `govai-audit-logs-${new Date().toISOString().slice(0, 10)}.${extMap[format]}`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch {
+            // silently ignore — toast would require useToast
+        } finally {
+            setExportLoading(null);
+        }
+    }, []);
 
     const fetchLogs = async () => {
         setLoading(true);
@@ -48,6 +75,21 @@ export default function AuditLogsPage() {
                     title="Audit Logs"
                     subtitle="Registro de auditoria imutável"
                     icon={<Shield className="w-5 h-5" />}
+                    actions={
+                        <div className="flex items-center gap-2">
+                            {(['json', 'csv', 'cef'] as const).map(fmt => (
+                                <button
+                                    key={fmt}
+                                    onClick={() => exportLogs(fmt)}
+                                    disabled={!!exportLoading}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-white/20 transition-colors disabled:opacity-50"
+                                >
+                                    <Download className="w-3.5 h-3.5" />
+                                    {exportLoading === fmt ? '...' : fmt.toUpperCase()}
+                                </button>
+                            ))}
+                        </div>
+                    }
                 />
 
                 {error && !loading && (

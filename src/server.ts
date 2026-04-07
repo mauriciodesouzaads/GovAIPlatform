@@ -54,7 +54,7 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 // ---------------------------------------------------------------------------
 initAuditWorker();
 initExpirationWorker();
-initNotificationWorker();
+initNotificationWorker(pgPool);
 initTelemetryWorker();
 startShieldWorker();
 
@@ -528,6 +528,7 @@ import { adminRoutes } from './routes/admin.routes';
 import { consultantRoutes } from './routes/consultant.routes';
 import { shieldRoutes } from './routes/shield.routes';
 import { architectRoutes } from './routes/architect.routes';
+import { webhookRoutes } from './routes/webhook.routes';
 
 fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, requireRole: requireTenantRole, requirePlatformAdmin });
 // assistantsRoutes, approvalsRoutes, reportsRoutes registered internally by adminRoutes
@@ -535,6 +536,7 @@ fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, 
 fastify.register(consultantRoutes, { pgPool, requireTenantRole });
 fastify.register(shieldRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(architectRoutes, { pgPool, requireRole: requireTenantRole });
+fastify.register(webhookRoutes, { pgPool, requireRole: requireTenantRole });
 
 // ---------------------------------------------------------------------------
 // Global error handler — captures unhandled 500s to Sentry

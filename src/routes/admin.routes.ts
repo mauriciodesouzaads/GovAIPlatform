@@ -288,13 +288,16 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         try {
             await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
-            const [assistantsRes, totalExecsRes, violationsRes, tokensRes, historyRes] = await Promise.all([
+            const [
+                assistantsRes, totalExecsRes, violationsRes, tokensRes, historyRes,
+                riskDistRes, shadowAiRes, postureHistRes, pendingReviewsRes, expiringExcRes
+            ] = await Promise.all([
                 client.query('SELECT COUNT(*) FROM assistants'),
                 client.query("SELECT COUNT(*) FROM audit_logs_partitioned WHERE action = 'EXECUTION_SUCCESS'"),
                 client.query("SELECT COUNT(*) FROM audit_logs_partitioned WHERE action = 'POLICY_VIOLATION'"),
                 client.query("SELECT SUM((metadata->'usage'->>'total_tokens')::int) as total_tokens FROM audit_logs_partitioned WHERE action = 'EXECUTION_SUCCESS' AND metadata->'usage'->>'total_tokens' IS NOT NULL"),
                 client.query(`
-                    SELECT 
+                    SELECT
                         date(created_at) as date,
                         COUNT(*) FILTER (WHERE action = 'EXECUTION_SUCCESS') as requests,
                         COUNT(*) FILTER (WHERE action = 'POLICY_VIOLATION') as violations
@@ -302,7 +305,42 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
                     WHERE created_at >= NOW() - INTERVAL '7 days'
                     GROUP BY date(created_at)
                     ORDER BY date ASC
-                `)
+                `),
+                // Risk distribution by assistant
+                client.query(`
+                    SELECT risk_level, COUNT(*) as count
+                    FROM assistants WHERE org_id = $1
+                    GROUP BY risk_level
+                    ORDER BY CASE risk_level
+                        WHEN 'critical' THEN 0 WHEN 'high' THEN 1
+                        WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END
+                `, [orgId]),
+                // Top Shadow AI findings (open)
+                client.query(`
+                    SELECT tool_name_normalized AS tool_name, severity, unique_users, status
+                    FROM shield_findings WHERE org_id = $1 AND status = 'open'
+                    ORDER BY CASE severity
+                        WHEN 'critical' THEN 0 WHEN 'high' THEN 1
+                        WHEN 'medium' THEN 2 ELSE 3 END, unique_users DESC
+                    LIMIT 5
+                `, [orgId]),
+                // Posture score history (last 6 snapshots)
+                client.query(`
+                    SELECT generated_at, summary_score, open_findings
+                    FROM shield_posture_snapshots WHERE org_id = $1
+                    ORDER BY generated_at DESC LIMIT 6
+                `, [orgId]),
+                // Pending review decisions count
+                client.query(`
+                    SELECT COUNT(*) FROM review_decisions
+                    WHERE org_id = $1 AND decision = 'pending'
+                `, [orgId]),
+                // Active exceptions expiring within 30 days
+                client.query(`
+                    SELECT COUNT(*) FROM policy_exceptions
+                    WHERE org_id = $1 AND status = 'approved'
+                      AND expires_at <= now() + interval '30 days'
+                `, [orgId]),
             ]);
 
             const usage_history = historyRes.rows.map(row => ({
@@ -313,6 +351,13 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
 
             const totalTokens = parseInt(tokensRes.rows[0].total_tokens || '0', 10);
             const estimatedCost = (totalTokens / 1000000) * 0.15;
+
+            // Reverse posture history to chronological order for charts
+            const posture_history = postureHistRes.rows.reverse().map(r => ({
+                generated_at: r.generated_at,
+                summary_score: Number(r.summary_score),
+                open_findings: Number(r.open_findings),
+            }));
 
             return reply.send({
                 total_assistants: parseInt(assistantsRes.rows[0].count, 10),
@@ -326,7 +371,15 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
                 })(),
                 total_tokens: totalTokens,
                 estimated_cost_usd: estimatedCost.toFixed(4),
-                usage_history
+                usage_history,
+                risk_distribution: riskDistRes.rows.map(r => ({
+                    risk_level: r.risk_level ?? 'unknown',
+                    count: Number(r.count),
+                })),
+                top_shadow_ai: shadowAiRes.rows,
+                posture_history,
+                pending_reviews: parseInt(pendingReviewsRes.rows[0].count, 10),
+                expiring_exceptions: parseInt(expiringExcRes.rows[0].count, 10),
             });
         } catch (error) {
             app.log.error(error, "Error fetching admin stats");
@@ -379,6 +432,106 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
         } catch (error) {
             app.log.error(error, "Error fetching admin logs");
             reply.status(500).send({ error: "Erro ao buscar logs" });
+        } finally {
+            client.release();
+        }
+    });
+
+    // 2b. Audit Log Export (SIEM-ready) — JSON Lines / CSV / CEF
+    app.get('/v1/admin/audit-logs/export', { preHandler: requireRole(['admin', 'dpo', 'auditor']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const {
+            format = 'json',
+            startDate,
+            endDate,
+            actions,
+            limit = '1000',
+        } = request.query as {
+            format?: string; startDate?: string; endDate?: string;
+            actions?: string; limit?: string;
+        };
+
+        const parsedLimit = Math.min(Math.max(1, parseInt(limit, 10) || 1000), 10000);
+        const validFormats = ['json', 'csv', 'cef'];
+        if (!validFormats.includes(format)) {
+            return reply.status(400).send({ error: `format must be one of: ${validFormats.join(', ')}` });
+        }
+
+        const conditions: string[] = [];
+        const params: unknown[] = [orgId];
+
+        if (startDate) { params.push(startDate); conditions.push(`created_at >= $${params.length}`); }
+        if (endDate)   { params.push(endDate);   conditions.push(`created_at <= $${params.length}`); }
+        if (actions)   {
+            const actList = actions.split(',').map(a => a.trim()).filter(Boolean);
+            if (actList.length > 0) {
+                params.push(actList);
+                conditions.push(`action = ANY($${params.length})`);
+            }
+        }
+
+        params.push(parsedLimit);
+        const whereClause = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `SELECT id, action, metadata, signature, org_id, created_at
+                 FROM audit_logs_partitioned
+                 WHERE org_id = $1 ${whereClause}
+                 ORDER BY created_at DESC
+                 LIMIT $${params.length}`,
+                params
+            );
+
+            const dateStr = new Date().toISOString().split('T')[0];
+            const rows = res.rows;
+
+            if (format === 'csv') {
+                reply.header('Content-Type', 'text/csv; charset=utf-8');
+                reply.header('Content-Disposition', `attachment; filename="govai-audit-${dateStr}.csv"`);
+                const header = 'id,action,org_id,created_at,metadata,signature\n';
+                const body = rows.map(r =>
+                    [r.id, r.action, r.org_id, r.created_at,
+                     `"${JSON.stringify(r.metadata ?? {}).replace(/"/g, '""')}"`,
+                     r.signature ?? ''
+                    ].join(',')
+                ).join('\n');
+                return reply.send(header + body);
+            }
+
+            if (format === 'cef') {
+                const severityMap: Record<string, number> = {
+                    POLICY_VIOLATION: 7, EXIT_GOVERNED_PERIMETER: 6,
+                    APPROVAL_REJECTED: 6, PENDING_APPROVAL: 5,
+                    EXECUTION_SUCCESS: 2, APPROVAL_GRANTED: 3,
+                };
+                reply.header('Content-Type', 'text/plain; charset=utf-8');
+                reply.header('Content-Disposition', `attachment; filename="govai-audit-${dateStr}.cef"`);
+                const lines = rows.map(r => {
+                    const sev = severityMap[r.action] ?? 3;
+                    const meta = r.metadata ?? {};
+                    const userId = meta.user_id ?? meta.actor_id ?? '';
+                    const assistantId = meta.assistant_id ?? '';
+                    const ip = meta.ip_address ?? '';
+                    return `CEF:0|GovAI|GovAI Platform|1.0|${r.action}|${r.action}|${sev}|` +
+                        `src=${ip} suser=${userId} dhost=${assistantId} ` +
+                        `rt=${new Date(r.created_at).getTime()} ` +
+                        `msg=${JSON.stringify(JSON.stringify(meta))}`;
+                });
+                return reply.send(lines.join('\n'));
+            }
+
+            // Default: JSON Lines (NDJSON)
+            reply.header('Content-Type', 'application/x-ndjson; charset=utf-8');
+            reply.header('Content-Disposition', `attachment; filename="govai-audit-${dateStr}.ndjson"`);
+            return reply.send(rows.map(r => JSON.stringify(r)).join('\n'));
+        } catch (error) {
+            app.log.error(error, 'Error exporting audit logs');
+            return reply.status(500).send({ error: 'Erro ao exportar logs.' });
         } finally {
             client.release();
         }

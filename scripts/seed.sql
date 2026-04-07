@@ -696,4 +696,43 @@ VALUES
      now() - interval '46 days', now() - interval '52 days')
 ON CONFLICT DO NOTHING;
 
+-- ── Webhook Config (demo) ──────────────────────────────────────────────────
+
+INSERT INTO webhook_configs (id, org_id, name, url, secret, events, is_active)
+VALUES (
+    '00000000-0000-000F-0000-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    'Slack #govai-alerts',
+    'https://hooks.slack.com/services/DEMO/DEMO/DEMO',
+    'demo-hmac-secret',
+    ARRAY['approval.pending', 'execution.violation', 'shield.critical_finding'],
+    true
+) ON CONFLICT DO NOTHING;
+
+-- ── Webhook Deliveries (demo) ──────────────────────────────────────────────
+
+INSERT INTO webhook_deliveries (id, org_id, webhook_id, event, payload, status, response_code, response_body, attempts, next_retry_at)
+VALUES
+    ('00000000-0000-000F-0001-000000000001', '00000000-0000-0000-0000-000000000001',
+     '00000000-0000-000F-0000-000000000001', 'approval.pending',
+     '{"event":"approval.pending","orgId":"00000000-0000-0000-0000-000000000001"}',
+     'success', 200, 'ok', 1, NULL),
+    ('00000000-0000-000F-0001-000000000002', '00000000-0000-0000-0000-000000000001',
+     '00000000-0000-000F-0000-000000000001', 'execution.violation',
+     '{"event":"execution.violation","orgId":"00000000-0000-0000-0000-000000000001"}',
+     'success', 200, 'ok', 1, NULL),
+    ('00000000-0000-000F-0001-000000000003', '00000000-0000-0000-0000-000000000001',
+     '00000000-0000-000F-0000-000000000001', 'shield.critical_finding',
+     '{"event":"shield.critical_finding","orgId":"00000000-0000-0000-0000-000000000001"}',
+     'failed', 503, 'Service Unavailable', 4, NULL)
+ON CONFLICT DO NOTHING;
+
+-- ── Catalog Favorites (demo) ───────────────────────────────────────────────
+
+INSERT INTO catalog_favorites (user_id, assistant_id, org_id)
+VALUES
+    ('55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab', '00000000-0000-0000-0002-000000000001', '00000000-0000-0000-0000-000000000001'),
+    ('55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab', '00000000-0000-0000-0002-000000000002', '00000000-0000-0000-0000-000000000001')
+ON CONFLICT DO NOTHING;
+
 COMMIT;

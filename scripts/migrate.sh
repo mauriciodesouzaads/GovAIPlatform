@@ -86,6 +86,7 @@ MIGRATIONS=(
     "059_exit_perimeter_tracking.sql"
     "060_risk_scoring_and_evidence.sql"
     "061_review_tracks_and_semver.sql"
+    "062_catalog_favorites.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

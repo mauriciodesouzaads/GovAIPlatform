@@ -6,6 +6,7 @@ import {
     BookOpen, ChevronRight, X, Tag, Calendar, User,
     AlertTriangle, CheckCircle2, Clock, Loader2, ExternalLink,
     Archive, ShieldAlert, Link2, Copy, FileCheck,
+    Grid3X3, ShieldCheck, Star, History,
 } from 'lucide-react';
 import Link from 'next/link';
 import api, { ENDPOINTS } from '@/lib/api';
@@ -42,6 +43,8 @@ interface Assistant {
     data_classification?: string;
     pii_blocker_enabled?: boolean;
     output_format?: string;
+    is_favorited?: boolean;
+    last_used_at?: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -647,11 +650,29 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
 
 // ── Card ───────────────────────────────────────────────────────────────────
 
-function AssistantCard({ assistant, onManage }: { assistant: Assistant; onManage: () => void }) {
+function AssistantCard({ assistant, onManage, onToggleFavorite }: {
+    assistant: Assistant;
+    onManage: () => void;
+    onToggleFavorite?: (a: Assistant, e: React.MouseEvent) => void;
+}) {
     return (
-        <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-4 hover:border-amber-500/30 hover:bg-secondary/30 transition-all">
+        <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-4 hover:border-amber-500/30 hover:bg-secondary/30 transition-all relative">
+            {/* Favorite button */}
+            {onToggleFavorite && (
+                <button
+                    onClick={e => { e.stopPropagation(); onToggleFavorite(assistant, e); }}
+                    className={`absolute top-3 right-3 p-1 rounded transition-colors ${
+                        assistant.is_favorited
+                            ? 'text-amber-400 hover:text-amber-300'
+                            : 'text-muted-foreground/40 hover:text-amber-400'
+                    }`}
+                    title={assistant.is_favorited ? 'Remover favorito' : 'Adicionar favorito'}
+                >
+                    <Star className="w-4 h-4" fill={assistant.is_favorited ? 'currentColor' : 'none'} />
+                </button>
+            )}
             {/* Top row */}
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start justify-between gap-3 pr-6">
                 <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-foreground text-sm leading-snug truncate">{assistant.name}</h3>
                     {assistant.description && (
@@ -720,6 +741,15 @@ function AssistantCard({ assistant, onManage }: { assistant: Assistant; onManage
 const LIFECYCLE_FILTERS = ['all', 'draft', 'under_review', 'approved', 'official', 'suspended', 'archived'];
 const RISK_FILTERS = ['all', 'critical', 'high', 'medium', 'low'];
 
+type CatalogTab = 'all' | 'official' | 'favorites' | 'recent';
+
+const CATALOG_TABS: { key: CatalogTab; label: string; icon: React.ReactNode }[] = [
+    { key: 'all',       label: 'Todos',     icon: <Grid3X3 className="w-3.5 h-3.5" /> },
+    { key: 'official',  label: 'Oficiais',  icon: <ShieldCheck className="w-3.5 h-3.5" /> },
+    { key: 'favorites', label: 'Favoritos', icon: <Star className="w-3.5 h-3.5" /> },
+    { key: 'recent',    label: 'Recentes',  icon: <History className="w-3.5 h-3.5" /> },
+];
+
 export default function CatalogPage() {
     const [assistants, setAssistants] = useState<Assistant[]>([]);
     const [loading, setLoading] = useState(true);
@@ -727,6 +757,7 @@ export default function CatalogPage() {
     const [search, setSearch] = useState('');
     const [lifecycleFilter, setLifecycleFilter] = useState('all');
     const [riskFilter, setRiskFilter] = useState('all');
+    const [activeTab, setActiveTab] = useState<CatalogTab>('all');
     const [selected, setSelected] = useState<Assistant | null>(null);
     const [exitModalAssistant, setExitModalAssistant] = useState<Assistant | null>(null);
     const { toast } = useToast();
@@ -750,6 +781,24 @@ export default function CatalogPage() {
 
     useEffect(() => { load(); }, [load]);
 
+    const toggleFavorite = useCallback(async (a: Assistant, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const wasFav = !!a.is_favorited;
+        // Optimistic update
+        setAssistants(prev => prev.map(x => x.id === a.id ? { ...x, is_favorited: !wasFav } : x));
+        try {
+            if (wasFav) {
+                await api.delete(ENDPOINTS.ASSISTANT_FAVORITE(a.id));
+            } else {
+                await api.post(ENDPOINTS.ASSISTANT_FAVORITE(a.id));
+            }
+        } catch (err: any) {
+            // Revert on failure
+            setAssistants(prev => prev.map(x => x.id === a.id ? { ...x, is_favorited: wasFav } : x));
+            toast(err.response?.data?.error ?? err.message, 'error');
+        }
+    }, [toast]);
+
     const filtered = assistants.filter(a => {
         const matchSearch = !search ||
             a.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -757,7 +806,12 @@ export default function CatalogPage() {
             (a.owner_email ?? '').toLowerCase().includes(search.toLowerCase());
         const matchLifecycle = lifecycleFilter === 'all' || (a.lifecycle_state ?? 'draft') === lifecycleFilter;
         const matchRisk = riskFilter === 'all' || (a.risk_level ?? 'low') === riskFilter;
-        return matchSearch && matchLifecycle && matchRisk;
+        const matchTab = activeTab === 'all' ? true
+            : activeTab === 'official' ? (a.lifecycle_state === 'official' || a.lifecycle_state === 'approved')
+            : activeTab === 'favorites' ? !!a.is_favorited
+            : activeTab === 'recent' ? !!a.last_used_at
+            : true;
+        return matchSearch && matchLifecycle && matchRisk && matchTab;
     });
 
     // When drawer reloads, keep selected in sync with refreshed assistants list
@@ -772,6 +826,23 @@ export default function CatalogPage() {
                     subtitle="Registry formal de capacidades de IA"
                     icon={<BookOpen className="w-5 h-5" />}
                 />
+
+                {/* Tabs */}
+                <div className="flex border-b border-border gap-1">
+                    {CATALOG_TABS.map(t => (
+                        <button
+                            key={t.key}
+                            onClick={() => setActiveTab(t.key)}
+                            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-colors ${
+                                activeTab === t.key
+                                    ? 'border-amber-500 text-amber-400'
+                                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                            }`}
+                        >
+                            {t.icon}{t.label}
+                        </button>
+                    ))}
+                </div>
 
                 {/* Filters */}
                 <div className="flex flex-col sm:flex-row gap-3">
@@ -846,7 +917,7 @@ export default function CatalogPage() {
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {filtered.map(a => (
-                            <AssistantCard key={a.id} assistant={a} onManage={() => setSelected(a)} />
+                            <AssistantCard key={a.id} assistant={a} onManage={() => setSelected(a)} onToggleFavorite={toggleFavorite} />
                         ))}
                     </div>
                 )}

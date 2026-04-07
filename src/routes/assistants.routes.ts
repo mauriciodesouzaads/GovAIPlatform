@@ -470,12 +470,94 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         }
     });
 
+    // --- CATALOG FAVORITES (FASE-C1) ---
+
+    // GET /v1/admin/assistants/favorites — list user's favorited assistants
+    app.get('/v1/admin/assistants/favorites', { preHandler: requireTenantRole(['admin', 'operator', 'auditor', 'dpo']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const authUser = request.user as { userId?: string };
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+        if (!authUser?.userId) return reply.status(401).send({ error: 'userId obrigatório.' });
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `SELECT a.id, a.name, a.description, a.lifecycle_state, a.risk_level,
+                        a.risk_score, a.capability_tags, a.owner_email, a.created_at
+                 FROM assistants a
+                 JOIN catalog_favorites f ON f.assistant_id = a.id
+                 WHERE f.user_id = $1 AND a.org_id = $2
+                 ORDER BY f.created_at DESC`,
+                [authUser.userId, orgId]
+            );
+            return reply.send({ total: res.rowCount, assistants: res.rows });
+        } catch (error) {
+            app.log.error(error, 'Error fetching favorites');
+            return reply.status(500).send({ error: 'Erro ao buscar favoritos.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // POST /v1/admin/assistants/:id/favorite — add to favorites
+    app.post('/v1/admin/assistants/:id/favorite', { preHandler: requireTenantRole(['admin', 'operator', 'auditor', 'dpo']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const authUser = request.user as { userId?: string };
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+        if (!authUser?.userId) return reply.status(401).send({ error: 'userId obrigatório.' });
+
+        const { id } = request.params as { id: string };
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            await client.query(
+                `INSERT INTO catalog_favorites (org_id, user_id, assistant_id)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT (user_id, assistant_id) DO NOTHING`,
+                [orgId, authUser.userId, id]
+            );
+            return reply.send({ favorited: true });
+        } catch (error) {
+            app.log.error(error, 'Error adding favorite');
+            return reply.status(500).send({ error: 'Erro ao adicionar favorito.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // DELETE /v1/admin/assistants/:id/favorite — remove from favorites
+    app.delete('/v1/admin/assistants/:id/favorite', { preHandler: requireTenantRole(['admin', 'operator', 'auditor', 'dpo']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const authUser = request.user as { userId?: string };
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+        if (!authUser?.userId) return reply.status(401).send({ error: 'userId obrigatório.' });
+
+        const { id } = request.params as { id: string };
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            await client.query(
+                `DELETE FROM catalog_favorites WHERE user_id = $1 AND assistant_id = $2 AND org_id = $3`,
+                [authUser.userId, id, orgId]
+            );
+            return reply.send({ favorited: false });
+        } catch (error) {
+            app.log.error(error, 'Error removing favorite');
+            return reply.status(500).send({ error: 'Erro ao remover favorito.' });
+        } finally {
+            client.release();
+        }
+    });
+
     // --- CATALOG REGISTRY ---
 
-    // D2a — GET /v1/admin/catalog — full catalog listing with lifecycle metadata
+    // D2a — GET /v1/admin/catalog — full catalog listing with lifecycle metadata + is_favorited
     app.get('/v1/admin/catalog', { preHandler: requireTenantRole(['admin', 'operator', 'auditor', 'dpo']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
+        const authUser = request.user as { userId?: string };
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+        const userId = authUser?.userId ?? null;
 
         const { lifecycle_state, risk_level, owner_id, search } = request.query as {
             lifecycle_state?: string; risk_level?: string; owner_id?: string; search?: string;
@@ -496,6 +578,10 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                 conditions.push(`(a.name ILIKE $${params.length} OR a.description ILIKE $${params.length} OR $${params.length - 1} ILIKE ANY(a.capability_tags))`);
             }
 
+            // Push userId for the is_favorited LEFT JOIN
+            params.push(userId);
+            const userIdPlaceholder = `$${params.length}`;
+
             const res = await client.query(
                 `SELECT
                     a.id, a.name, a.description, a.lifecycle_state, a.risk_level,
@@ -503,10 +589,12 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                     a.data_classification, a.pii_blocker_enabled, a.output_format,
                     a.risk_justification, a.capability_tags, a.owner_email,
                     a.reviewed_at, a.suspended_at, a.archived_at, a.created_at, a.updated_at,
+                    a.last_used_at, a.use_count,
                     COUNT(DISTINCT av.id)::int AS version_count,
                     MAX(av.created_at) AS last_version_at,
                     lv.version_major, lv.version_minor, lv.version_patch, lv.change_type,
-                    CONCAT(lv.version_major, '.', lv.version_minor, '.', lv.version_patch) AS version_label
+                    CONCAT(lv.version_major, '.', lv.version_minor, '.', lv.version_patch) AS version_label,
+                    CASE WHEN fav.id IS NOT NULL THEN true ELSE false END AS is_favorited
                  FROM assistants a
                  LEFT JOIN assistant_versions av ON av.assistant_id = a.id
                  LEFT JOIN LATERAL (
@@ -515,8 +603,10 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                      WHERE assistant_id = a.id AND org_id = a.org_id
                      ORDER BY created_at DESC LIMIT 1
                  ) lv ON true
+                 LEFT JOIN catalog_favorites fav
+                    ON fav.assistant_id = a.id AND fav.user_id = ${userIdPlaceholder}
                  WHERE ${conditions.join(' AND ')}
-                 GROUP BY a.id, lv.version_major, lv.version_minor, lv.version_patch, lv.change_type
+                 GROUP BY a.id, lv.version_major, lv.version_minor, lv.version_patch, lv.change_type, fav.id
                  ORDER BY a.created_at DESC
                  LIMIT 50`,
                 params
