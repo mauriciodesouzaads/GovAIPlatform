@@ -5,8 +5,9 @@ import { useEscapeClose } from '@/hooks/useEscapeClose';
 import {
     BookOpen, ChevronRight, X, Tag, Calendar, User,
     AlertTriangle, CheckCircle2, Clock, Loader2, ExternalLink,
-    Archive, ShieldAlert, Link2, Copy,
+    Archive, ShieldAlert, Link2, Copy, FileCheck,
 } from 'lucide-react';
+import Link from 'next/link';
 import api, { ENDPOINTS } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import { useAuth } from '@/components/AuthProvider';
@@ -32,6 +33,12 @@ interface Assistant {
     created_at: string;
     updated_at?: string;
     version_count?: number;
+    risk_score?: number;
+    risk_breakdown?: Record<string, unknown>;
+    risk_computed_at?: string;
+    data_classification?: string;
+    pii_blocker_enabled?: boolean;
+    output_format?: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -272,6 +279,11 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                 <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${riskColor(assistant.risk_level)}`}>
                                     Risk: {assistant.risk_level ?? 'low'}
                                 </span>
+                                {assistant.risk_score !== undefined && (
+                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${riskColor(assistant.risk_level)}`}>
+                                        Score: {assistant.risk_score}
+                                    </span>
+                                )}
                                 {assistant.model && (
                                     <span className="px-2.5 py-1 rounded-full text-xs font-medium border text-purple-400 bg-purple-500/10 border-purple-500/20">
                                         {assistant.model}
@@ -497,6 +509,15 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                 )}
                             </div>
 
+                            {/* Evidence link */}
+                            <Link
+                                href={`/evidence/${assistant.id}`}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-white/20 text-sm font-medium transition-colors"
+                            >
+                                <FileCheck className="w-4 h-4" />
+                                Ver Evidência de Conformidade
+                            </Link>
+
                             {/* Modo 2: Abrir na Origem */}
                             {state === 'official' && (
                                 <div className="border-t border-border pt-4 mt-2">
@@ -615,6 +636,11 @@ function AssistantCard({ assistant, onManage }: { assistant: Assistant; onManage
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${riskColor(assistant.risk_level)}`}>
                     {assistant.risk_level ?? 'low'}
                 </span>
+                {assistant.risk_score !== undefined && (
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${riskColor(assistant.risk_level)}`}>
+                        {assistant.risk_score}pts
+                    </span>
+                )}
             </div>
 
             {/* Capability tags (up to 3 + overflow) */}

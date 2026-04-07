@@ -83,6 +83,8 @@ MIGRATIONS=(
     "056_architect_execution_hint.sql"
     "057_architect_work_item_execution.sql"
     "058_rls_nullif_remediation.sql"
+    "059_exit_perimeter_tracking.sql"
+    "060_risk_scoring_and_evidence.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

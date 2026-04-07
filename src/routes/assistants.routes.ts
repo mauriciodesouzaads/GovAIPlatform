@@ -2,11 +2,12 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { Pool } from 'pg';
 import { IntegrityService, ActionType } from '../lib/governance';
 import { dlpEngine } from '../lib/dlp-engine';
-import crypto from 'crypto';
+import crypto, { createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { redisCache } from '../lib/redis';
 import { CreateAssistantSchema, CreateApiKeySchema, zodErrors } from '../lib/schemas';
-import { recordEvidence } from '../lib/evidence';
+import { recordEvidence, getEvidenceChain } from '../lib/evidence';
+import { calculateRiskScore, RiskInput } from '../lib/risk-scoring';
 
 
 export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any; requireTenantRole?: any; requirePlatformAdmin?: any }) {
@@ -453,6 +454,8 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             const res = await client.query(
                 `SELECT
                     a.id, a.name, a.description, a.lifecycle_state, a.risk_level,
+                    a.risk_score, a.risk_breakdown, a.risk_computed_at,
+                    a.data_classification, a.pii_blocker_enabled, a.output_format,
                     a.risk_justification, a.capability_tags, a.owner_email,
                     a.reviewed_at, a.suspended_at, a.archived_at, a.created_at, a.updated_at,
                     COUNT(DISTINCT av.id)::int AS version_count,
@@ -475,36 +478,72 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
     });
 
     // D2b — PUT /v1/admin/assistants/:id/metadata — update catalog metadata (not lifecycle)
+    // FASE-A2: risk_level is now DERIVED from calculateRiskScore(); manual riskLevel in body is ignored.
     app.put('/v1/admin/assistants/:id/metadata', { preHandler: requireTenantRole(['admin']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
         const { id } = request.params as { id: string };
-        const { description, riskLevel, riskJustification, capabilityTags, ownerEmail } =
-            request.body as { description?: string; riskLevel?: string; riskJustification?: string; capabilityTags?: string[]; ownerEmail?: string };
-
-        const VALID_RISK = ['low', 'medium', 'high', 'critical'];
-        if (riskLevel && !VALID_RISK.includes(riskLevel)) {
-            return reply.status(400).send({ error: `riskLevel deve ser um de: ${VALID_RISK.join(', ')}.` });
-        }
+        const { description, riskLevel, riskJustification, capabilityTags, ownerEmail,
+                dataClassification, piiBlockerEnabled, outputFormat, connectors } =
+            request.body as {
+                description?: string; riskLevel?: string; riskJustification?: string;
+                capabilityTags?: string[]; ownerEmail?: string;
+                dataClassification?: 'internal' | 'confidential' | 'restricted';
+                piiBlockerEnabled?: boolean;
+                outputFormat?: 'free_text' | 'structured_json';
+                connectors?: Array<{ name: string; type: 'none' | 'read_only' | 'read_write' | 'external' }>;
+            };
 
         const client = await pgPool.connect();
         try {
             await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
 
+            // Fetch current values to fill in defaults for risk computation
+            const currentRes = await client.query(
+                `SELECT data_classification, pii_blocker_enabled, output_format, risk_level
+                 FROM assistants WHERE id = $1 AND org_id = $2`,
+                [id, orgId]
+            );
+            if (currentRes.rows.length === 0) return reply.status(404).send({ error: 'Assistente não encontrado.' });
+            const current = currentRes.rows[0];
+
             const sets: string[] = [];
             const params: unknown[] = [id, orgId];
             if (description !== undefined) { params.push(description); sets.push(`description = $${params.length}`); }
-            if (riskLevel !== undefined) { params.push(riskLevel); sets.push(`risk_level = $${params.length}`); }
+            // riskLevel from body is intentionally ignored — computed below
+            if (riskLevel !== undefined) {
+                app.log.warn({ assistantId: id, requestedRiskLevel: riskLevel },
+                    'riskLevel in body ignored — risk_level is computed from calculateRiskScore()');
+            }
             if (riskJustification !== undefined) { params.push(riskJustification); sets.push(`risk_justification = $${params.length}`); }
             if (capabilityTags !== undefined) { params.push(capabilityTags); sets.push(`capability_tags = $${params.length}`); }
             if (ownerEmail !== undefined) { params.push(ownerEmail); sets.push(`owner_email = $${params.length}`); }
+            if (dataClassification !== undefined) { params.push(dataClassification); sets.push(`data_classification = $${params.length}`); }
+            if (piiBlockerEnabled !== undefined) { params.push(piiBlockerEnabled); sets.push(`pii_blocker_enabled = $${params.length}`); }
+            if (outputFormat !== undefined) { params.push(outputFormat); sets.push(`output_format = $${params.length}`); }
 
             if (sets.length === 0) return reply.status(400).send({ error: 'Nenhum campo fornecido para atualização.' });
 
+            // Compute new risk score using merged current + request values
+            const riskInput: RiskInput = {
+                data_classification: (dataClassification ?? current.data_classification ?? 'internal') as RiskInput['data_classification'],
+                connectors: connectors ?? [],
+                pii_blocker_enabled: piiBlockerEnabled !== undefined ? piiBlockerEnabled : (current.pii_blocker_enabled ?? true),
+                output_format: (outputFormat ?? current.output_format ?? 'free_text') as RiskInput['output_format'],
+            };
+            const riskResult = calculateRiskScore(riskInput);
+            params.push(riskResult.total_score); sets.push(`risk_score = $${params.length}`);
+            params.push(riskResult.level);        sets.push(`risk_level = $${params.length}`);
+            params.push(JSON.stringify(riskResult)); sets.push(`risk_breakdown = $${params.length}`);
+            params.push(new Date(riskResult.computed_at)); sets.push(`risk_computed_at = $${params.length}`);
+
             sets.push(`updated_at = now()`);
             const res = await client.query(
-                `UPDATE assistants SET ${sets.join(', ')} WHERE id = $1 AND org_id = $2 RETURNING id, name, lifecycle_state, risk_level, capability_tags, owner_email, description, updated_at`,
+                `UPDATE assistants SET ${sets.join(', ')} WHERE id = $1 AND org_id = $2
+                 RETURNING id, name, lifecycle_state, risk_level, risk_score, risk_breakdown,
+                           risk_computed_at, data_classification, pii_blocker_enabled, output_format,
+                           capability_tags, owner_email, description, updated_at`,
                 params
             );
             if (res.rows.length === 0) return reply.status(404).send({ error: 'Assistente não encontrado.' });
@@ -513,6 +552,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             app.log.error(error, 'Error updating assistant metadata');
             return reply.status(500).send({ error: 'Erro ao atualizar metadados.' });
         } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
             client.release();
         }
     });
@@ -893,6 +933,462 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             app.log.error(error, 'Error persisting exit-perimeter audit log');
             return reply.status(500).send({ error: 'Erro ao registrar saída do perímetro.' });
         } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+    // ── EVIDENCE ENDPOINTS (FASE-A2) ────────────────────────────────────────
+
+    // GET /v1/admin/assistants/:assistantId/evidence
+    // Aggregates all governance evidence for one assistant into a single signed package.
+    app.get('/v1/admin/assistants/:assistantId/evidence', {
+        preHandler: requireRole(['admin', 'auditor', 'dpo', 'operator']),
+    }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { assistantId } = request.params as { assistantId: string };
+        const signingSecret = process.env.SIGNING_SECRET;
+        if (!signingSecret) {
+            return reply.status(500).send({ error: 'Configuração de segurança incompleta.' });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            // 1. Assistant
+            const assistantRes = await client.query(
+                `SELECT id, name, description, lifecycle_state, risk_level, risk_score,
+                        risk_breakdown, data_classification, pii_blocker_enabled, output_format,
+                        owner_email, created_at, updated_at, risk_computed_at
+                 FROM assistants WHERE id = $1 AND org_id = $2`,
+                [assistantId, orgId]
+            );
+            if (assistantRes.rows.length === 0) {
+                return reply.status(404).send({ error: 'Assistente não encontrado.' });
+            }
+            const assistant = assistantRes.rows[0];
+
+            // 2. Approval chain from audit_logs
+            const approvalRes = await client.query(
+                `SELECT action, metadata->>'user_id' AS actor,
+                        COALESCE(metadata->>'reason', metadata->>'notes', metadata->>'comments') AS notes,
+                        created_at
+                 FROM audit_logs_partitioned
+                 WHERE metadata->>'assistant_id' = $1
+                   AND action IN ('PENDING_APPROVAL','APPROVAL_GRANTED','APPROVAL_REJECTED','EXIT_GOVERNED_PERIMETER')
+                 ORDER BY created_at ASC`,
+                [assistantId]
+            );
+            const approvalChain = approvalRes.rows;
+
+            // 3. Current version
+            const versionRes = await client.query(
+                `SELECT id, version, LEFT(prompt, 100) || '...' AS prompt_preview,
+                        encode(sha256(prompt::bytea), 'hex') AS prompt_hash,
+                        policy_version_id, tools_jsonb, created_at
+                 FROM assistant_versions
+                 WHERE assistant_id = $1 AND org_id = $2
+                 ORDER BY version DESC LIMIT 1`,
+                [assistantId, orgId]
+            );
+            const currentVersion = versionRes.rows[0] ?? null;
+
+            // 4. Policy snapshot
+            let policySnapshot = null;
+            if (currentVersion?.policy_version_id) {
+                const polRes = await client.query(
+                    `SELECT id, name, rules_jsonb, version FROM policy_versions
+                     WHERE id = $1 AND org_id = $2`,
+                    [currentVersion.policy_version_id, orgId]
+                );
+                policySnapshot = polRes.rows[0] ?? null;
+            }
+
+            // 5. Publication events
+            const pubRes = await client.query(
+                `SELECT ape.published_at, ape.notes, u.email AS published_by_email
+                 FROM assistant_publication_events ape
+                 LEFT JOIN users u ON u.id = ape.published_by
+                 WHERE ape.assistant_id = $1 AND ape.org_id = $2
+                 ORDER BY ape.published_at DESC`,
+                [assistantId, orgId]
+            );
+            const publicationEvents = pubRes.rows;
+
+            // 6. Active exceptions
+            const excRes = await client.query(
+                `SELECT exception_type, justification, approved_by, expires_at, status, created_at
+                 FROM policy_exceptions
+                 WHERE assistant_id = $1 AND org_id = $2
+                   AND status IN ('pending', 'approved')
+                 ORDER BY created_at DESC`,
+                [assistantId, orgId]
+            );
+            const exceptions = excRes.rows;
+
+            // 7. Usage metrics
+            const metricsRes = await client.query(
+                `SELECT
+                    COUNT(*) FILTER (WHERE action = 'EXECUTION_SUCCESS') AS total_executions,
+                    COUNT(*) FILTER (WHERE action = 'POLICY_VIOLATION')  AS total_violations,
+                    COUNT(*) FILTER (WHERE action = 'QUOTA_EXCEEDED')    AS total_blocked,
+                    COUNT(*) FILTER (WHERE action = 'PENDING_APPROVAL')  AS total_hitl,
+                    MAX(created_at) AS last_execution_at
+                 FROM audit_logs_partitioned
+                 WHERE metadata->>'assistant_id' = $1
+                   AND action IN ('EXECUTION_SUCCESS','POLICY_VIOLATION','QUOTA_EXCEEDED','PENDING_APPROVAL')`,
+                [assistantId]
+            );
+            const usageMetrics = metricsRes.rows[0] ?? {};
+
+            // 8. Evidence chain
+            const evidenceChain = await getEvidenceChain(client, orgId, 'assistant', assistantId);
+
+            // Integrity footer
+            const generated_at = new Date().toISOString();
+            const evidencePayload = JSON.stringify({
+                assistant, approvalChain, currentVersion, policySnapshot,
+                publicationEvents, exceptions, usageMetrics, evidenceChain,
+            });
+            const evidenceHash = createHash('sha256').update(evidencePayload).digest('hex');
+            const integritySignature = IntegrityService.signPayload(
+                { hash: evidenceHash, generated_at },
+                signingSecret
+            );
+
+            return reply.send({
+                assistant,
+                approval_chain: approvalChain,
+                current_version: currentVersion,
+                policy_snapshot: policySnapshot,
+                publication_events: publicationEvents,
+                exceptions,
+                usage_metrics: usageMetrics,
+                evidence_chain: evidenceChain,
+                integrity: {
+                    evidence_hash: evidenceHash,
+                    signature: integritySignature,
+                    generated_at,
+                },
+            });
+        } catch (error) {
+            app.log.error(error, 'Error building evidence package');
+            return reply.status(500).send({ error: 'Erro ao montar pacote de evidências.' });
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+    // GET /v1/admin/assistants/:assistantId/evidence/pdf
+    // Generates a compliance evidence PDF using pdfkit.
+    app.get('/v1/admin/assistants/:assistantId/evidence/pdf', {
+        preHandler: requireRole(['admin', 'auditor', 'dpo']),
+    }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { assistantId } = request.params as { assistantId: string };
+        const signingSecret = process.env.SIGNING_SECRET;
+        if (!signingSecret) {
+            return reply.status(500).send({ error: 'Configuração de segurança incompleta.' });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            const assistantRes = await client.query(
+                `SELECT id, name, description, lifecycle_state, risk_level, risk_score,
+                        risk_breakdown, data_classification, pii_blocker_enabled, output_format,
+                        owner_email, created_at, updated_at
+                 FROM assistants WHERE id = $1 AND org_id = $2`,
+                [assistantId, orgId]
+            );
+            if (assistantRes.rows.length === 0) {
+                return reply.status(404).send({ error: 'Assistente não encontrado.' });
+            }
+            const assistant = assistantRes.rows[0];
+
+            const approvalRes = await client.query(
+                `SELECT action, metadata->>'user_id' AS actor,
+                        COALESCE(metadata->>'reason', metadata->>'notes', metadata->>'comments') AS notes,
+                        created_at
+                 FROM audit_logs_partitioned
+                 WHERE metadata->>'assistant_id' = $1
+                   AND action IN ('PENDING_APPROVAL','APPROVAL_GRANTED','APPROVAL_REJECTED','EXIT_GOVERNED_PERIMETER')
+                 ORDER BY created_at ASC`,
+                [assistantId]
+            );
+
+            const versionRes = await client.query(
+                `SELECT id, version, LEFT(prompt, 100) || '...' AS prompt_preview,
+                        encode(sha256(prompt::bytea), 'hex') AS prompt_hash,
+                        policy_version_id, tools_jsonb, created_at
+                 FROM assistant_versions
+                 WHERE assistant_id = $1 AND org_id = $2
+                 ORDER BY version DESC LIMIT 1`,
+                [assistantId, orgId]
+            );
+            const currentVersion = versionRes.rows[0] ?? null;
+
+            let policySnapshot: any = null;
+            if (currentVersion?.policy_version_id) {
+                const polRes = await client.query(
+                    `SELECT id, name, rules_jsonb, version FROM policy_versions
+                     WHERE id = $1 AND org_id = $2`,
+                    [currentVersion.policy_version_id, orgId]
+                );
+                policySnapshot = polRes.rows[0] ?? null;
+            }
+
+            const excRes = await client.query(
+                `SELECT exception_type, justification, status, expires_at, created_at
+                 FROM policy_exceptions
+                 WHERE assistant_id = $1 AND org_id = $2 AND status IN ('pending','approved')
+                 ORDER BY created_at DESC`,
+                [assistantId, orgId]
+            );
+
+            const metricsRes = await client.query(
+                `SELECT
+                    COUNT(*) FILTER (WHERE action = 'EXECUTION_SUCCESS') AS total_executions,
+                    COUNT(*) FILTER (WHERE action = 'POLICY_VIOLATION')  AS total_violations,
+                    COUNT(*) FILTER (WHERE action = 'QUOTA_EXCEEDED')    AS total_blocked,
+                    COUNT(*) FILTER (WHERE action = 'PENDING_APPROVAL')  AS total_hitl
+                 FROM audit_logs_partitioned
+                 WHERE metadata->>'assistant_id' = $1
+                   AND action IN ('EXECUTION_SUCCESS','POLICY_VIOLATION','QUOTA_EXCEEDED','PENDING_APPROVAL')`,
+                [assistantId]
+            );
+            const metrics = metricsRes.rows[0] ?? {};
+
+            const evidenceChain = await getEvidenceChain(client, orgId, 'assistant', assistantId);
+
+            const generated_at = new Date().toISOString();
+            const evidencePayload = JSON.stringify({ assistant, currentVersion, metrics });
+            const evidenceHash = createHash('sha256').update(evidencePayload).digest('hex');
+            const integritySignature = IntegrityService.signPayload(
+                { hash: evidenceHash, generated_at },
+                signingSecret
+            );
+
+            // Build PDF
+            const PDFDocument = (await import('pdfkit')).default;
+
+            const COLORS = {
+                primary: '#0F172A', secondary: '#475569', accent: '#2563EB',
+                success: '#16A34A', danger: '#DC2626', warning: '#D97706',
+                lightBg: '#F8FAFC', border: '#E2E8F0', white: '#FFFFFF',
+                amber: '#D97706',
+            };
+
+            const riskColor = (level: string) => {
+                if (level === 'low') return COLORS.success;
+                if (level === 'medium') return COLORS.warning;
+                if (level === 'high') return COLORS.danger;
+                return '#7F1D1D';
+            };
+
+            const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+                const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+                const chunks: Buffer[] = [];
+                doc.on('data', (c: Buffer) => chunks.push(c));
+                doc.on('end', () => resolve(Buffer.concat(chunks)));
+                doc.on('error', reject);
+
+                const generatedDate = new Date().toLocaleString('pt-BR');
+
+                // ── HEADER ────────────────────────────────────────────────────
+                doc.rect(0, 0, 595, 90).fill(COLORS.primary);
+                doc.fontSize(18).font('Helvetica-Bold').fillColor(COLORS.white)
+                    .text('EVIDÊNCIA DE CONFORMIDADE', 50, 20);
+                doc.fontSize(11).font('Helvetica').fillColor('#94A3B8')
+                    .text(assistant.name, 50, 44);
+                doc.fontSize(8).fillColor('#64748B')
+                    .text(`Gerado em: ${generatedDate}  |  GovAI Platform`, 50, 64);
+
+                let y = 110;
+
+                const drawSection = (title: string) => {
+                    y += 10;
+                    if (y > 710) { doc.addPage(); y = 50; }
+                    doc.fontSize(11).font('Helvetica-Bold').fillColor(COLORS.primary).text(title, 50, y);
+                    doc.moveTo(50, y + 16).lineTo(545, y + 16).strokeColor(COLORS.accent).lineWidth(1.5).stroke();
+                    y += 26;
+                };
+
+                const drawRow = (label: string, value: string) => {
+                    if (y > 720) { doc.addPage(); y = 50; }
+                    doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.secondary).text(label, 55, y, { width: 150 });
+                    doc.fontSize(8).font('Helvetica').fillColor(COLORS.primary).text(value, 215, y, { width: 330 });
+                    y += 16;
+                };
+
+                // ── SECTION 1: Informações do Assistente ─────────────────────
+                drawSection('1. Informações do Assistente');
+                drawRow('ID', assistant.id);
+                drawRow('Nome', assistant.name);
+                drawRow('Estado', assistant.lifecycle_state ?? '—');
+                drawRow('Classificação de Dados', assistant.data_classification ?? '—');
+                drawRow('PII Blocker', assistant.pii_blocker_enabled ? 'Ativo' : 'Desativado');
+                drawRow('Formato de Output', assistant.output_format ?? '—');
+                drawRow('Owner', assistant.owner_email ?? '—');
+                drawRow('Criado em', new Date(assistant.created_at).toLocaleString('pt-BR'));
+
+                // ── SECTION 2: Risk Score Breakdown ───────────────────────────
+                drawSection('2. Score de Risco (Determinístico)');
+                const riskScore = assistant.risk_score ?? 0;
+                const riskLevel = assistant.risk_level ?? 'low';
+                const breakdown = typeof assistant.risk_breakdown === 'object' ? assistant.risk_breakdown : {};
+
+                doc.fontSize(24).font('Helvetica-Bold').fillColor(riskColor(riskLevel))
+                    .text(`${riskScore}`, 55, y);
+                doc.fontSize(10).font('Helvetica').fillColor(COLORS.secondary)
+                    .text(`Nível: ${riskLevel.toUpperCase()}`, 95, y + 8);
+                y += 40;
+
+                const breakdownFactors = ['data_classification', 'connector_type', 'extra_connectors', 'pii_blocker', 'output_format'];
+                for (const factor of breakdownFactors) {
+                    const item = (breakdown as Record<string, any>)[factor];
+                    if (item) {
+                        if (y > 720) { doc.addPage(); y = 50; }
+                        const scoreVal = item.score ?? 0;
+                        doc.fontSize(8).font('Helvetica').fillColor(COLORS.secondary)
+                            .text(item.explanation ?? factor, 55, y, { width: 430 });
+                        doc.fontSize(8).font('Helvetica-Bold')
+                            .fillColor(scoreVal > 0 ? COLORS.warning : COLORS.secondary)
+                            .text(`+${scoreVal}`, 490, y, { width: 50, align: 'right' });
+                        y += 14;
+                    }
+                }
+                y += 6;
+                doc.moveTo(55, y).lineTo(545, y).strokeColor(COLORS.border).lineWidth(0.5).stroke();
+                y += 8;
+                doc.fontSize(9).font('Helvetica-Bold').fillColor(COLORS.primary).text(`Total: ${riskScore}`, 55, y);
+                y += 20;
+
+                // ── SECTION 3: Cadeia de Aprovação ────────────────────────────
+                drawSection('3. Cadeia de Aprovação');
+                const approvals = approvalRes.rows;
+                if (approvals.length === 0) {
+                    doc.fontSize(8).font('Helvetica').fillColor(COLORS.secondary).text('Nenhum evento de aprovação registrado.', 55, y);
+                    y += 16;
+                } else {
+                    for (const ev of approvals) {
+                        if (y > 720) { doc.addPage(); y = 50; }
+                        doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.primary)
+                            .text(ev.action, 55, y, { width: 180 });
+                        doc.fontSize(8).font('Helvetica').fillColor(COLORS.secondary)
+                            .text(new Date(ev.created_at).toLocaleString('pt-BR'), 245, y, { width: 150 });
+                        doc.text(ev.actor ?? '—', 405, y, { width: 140 });
+                        y += 14;
+                        if (ev.notes) {
+                            doc.fontSize(7).font('Helvetica').fillColor(COLORS.secondary)
+                                .text(`  → ${ev.notes}`, 65, y, { width: 480 });
+                            y += 12;
+                        }
+                    }
+                }
+
+                // ── SECTION 4: Versão Publicada ────────────────────────────────
+                drawSection('4. Versão Publicada');
+                if (currentVersion) {
+                    drawRow('Versão', `v${currentVersion.version}`);
+                    drawRow('Prompt Hash (SHA-256)', currentVersion.prompt_hash ?? '—');
+                    drawRow('Política vinculada', policySnapshot?.name ?? 'N/A');
+                    drawRow('Criada em', new Date(currentVersion.created_at).toLocaleString('pt-BR'));
+                } else {
+                    doc.fontSize(8).font('Helvetica').fillColor(COLORS.secondary).text('Nenhuma versão publicada.', 55, y);
+                    y += 16;
+                }
+
+                // ── SECTION 5: Exceções de Política ───────────────────────────
+                drawSection('5. Exceções Ativas de Política');
+                const exceptions = excRes.rows;
+                if (exceptions.length === 0) {
+                    doc.fontSize(8).font('Helvetica').fillColor(COLORS.success)
+                        .text('✓ Nenhuma exceção ativa — assistente opera sob políticas padrão.', 55, y);
+                    y += 16;
+                } else {
+                    for (const ex of exceptions) {
+                        if (y > 720) { doc.addPage(); y = 50; }
+                        drawRow('Tipo', ex.exception_type);
+                        drawRow('Justificativa', ex.justification);
+                        drawRow('Status', ex.status);
+                        drawRow('Expira em', new Date(ex.expires_at).toLocaleDateString('pt-BR'));
+                        y += 4;
+                    }
+                }
+
+                // ── SECTION 6: Métricas de Uso ─────────────────────────────────
+                drawSection('6. Métricas de Uso');
+                drawRow('Execuções bem-sucedidas', String(metrics.total_executions ?? 0));
+                drawRow('Violações de política', String(metrics.total_violations ?? 0));
+                drawRow('Bloqueados (quota)', String(metrics.total_blocked ?? 0));
+                drawRow('Aguardando aprovação HITL', String(metrics.total_hitl ?? 0));
+
+                // ── SECTION 7: Cadeia de Evidências ────────────────────────────
+                drawSection('7. Cadeia de Evidências');
+                if (evidenceChain.length === 0) {
+                    doc.fontSize(8).font('Helvetica').fillColor(COLORS.secondary)
+                        .text('Nenhum registro de evidência encontrado.', 55, y);
+                    y += 16;
+                } else {
+                    for (const ev of evidenceChain.slice(0, 20)) {
+                        if (y > 720) { doc.addPage(); y = 50; }
+                        const evAny = ev as any;
+                        doc.fontSize(7.5).font('Helvetica').fillColor(COLORS.primary)
+                            .text(`${evAny.event_type ?? evAny.category}`, 55, y, { width: 200 });
+                        doc.fontSize(7.5).font('Helvetica').fillColor(COLORS.secondary)
+                            .text(new Date(evAny.created_at ?? evAny.createdAt).toLocaleString('pt-BR'), 265, y, { width: 150 });
+                        doc.text(evAny.actor_email ?? '—', 425, y, { width: 120 });
+                        y += 13;
+                    }
+                    if (evidenceChain.length > 20) {
+                        doc.fontSize(7).fillColor(COLORS.secondary)
+                            .text(`... e mais ${evidenceChain.length - 20} registros omitidos`, 55, y);
+                        y += 12;
+                    }
+                }
+
+                // ── INTEGRITY FOOTER ──────────────────────────────────────────
+                y += 10;
+                if (y > 700) { doc.addPage(); y = 50; }
+                doc.rect(50, y, 495, 42).fillAndStroke(COLORS.lightBg, COLORS.border);
+                doc.fontSize(7.5).font('Helvetica-Bold').fillColor(COLORS.primary)
+                    .text('Integridade Criptográfica', 60, y + 6);
+                doc.fontSize(7).font('Helvetica').fillColor(COLORS.secondary)
+                    .text(`Hash: ${evidenceHash.substring(0, 32)}...`, 60, y + 18);
+                doc.text(`Assinatura HMAC-SHA256: ${integritySignature.substring(0, 24)}...  |  ${generated_at}`, 60, y + 30);
+                y += 52;
+
+                // Page numbers
+                const pages = doc.bufferedPageRange();
+                for (let i = 0; i < pages.count; i++) {
+                    doc.switchToPage(i);
+                    doc.fontSize(7).font('Helvetica').fillColor(COLORS.secondary)
+                        .text(
+                            `GovAI Platform — Evidência de Conformidade  |  Página ${i + 1} de ${pages.count}`,
+                            50, 780, { width: 495, align: 'center' }
+                        );
+                }
+
+                doc.end();
+            });
+
+            reply.header('Content-Type', 'application/pdf');
+            reply.header('Content-Disposition',
+                `attachment; filename="evidencia-${assistantId}-${Date.now()}.pdf"`);
+            return reply.send(pdfBuffer);
+        } catch (error) {
+            app.log.error(error, 'Error generating evidence PDF');
+            return reply.status(500).send({ error: 'Erro ao gerar PDF de evidências.' });
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
             client.release();
         }
     });

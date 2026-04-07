@@ -2,7 +2,8 @@
 
 import { useEffect, useCallback, useState } from 'react';
 import api, { ENDPOINTS } from '@/lib/api';
-import { Plus, Upload, CheckCircle2, Bot, Database, Lock, FileText, AlertTriangle, X } from 'lucide-react';
+import { Plus, Upload, CheckCircle2, Bot, Database, Lock, FileText, AlertTriangle, X, FileCheck } from 'lucide-react';
+import Link from 'next/link';
 import { useToast } from '@/components/Toast';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
 import { PageHeader } from '@/components/PageHeader';
@@ -256,6 +257,10 @@ export default function AssistantsPage() {
                                         className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-secondary/50 text-foreground hover:bg-secondary/70 border border-border transition-all">
                                         <Database className="w-3.5 h-3.5" /> Vetorizar Conhecimento
                                     </button>
+                                    <Link href={`/evidence/${ast.id}`}
+                                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border border-border text-muted-foreground hover:text-foreground hover:border-white/20 transition-all">
+                                        <FileCheck className="w-3.5 h-3.5" /> Evidência
+                                    </Link>
                                     {ast.status === 'draft' && (
                                         <button onClick={() => setPublishModalAst(ast)}
                                             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-emerald-500 text-black hover:bg-emerald-400 transition-all">
