@@ -77,9 +77,19 @@ COMMIT;
 SQL
 echo "  ✅ Demo API key inserida (prefixo: $DEMO_PREFIX)."
 
+# ── Step 3: Demo audit logs (HMAC computed via Node.js) ─────────────────────
+echo "▶ Gerando audit logs demo com HMAC..."
+DATABASE_URL="$DB_URL" SIGNING_SECRET="$SIGNING_SECRET" node "$SCRIPT_DIR/seed-audit-logs.js"
+echo "  ✅ Audit logs inseridos."
+
 echo ""
 echo "════════════════════════════════════════════════════"
 echo "  ✅ Seed aplicado com sucesso."
-echo "  Login : admin@orga.com / password"
+echo "  Login : admin@orga.com / GovAI2026@Admin"
 echo "  API Key: $DEMO_KEY"
+echo ""
+echo "  Assistentes (chat URL base: http://localhost:3001/chat/{id}?key={api_key})"
+echo "  → Assistente Jurídico:  00000000-0000-0000-0002-000000000001"
+echo "  → FAQ Interno RH:       00000000-0000-0000-0002-000000000002"
+echo "  → Análise de Crédito:   00000000-0000-0000-0002-000000000003"
 echo "════════════════════════════════════════════════════"
