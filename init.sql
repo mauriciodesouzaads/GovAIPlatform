@@ -135,11 +135,13 @@ CREATE POLICY org_hitl_keywords_isolation ON org_hitl_keywords
 CREATE OR REPLACE FUNCTION create_org_partition()
 RETURNS TRIGGER AS $$
 BEGIN
-    EXECUTE format('CREATE TABLE IF NOT EXISTS audit_logs_org_%s PARTITION OF audit_logs_partitioned FOR VALUES IN (%L)', 
+    EXECUTE format('CREATE TABLE IF NOT EXISTS audit_logs_org_%s PARTITION OF audit_logs_partitioned FOR VALUES IN (%L)',
         replace(NEW.id::text, '-', '_'), NEW.id);
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- SECURITY DEFINER: executa como owner da função (postgres/superuser) mesmo quando
+-- chamada por govai_app, necessário para criar partições da tabela audit_logs_partitioned.
 
 DROP TRIGGER IF EXISTS trg_on_new_org_create_partition ON organizations;
 CREATE TRIGGER trg_on_new_org_create_partition

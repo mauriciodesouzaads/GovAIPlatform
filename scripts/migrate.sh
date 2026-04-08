@@ -52,14 +52,6 @@ else
 fi
 echo ""
 
-# ─── Detecção de migrations privilegiadas ────────────────────────────────────
-# Retorna 0 (true) se o arquivo contém comandos que exigem superuser ou
-# ownership de tabela no PostgreSQL.
-needs_superuser() {
-    local file="$1"
-    grep -qiE '(CREATE[[:space:]]+POLICY|ALTER[[:space:]]+POLICY|ALTER[[:space:]]+ROLE|^[[:space:]]*GRANT[[:space:]]|SET[[:space:]]+ROLE)' "$file"
-}
-
 # ─── Garantir tabela de tracking (como superuser para evitar problemas de permissão) ──
 psql "$SU_URL" -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE TABLE IF NOT EXISTS _migrations (
@@ -147,14 +139,10 @@ for migration in "${MIGRATIONS[@]}"; do
         continue
     fi
 
-    # Decide qual credencial usar para esta migration
-    if [ "$SU_URL" != "$DB_URL" ] && needs_superuser "$FILEPATH"; then
-        MIGRATION_URL="$SU_URL"
-        echo -n "▶ [MIGRATE] $migration requires superuser — executing with elevated privileges... "
-    else
-        MIGRATION_URL="$DB_URL"
-        echo -n "▶ Aplicando $migration... "
-    fi
+    # Todas as migrations rodam como superuser para evitar problemas de ownership.
+    # govai_app acessa as tabelas via GRANT statements dentro das próprias migrations.
+    MIGRATION_URL="$SU_URL"
+    echo -n "▶ Aplicando $migration... "
 
     # Executa a migration dentro de uma transação e registra na tabela de tracking
     if psql "$MIGRATION_URL" -v ON_ERROR_STOP=1 -q \
