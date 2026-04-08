@@ -6,9 +6,10 @@ import {
     BookOpen, ChevronRight, X, Tag, Calendar, User,
     AlertTriangle, CheckCircle2, Clock, Loader2, ExternalLink,
     Archive, ShieldAlert, Link2, Copy, FileCheck,
-    Grid3X3, ShieldCheck, Star, History,
+    Grid3X3, ShieldCheck, Star, History, Search,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import api, { ENDPOINTS } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import { useAuth } from '@/components/AuthProvider';
@@ -648,16 +649,97 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
     );
 }
 
+// ── Tag icon map ──────────────────────────────────────────────────────────
+
+const TAG_ICONS: Record<string, string> = {
+    legal: '⚖️', juridico: '⚖️', jurídico: '⚖️', contratos: '📝',
+    hr: '👥', rh: '👥', beneficios: '🎁', benefícios: '🎁', onboarding: '🚀',
+    finance: '💰', financeiro: '💰',
+    credit: '🏦', credito: '🏦', crédito: '🏦',
+    reports: '📊', relatorios: '📊', relatórios: '📊', dados: '📊',
+    support: '💬', atendimento: '💬', suporte: '💬', cliente: '👤',
+    faq: '❓',
+    test: '🧪', testes: '🧪', validação: '✅',
+    compliance: '📋', auditoria: '🔍', lgpd: '🔐',
+    demo: '🎯', geral: '🤖',
+};
+
+function getAssistantIcon(tags?: string[]): string {
+    if (!tags || tags.length === 0) return '🤖';
+    for (const tag of tags) {
+        const icon = TAG_ICONS[tag.toLowerCase()];
+        if (icon) return icon;
+    }
+    return '🤖';
+}
+
+// ── Governance badge helpers ───────────────────────────────────────────────
+
+function govBadge(state?: string): { cls: string; label: string } {
+    switch (state) {
+        case 'official':     return { cls: 'bg-green-500/10 text-green-500',   label: '✓ Governado' };
+        case 'approved':     return { cls: 'bg-blue-500/10 text-blue-500',     label: '✓ Aprovado' };
+        case 'under_review': return { cls: 'bg-yellow-500/10 text-yellow-500', label: '⏳ Em Revisão' };
+        default:             return { cls: 'bg-muted text-muted-foreground',   label: 'Rascunho' };
+    }
+}
+
+function classificationBadge(dc?: string): { cls: string; label: string } {
+    switch (dc) {
+        case 'confidential': return { cls: 'bg-yellow-500/10 text-yellow-500', label: '🔒 Confidencial' };
+        case 'restricted':   return { cls: 'bg-red-500/10 text-red-500',       label: '🔐 Restrito' };
+        default:             return { cls: 'bg-muted text-muted-foreground',   label: '🔓 Interno' };
+    }
+}
+
+function riskBadgeCard(r?: string): { cls: string; label: string } {
+    switch (r) {
+        case 'low':      return { cls: 'bg-green-500/10 text-green-500',   label: 'Baixo' };
+        case 'medium':   return { cls: 'bg-yellow-500/10 text-yellow-500', label: 'Médio' };
+        case 'high':     return { cls: 'bg-orange-500/10 text-orange-500', label: 'Alto' };
+        case 'critical': return { cls: 'bg-red-500/10 text-red-500',       label: 'Crítico' };
+        default:         return { cls: 'bg-muted text-muted-foreground',   label: r ?? '—' };
+    }
+}
+
+const DEMO_KEY = 'sk-govai-demo00000000000000000000';
+
+// ── Section header ─────────────────────────────────────────────────────────
+
+function SectionHeader({ title, count, muted }: { title: string; count: number; muted?: boolean }) {
+    return (
+        <div className="flex items-center gap-3 mb-4">
+            <h2 className={`text-sm font-semibold tracking-wide ${muted ? 'text-muted-foreground' : 'text-foreground'}`}>
+                {title}
+            </h2>
+            <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5">{count}</span>
+            {muted && <div className="flex-1 border-t border-dashed border-border" />}
+        </div>
+    );
+}
+
 // ── Card ───────────────────────────────────────────────────────────────────
 
-function AssistantCard({ assistant, onManage, onToggleFavorite }: {
+function AssistantCard({ assistant, onManage, onToggleFavorite, onOpenExitModal, apiKey }: {
     assistant: Assistant;
     onManage: () => void;
     onToggleFavorite?: (a: Assistant, e: React.MouseEvent) => void;
+    onOpenExitModal: (a: Assistant) => void;
+    apiKey: string;
 }) {
+    const router = useRouter();
+    const icon = getAssistantIcon(assistant.capability_tags);
+    const gov  = govBadge(assistant.lifecycle_state);
+    const cls  = classificationBadge(assistant.data_classification);
+    const risk = riskBadgeCard(assistant.risk_level);
+    const isOfficial = assistant.lifecycle_state === 'official';
+
     return (
-        <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-4 hover:border-amber-500/30 hover:bg-secondary/30 transition-all relative">
-            {/* Favorite button */}
+        <div
+            onClick={onManage}
+            className="bg-card border border-border rounded-xl p-5 flex flex-col gap-3 hover:border-primary/50 transition-colors cursor-pointer relative"
+        >
+            {/* Favorite */}
             {onToggleFavorite && (
                 <button
                     onClick={e => { e.stopPropagation(); onToggleFavorite(assistant, e); }}
@@ -671,75 +753,63 @@ function AssistantCard({ assistant, onManage, onToggleFavorite }: {
                     <Star className="w-4 h-4" fill={assistant.is_favorited ? 'currentColor' : 'none'} />
                 </button>
             )}
-            {/* Top row */}
-            <div className="flex items-start justify-between gap-3 pr-6">
+
+            {/* Icon + name */}
+            <div className="flex items-start gap-3 pr-8">
+                <span className="text-2xl shrink-0 leading-none mt-0.5">{icon}</span>
                 <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-foreground text-sm leading-snug truncate">{assistant.name}</h3>
+                    <h3 className="font-semibold text-foreground text-sm leading-snug">{assistant.name}</h3>
                     {assistant.description && (
                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{assistant.description}</p>
                     )}
                 </div>
-                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
             </div>
 
-            {/* Badges */}
+            {/* Three governance badges */}
             <div className="flex flex-wrap gap-1.5">
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${lifecycleColor(assistant.lifecycle_state)}`}>
-                    {assistant.lifecycle_state ?? 'draft'}
-                </span>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${riskColor(assistant.risk_level)}`}>
-                    {assistant.risk_level ?? 'low'}
-                </span>
-                {assistant.risk_score !== undefined && (
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${riskColor(assistant.risk_level)}`}>
-                        {assistant.risk_score}pts
-                    </span>
-                )}
+                <span className={`text-xs font-medium rounded-full px-2 py-0.5 ${gov.cls}`}>{gov.label}</span>
+                <span className={`text-xs font-medium rounded-full px-2 py-0.5 ${cls.cls}`}>{cls.label}</span>
+                <span className={`text-xs font-medium rounded-full px-2 py-0.5 ${risk.cls}`}>{risk.label}</span>
             </div>
 
-            {/* Capability tags (up to 3 + overflow) */}
+            {/* Capability tags */}
             {assistant.capability_tags && assistant.capability_tags.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                    {assistant.capability_tags.slice(0, 3).map(tag => (
-                        <span key={tag} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-secondary/50 border border-border text-muted-foreground">
-                            <Tag className="w-2.5 h-2.5" />{tag}
-                        </span>
-                    ))}
-                    {assistant.capability_tags.length > 3 && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-secondary/50 border border-border text-muted-foreground/70">
-                            +{assistant.capability_tags.length - 3}
-                        </span>
-                    )}
-                </div>
+                <p className="text-xs text-muted-foreground">
+                    {assistant.capability_tags.slice(0, 4).join(' · ')}
+                </p>
             )}
 
-            {/* Meta footer */}
-            <div className="flex items-center justify-between text-[10px] text-muted-foreground border-t border-border/50 pt-3">
-                <span className="flex items-center gap-1">
-                    <User className="w-3 h-3" />
-                    {assistant.owner_email ?? '—'}
-                </span>
-                <span className="flex items-center gap-1">
-                    <Calendar className="w-3 h-3" />
-                    {fmtDate(assistant.reviewed_at)}
-                </span>
+            {/* Action buttons */}
+            <div className="flex gap-2 mt-auto" onClick={e => e.stopPropagation()}>
+                {isOfficial ? (
+                    <>
+                        <button
+                            onClick={() => router.push(`/chat/${assistant.id}?key=${apiKey}`)}
+                            className="flex-1 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
+                        >
+                            💬 Usar
+                        </button>
+                        <button
+                            onClick={() => onOpenExitModal(assistant)}
+                            className="flex-1 bg-muted text-muted-foreground rounded-lg px-4 py-2 text-sm font-medium hover:text-foreground transition-colors"
+                        >
+                            ↗ Na Origem
+                        </button>
+                    </>
+                ) : (
+                    <button
+                        onClick={e => { e.stopPropagation(); onManage(); }}
+                        className="flex-1 bg-muted text-muted-foreground rounded-lg px-4 py-2 text-sm font-medium hover:text-foreground transition-colors"
+                    >
+                        Ver Detalhes
+                    </button>
+                )}
             </div>
-
-            {/* Actions */}
-            <button
-                onClick={onManage}
-                className="w-full px-3 py-1.5 rounded-lg text-xs font-medium border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/50 transition-colors"
-            >
-                Gerenciar
-            </button>
         </div>
     );
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────
-
-const LIFECYCLE_FILTERS = ['all', 'draft', 'under_review', 'approved', 'official', 'suspended', 'archived'];
-const RISK_FILTERS = ['all', 'critical', 'high', 'medium', 'low'];
 
 type CatalogTab = 'all' | 'official' | 'favorites' | 'recent';
 
@@ -755,14 +825,15 @@ export default function CatalogPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [search, setSearch] = useState('');
-    const [lifecycleFilter, setLifecycleFilter] = useState('all');
-    const [riskFilter, setRiskFilter] = useState('all');
+    const [activeTag, setActiveTag] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<CatalogTab>('all');
     const [selected, setSelected] = useState<Assistant | null>(null);
     const [exitModalAssistant, setExitModalAssistant] = useState<Assistant | null>(null);
+    const [apiKey, setApiKey] = useState(DEMO_KEY);
     const { toast } = useToast();
     const { role } = useAuth();
     const isAdmin = role === 'admin';
+    const showDrafts = ['admin', 'operator', 'sre'].includes(role ?? '');
 
     const load = useCallback(async () => {
         try {
@@ -779,12 +850,19 @@ export default function CatalogPage() {
         }
     }, [toast]);
 
+    // API only stores key_hash + prefix — full key not retrievable; keep DEMO_KEY fallback
+    useEffect(() => {
+        api.get('/v1/admin/api-keys').then((res: any) => {
+            const keys: any[] = res.data?.keys ?? (Array.isArray(res.data) ? res.data : []);
+            if (keys.length > 0 && keys[0]?.key) setApiKey(keys[0].key);
+        }).catch(() => {});
+    }, []);
+
     useEffect(() => { load(); }, [load]);
 
     const toggleFavorite = useCallback(async (a: Assistant, e: React.MouseEvent) => {
         e.stopPropagation();
         const wasFav = !!a.is_favorited;
-        // Optimistic update
         setAssistants(prev => prev.map(x => x.id === a.id ? { ...x, is_favorited: !wasFav } : x));
         try {
             if (wasFav) {
@@ -793,39 +871,97 @@ export default function CatalogPage() {
                 await api.post(ENDPOINTS.ASSISTANT_FAVORITE(a.id));
             }
         } catch (err: any) {
-            // Revert on failure
             setAssistants(prev => prev.map(x => x.id === a.id ? { ...x, is_favorited: wasFav } : x));
             toast(err.response?.data?.error ?? err.message, 'error');
         }
     }, [toast]);
 
-    const filtered = assistants.filter(a => {
-        const matchSearch = !search ||
-            a.name.toLowerCase().includes(search.toLowerCase()) ||
-            (a.description ?? '').toLowerCase().includes(search.toLowerCase()) ||
-            (a.owner_email ?? '').toLowerCase().includes(search.toLowerCase());
-        const matchLifecycle = lifecycleFilter === 'all' || (a.lifecycle_state ?? 'draft') === lifecycleFilter;
-        const matchRisk = riskFilter === 'all' || (a.risk_level ?? 'low') === riskFilter;
-        const matchTab = activeTab === 'all' ? true
-            : activeTab === 'official' ? (a.lifecycle_state === 'official' || a.lifecycle_state === 'approved')
-            : activeTab === 'favorites' ? !!a.is_favorited
-            : activeTab === 'recent' ? !!a.last_used_at
-            : true;
-        return matchSearch && matchLifecycle && matchRisk && matchTab;
+    // Unique tags across all loaded assistants (capped at 12 chips)
+    const allTags = Array.from(new Set(assistants.flatMap(a => a.capability_tags ?? []))).slice(0, 12);
+
+    // Tab pre-filter
+    const tabFiltered = assistants.filter(a => {
+        switch (activeTab) {
+            case 'official':  return a.lifecycle_state === 'official' || a.lifecycle_state === 'approved';
+            case 'favorites': return !!a.is_favorited;
+            case 'recent':    return !!a.last_used_at;
+            default:          return true;
+        }
     });
 
-    // When drawer reloads, keep selected in sync with refreshed assistants list
+    const isSearchActive = search.trim().length > 0 || activeTag !== null;
+
+    const filtered = tabFiltered.filter(a => {
+        const q = search.toLowerCase();
+        const matchSearch = !search
+            || a.name.toLowerCase().includes(q)
+            || (a.description ?? '').toLowerCase().includes(q)
+            || (a.capability_tags ?? []).some(t => t.toLowerCase().includes(q));
+        const matchTag = !activeTag
+            || (a.capability_tags ?? []).some(t => t.toLowerCase() === activeTag.toLowerCase());
+        return matchSearch && matchTag;
+    });
+
+    // Sections (only when no search active)
+    const officials   = filtered.filter(a => a.lifecycle_state === 'official');
+    const approved    = filtered.filter(a => a.lifecycle_state === 'approved');
+    const underReview = filtered.filter(a => a.lifecycle_state === 'under_review');
+    const drafts      = filtered.filter(a => a.lifecycle_state === 'draft');
+
     const selectedFull = selected ? (assistants.find(a => a.id === selected.id) ?? selected) : null;
+
+    const cardGrid = (items: Assistant[]) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {items.map(a => (
+                <AssistantCard
+                    key={a.id}
+                    assistant={a}
+                    onManage={() => setSelected(a)}
+                    onToggleFavorite={toggleFavorite}
+                    onOpenExitModal={setExitModalAssistant}
+                    apiKey={apiKey}
+                />
+            ))}
+        </div>
+    );
 
     return (
         <div className="flex-1 overflow-auto">
             <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
 
-                <PageHeader
-                    title="Catálogo de Agentes"
-                    subtitle="Registry formal de capacidades de IA"
-                    icon={<BookOpen className="w-5 h-5" />}
-                />
+                {/* Hero search */}
+                <div className="rounded-2xl bg-card border border-border p-6 sm:p-8 space-y-4">
+                    <h1 className="text-2xl font-bold text-foreground text-center">
+                        O que você precisa resolver hoje?
+                    </h1>
+                    <div className="relative max-w-2xl mx-auto">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" />
+                        <input
+                            type="text"
+                            placeholder="Buscar assistentes por nome, área ou capacidade..."
+                            value={search}
+                            onChange={e => { setSearch(e.target.value); setActiveTag(null); }}
+                            className="w-full h-12 pl-12 pr-4 rounded-xl bg-muted border border-border text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:border-primary/50 transition-colors"
+                        />
+                    </div>
+                    {allTags.length > 0 && (
+                        <div className="flex flex-wrap gap-2 justify-center">
+                            {allTags.map(tag => (
+                                <button
+                                    key={tag}
+                                    onClick={() => { setActiveTag(prev => prev === tag ? null : tag); setSearch(''); }}
+                                    className={`rounded-full px-3 py-1 text-sm cursor-pointer transition-colors ${
+                                        activeTag === tag
+                                            ? 'bg-primary text-primary-foreground'
+                                            : 'bg-muted text-muted-foreground hover:text-foreground'
+                                    }`}
+                                >
+                                    {tag}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
 
                 {/* Tabs */}
                 <div className="flex border-b border-border gap-1">
@@ -844,47 +980,7 @@ export default function CatalogPage() {
                     ))}
                 </div>
 
-                {/* Filters */}
-                <div className="flex flex-col sm:flex-row gap-3">
-                    <input
-                        type="text"
-                        placeholder="Buscar por nome, descrição ou owner..."
-                        value={search}
-                        onChange={e => setSearch(e.target.value)}
-                        className="flex-1 px-4 py-2.5 rounded-lg bg-secondary/50 border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-amber-500/50"
-                    />
-                    <div className="flex gap-2 flex-wrap">
-                        {LIFECYCLE_FILTERS.map(f => (
-                            <button
-                                key={f}
-                                onClick={() => setLifecycleFilter(f)}
-                                className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                                    lifecycleFilter === f
-                                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                                        : 'border-border text-muted-foreground hover:text-foreground'
-                                }`}
-                            >
-                                {f === 'all' ? 'Todos' : f}
-                            </button>
-                        ))}
-                        <div className="w-px bg-border self-stretch mx-1" />
-                        {RISK_FILTERS.map(f => (
-                            <button
-                                key={f}
-                                onClick={() => setRiskFilter(f)}
-                                className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                                    riskFilter === f
-                                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                                        : 'border-border text-muted-foreground hover:text-foreground'
-                                }`}
-                            >
-                                {f === 'all' ? 'Todos riscos' : f}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Summary bar */}
+                {/* Summary */}
                 <p className="text-xs text-muted-foreground">
                     {filtered.length} assistente{filtered.length !== 1 ? 's' : ''} encontrado{filtered.length !== 1 ? 's' : ''}
                     {assistants.length !== filtered.length && ` de ${assistants.length} total`}
@@ -898,14 +994,18 @@ export default function CatalogPage() {
                     </div>
                 )}
 
-                {/* Grid */}
+                {/* Content */}
                 {loading ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {[1,2,3,4,5,6].map(i => (
-                            <div key={i} className="bg-card border border-border rounded-xl p-5 space-y-3">
-                                <div className="h-5 bg-secondary/60 rounded animate-pulse w-3/4" />
-                                <div className="h-4 bg-secondary/60 rounded animate-pulse w-full" />
-                                <div className="h-4 bg-secondary/60 rounded animate-pulse w-2/3" />
+                            <div key={i} className="bg-card border border-border rounded-xl p-5 space-y-3 animate-pulse">
+                                <div className="h-5 bg-muted rounded w-3/4" />
+                                <div className="h-4 bg-muted rounded w-full" />
+                                <div className="flex gap-2 mt-2">
+                                    <div className="h-6 bg-muted rounded-full w-20" />
+                                    <div className="h-6 bg-muted rounded-full w-24" />
+                                    <div className="h-6 bg-muted rounded-full w-16" />
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -914,16 +1014,42 @@ export default function CatalogPage() {
                         <BookOpen className="w-10 h-10 opacity-30" />
                         <p className="text-sm">Nenhum assistente encontrado com os filtros selecionados.</p>
                     </div>
+                ) : isSearchActive ? (
+                    cardGrid(filtered)
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {filtered.map(a => (
-                            <AssistantCard key={a.id} assistant={a} onManage={() => setSelected(a)} onToggleFavorite={toggleFavorite} />
-                        ))}
+                    <div className="space-y-8">
+                        {officials.length > 0 && (
+                            <section>
+                                <SectionHeader title="Oficiais" count={officials.length} />
+                                {cardGrid(officials)}
+                            </section>
+                        )}
+                        {approved.length > 0 && (
+                            <section>
+                                <SectionHeader title="Aprovados" count={approved.length} />
+                                {cardGrid(approved)}
+                            </section>
+                        )}
+                        {underReview.length > 0 && (
+                            <section className="opacity-80">
+                                <SectionHeader title="Aguardando Aprovação" count={underReview.length} muted />
+                                <div className="border border-dashed border-border rounded-xl p-4">
+                                    {cardGrid(underReview)}
+                                </div>
+                            </section>
+                        )}
+                        {showDrafts && drafts.length > 0 && (
+                            <section className="opacity-75">
+                                <SectionHeader title="Rascunhos" count={drafts.length} muted />
+                                <div className="border border-dashed border-border rounded-xl p-4">
+                                    {cardGrid(drafts)}
+                                </div>
+                            </section>
+                        )}
                     </div>
                 )}
             </div>
 
-            {/* Side Drawer */}
             {selectedFull && (
                 <AssistantDrawer
                     assistant={selectedFull}
@@ -934,7 +1060,6 @@ export default function CatalogPage() {
                 />
             )}
 
-            {/* Exit Perimeter Modal */}
             <ExitPerimeterModal
                 open={!!exitModalAssistant}
                 onClose={() => setExitModalAssistant(null)}
