@@ -259,6 +259,16 @@ export default function ShieldPage() {
         }
     };
 
+    // ── KPI helpers ────────────────────────────────────────────────────────
+    const kpiShadowAIs = posture?.openFindings ?? null;
+    const kpiScore     = posture?.overallScore  ?? null;
+    const kpiCritical  = posture != null ? (posture.criticalFindings ?? 0) + (posture.highFindings ?? 0) : null;
+
+    const scoreColor = kpiScore == null ? 'text-foreground'
+        : kpiScore >= 70 ? 'text-green-500'
+        : kpiScore >= 40 ? 'text-yellow-500'
+        : 'text-red-500';
+
     return (
         <div className="flex-1 overflow-auto">
 
@@ -277,6 +287,78 @@ export default function ShieldPage() {
                     subtitle="Detecção de uso não autorizado de IA"
                     icon={<ScanEye className="w-5 h-5" />}
                 />
+
+                {/* ── Hero KPIs ── */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* KPI 1 — Shadow AIs */}
+                    <div className="bg-card border border-border rounded-xl p-6 flex flex-col gap-2">
+                        <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Shadow AIs Detectadas</p>
+                        {loadingPosture ? (
+                            <div className="animate-pulse space-y-2">
+                                <div className="h-9 w-16 bg-muted rounded" />
+                                <div className="h-4 w-28 bg-muted rounded" />
+                            </div>
+                        ) : (
+                            <>
+                                <div className="text-3xl font-bold text-foreground">{kpiShadowAIs ?? '—'}</div>
+                                <p className="text-xs text-muted-foreground">ferramentas com findings ativos</p>
+                            </>
+                        )}
+                    </div>
+
+                    {/* KPI 2 — Posture Score */}
+                    <div className="bg-card border border-border rounded-xl p-6 flex flex-col gap-2">
+                        <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Posture Score</p>
+                        {loadingPosture ? (
+                            <div className="animate-pulse space-y-2">
+                                <div className="h-9 w-24 bg-muted rounded" />
+                                <div className="h-4 w-32 bg-muted rounded" />
+                            </div>
+                        ) : (
+                            <>
+                                <div className={`text-3xl font-bold ${scoreColor}`}>
+                                    {kpiScore != null ? `${kpiScore} / 100` : '—'}
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    {kpiScore == null ? 'sem snapshot disponível'
+                                        : kpiScore >= 70 ? 'postura saudável'
+                                        : kpiScore >= 40 ? 'atenção necessária'
+                                        : 'postura crítica — ação imediata'}
+                                </p>
+                            </>
+                        )}
+                    </div>
+
+                    {/* KPI 3 — Critical + High Open */}
+                    <div className="bg-card border border-border rounded-xl p-6 flex flex-col gap-2">
+                        <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Findings Abertos (Críticos + Alto)</p>
+                        {loadingPosture ? (
+                            <div className="animate-pulse space-y-2">
+                                <div className="h-9 w-12 bg-muted rounded" />
+                                <div className="h-4 w-36 bg-muted rounded" />
+                            </div>
+                        ) : (
+                            <>
+                                <div className={`text-3xl font-bold ${(kpiCritical ?? 0) > 0 ? 'text-red-500' : 'text-foreground'}`}>
+                                    {kpiCritical ?? '—'}
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    {kpiCritical == null ? 'sem dados' : kpiCritical === 0 ? 'nenhum finding crítico aberto' : 'requerem ação imediata'}
+                                </p>
+                            </>
+                        )}
+                    </div>
+                </div>
+
+                {/* CTA */}
+                <div className="flex items-center justify-end">
+                    <a
+                        href="/reports"
+                        className="inline-flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+                    >
+                        Gerar Relatório de Compliance
+                    </a>
+                </div>
 
                 {/* Section A — Posture Cards */}
                 {loadingPosture ? (

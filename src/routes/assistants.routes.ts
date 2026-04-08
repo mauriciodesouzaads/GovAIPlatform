@@ -51,6 +51,46 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         }
     });
 
+    // GET /v1/admin/assistants/:id — single assistant with full lifecycle metadata (P3)
+    app.get('/v1/admin/assistants/:id', { preHandler: requireTenantRole(['admin', 'sre', 'operator', 'auditor', 'dpo']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(400).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { id } = request.params as { id: string };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `SELECT a.id, a.name, a.status, a.lifecycle_state, a.description,
+                        a.risk_level, a.risk_score, a.risk_breakdown, a.risk_computed_at,
+                        a.data_classification, a.pii_blocker_enabled, a.output_format,
+                        a.capability_tags, a.owner_id, a.owner_email,
+                        a.reviewed_at, a.suspended_at, a.archived_at,
+                        a.created_at, a.updated_at,
+                        a.current_version_id,
+                        lv.version_major, lv.version_minor, lv.version_patch, lv.change_type,
+                        CONCAT(lv.version_major, '.', lv.version_minor, '.', lv.version_patch) AS version_label
+                 FROM assistants a
+                 LEFT JOIN LATERAL (
+                     SELECT version_major, version_minor, version_patch, change_type
+                     FROM assistant_versions
+                     WHERE assistant_id = a.id AND org_id = a.org_id
+                     ORDER BY created_at DESC LIMIT 1
+                 ) lv ON true
+                 WHERE a.id = $1 AND a.org_id = $2`,
+                [id, orgId]
+            );
+            if (res.rows.length === 0) return reply.status(404).send({ error: 'Assistente não encontrado.' });
+            return reply.send(res.rows[0]);
+        } catch (error) {
+            app.log.error(error, 'Error fetching assistant');
+            return reply.status(500).send({ error: 'Erro ao buscar assistente.' });
+        } finally {
+            client.release();
+        }
+    });
+
     // --- API KEY MANAGEMENT CRUD ---
 
     // List API Keys
@@ -214,9 +254,9 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
 
         const { assistantId } = request.params as { assistantId: string };
-        const { policy_json, publish, change_type, changelog } = request.body as any;
-
-        if (!policy_json) return reply.status(400).send({ error: "Campo 'policy_json' obrigatório." });
+        const { policy_json: rawPolicyJson, publish, change_type, changelog } = request.body as any;
+        // Default policy_json if not provided — minimal valid policy structure
+        const policy_json = rawPolicyJson ?? { rules: [], version: '1.0.0', snapshot_at: new Date().toISOString() };
 
         const shouldPublish = publish === true;
         if (shouldPublish) {
@@ -325,11 +365,22 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         if (!authUser?.userId) return reply.status(401).send({ error: 'Sessão inválida para homologação.' });
 
         const { assistantId, versionId } = request.params as { assistantId: string, versionId: string };
-        const { checklist } = request.body as { checklist: Record<string, boolean> };
+        const { checklist } = request.body as { checklist?: Record<string, boolean> };
 
-        // INT-03: Validate that all checklist items are true
-        if (!checklist || Object.keys(checklist).length === 0 || Object.values(checklist).some(val => val !== true)) {
-            return reply.status(400).send({ error: "O checklist regulatório deve estar integralmente aprovado." });
+        // INT-03: Validate that all checklist items are provided and true
+        if (!checklist || Object.keys(checklist).length === 0) {
+            return reply.status(422).send({
+                error: "Checklist regulatório obrigatório.",
+                hint: "Forneça { checklist: { security_review: true, compliance_review: true, privacy_review: true } }",
+                required_fields: ['security_review', 'compliance_review', 'privacy_review'],
+            });
+        }
+        const failedItems = Object.entries(checklist).filter(([, v]) => v !== true).map(([k]) => k);
+        if (failedItems.length > 0) {
+            return reply.status(422).send({
+                error: "O checklist regulatório deve estar integralmente aprovado.",
+                failed_items: failedItems,
+            });
         }
 
         const client = await pgPool.connect();
@@ -712,16 +763,36 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         try {
             await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
 
-            const res = await client.query(
-                `UPDATE assistants
-                 SET lifecycle_state = 'under_review', updated_at = now()
-                 WHERE id = $1 AND org_id = $2 AND lifecycle_state = 'draft'
-                 RETURNING id, name, lifecycle_state`,
+            // Check existence and current lifecycle state separately (P1: differentiate 404 vs 409)
+            const checkRes = await client.query(
+                `SELECT id, lifecycle_state FROM assistants WHERE id = $1 AND org_id = $2`,
                 [id, orgId]
             );
-            if (res.rows.length === 0) {
-                return reply.status(409).send({ error: 'Assistente não encontrado ou não está em estado draft.' });
+            if (checkRes.rows.length === 0) {
+                return reply.status(404).send({ error: 'Assistente não encontrado.' });
             }
+            const currentState = checkRes.rows[0].lifecycle_state ?? 'draft';
+            if (currentState !== 'draft') {
+                return reply.status(409).send({
+                    error: `Assistente está em estado '${currentState}', esperado 'draft'.`,
+                    currentState,
+                });
+            }
+
+            // Apply defaults for NULL governance fields before transitioning to review
+            const res = await client.query(
+                `UPDATE assistants
+                 SET lifecycle_state = 'under_review',
+                     data_classification = COALESCE(data_classification, 'internal'),
+                     pii_blocker_enabled = COALESCE(pii_blocker_enabled, true),
+                     output_format = COALESCE(output_format, 'free_text'),
+                     owner_id = COALESCE(owner_id, $3),
+                     capability_tags = COALESCE(capability_tags, '{}'),
+                     updated_at = now()
+                 WHERE id = $1 AND org_id = $2
+                 RETURNING id, name, lifecycle_state`,
+                [id, orgId, authUser.userId ?? null]
+            );
 
             await recordEvidence(client, {
                 orgId, category: 'publication', eventType: 'REVIEW_SUBMITTED',
@@ -771,6 +842,21 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         const client = await pgPool.connect();
         try {
             await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            // P1: Check existence and lifecycle state separately to return proper 404 vs 409
+            const existsRes = await client.query(
+                `SELECT id, lifecycle_state FROM assistants WHERE id = $1 AND org_id = $2`,
+                [id, orgId]
+            );
+            if (existsRes.rows.length === 0) {
+                return reply.status(404).send({ error: 'Assistente não encontrado.' });
+            }
+            if (existsRes.rows[0].lifecycle_state !== 'under_review') {
+                return reply.status(409).send({
+                    error: `Assistente está em estado '${existsRes.rows[0].lifecycle_state}', esperado 'under_review'.`,
+                    currentState: existsRes.rows[0].lifecycle_state,
+                });
+            }
+
             await client.query('BEGIN');
 
             const res = await client.query(
@@ -782,7 +868,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             );
             if (res.rows.length === 0) {
                 await client.query('ROLLBACK');
-                return reply.status(409).send({ error: 'Assistente não encontrado ou não está em under_review.' });
+                return reply.status(409).send({ error: 'Conflito ao atualizar estado do assistente.' });
             }
 
             await client.query(

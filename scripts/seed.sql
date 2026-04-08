@@ -241,6 +241,38 @@ INSERT INTO assistants (
     risk_score         = 5,
     risk_computed_at   = NOW() - INTERVAL '1 day';
 
+-- 6: Assistente de Testes — draft (for lifecycle flow validation)
+INSERT INTO assistants (
+    id, org_id, name, status, lifecycle_state, description,
+    risk_level, data_classification, pii_blocker_enabled, output_format,
+    risk_score, risk_breakdown, risk_computed_at,
+    capability_tags, owner_id, owner_email
+) VALUES (
+    '00000000-0000-0000-0002-000000000006',
+    '00000000-0000-0000-0000-000000000001',
+    'Assistente de Testes',
+    'draft', 'draft',
+    'Assistente em rascunho para validação do fluxo de ciclo de vida. Ainda não submetido para revisão.',
+    'low', 'internal', true, 'structured_json',
+    0,
+    '{"total_score":0,"level":"low","computed_at":"2026-04-08T00:00:00Z","classification":{"score":0,"explanation":"Dados internos"},"connectors":{"score":0,"explanation":"Sem integrações"},"extra_connectors":{"score":0,"explanation":""},"pii_blocker":{"score":0,"explanation":"PII blocker ativo"},"output_format":{"score":0,"explanation":"Saída estruturada JSON — totalmente auditável"}}'::jsonb,
+    NOW(),
+    ARRAY['testes','validação','demo'],
+    '55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab',
+    'admin@orga.com'
+) ON CONFLICT (id) DO UPDATE SET
+    lifecycle_state    = 'draft',
+    status             = 'draft',
+    risk_level         = 'low',
+    data_classification = 'internal',
+    pii_blocker_enabled = true,
+    output_format      = 'structured_json',
+    risk_score         = 0,
+    capability_tags    = ARRAY['testes','validação','demo'],
+    owner_id           = '55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab',
+    owner_email        = 'admin@orga.com',
+    risk_computed_at   = NOW();
+
 -- Update existing demo assistant with proper risk scoring fields
 UPDATE assistants
 SET

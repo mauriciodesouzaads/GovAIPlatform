@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth } from '@/components/AuthProvider';
 import {
   Activity, ShieldCheck, Coins, ArrowUpRight, ShieldAlert, CreditCard, Bot, Info,
   Database, Server, Zap, AlertTriangle, LayoutDashboard, Clock, FileWarning,
@@ -81,10 +83,21 @@ function SummaryCard({
   );
 }
 
+const GOVERNANCE_ROLES = ['dpo', 'auditor', 'compliance'];
+
 export default function DashboardPage() {
+  const { role, isLoading: authLoading } = useAuth();
+  const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Governance roles land on Shield, not Dashboard
+  useEffect(() => {
+    if (!authLoading && GOVERNANCE_ROLES.includes(role ?? '')) {
+      router.replace('/shield');
+    }
+  }, [role, authLoading, router]);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -100,6 +113,11 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
+
+  // Don't render dashboard while redirecting governance roles
+  if (!authLoading && GOVERNANCE_ROLES.includes(role ?? '')) {
+    return <div className="min-h-screen bg-background" />;
+  }
 
   const interceptionRate = stats && (stats.total_executions + stats.total_violations) > 0
     ? Math.min(100, Math.round((stats.total_violations / (stats.total_executions + stats.total_violations)) * 100))

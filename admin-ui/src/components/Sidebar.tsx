@@ -2,48 +2,114 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck, ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2, X, Bell } from 'lucide-react';
+import {
+    LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck,
+    ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2, X, Bell,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
+import { useEffect, useState } from 'react';
+import api, { ENDPOINTS } from '@/lib/api';
 
 interface SidebarProps {
     mobileOpen?: boolean;
     onClose?: () => void;
 }
 
+// ── Shield badge: count critical+high open findings ───────────────────────
+function useShieldBadge() {
+    const { orgId } = useAuth();
+    const [count, setCount] = useState(0);
+
+    useEffect(() => {
+        if (!orgId) return;
+        const load = async () => {
+            try {
+                const res = await api.get(ENDPOINTS.SHIELD_FINDINGS, { params: { orgId } });
+                const findings: { severity: string; status: string }[] = res.data.findings || [];
+                setCount(findings.filter(f =>
+                    ['critical', 'high'].includes(f.severity) && f.status === 'open'
+                ).length);
+            } catch {
+                // silent — badge is non-critical UI
+            }
+        };
+        load();
+        const interval = setInterval(load, 60_000);
+        return () => clearInterval(interval);
+    }, [orgId]);
+
+    return count;
+}
+
+// ── Nav item helper ────────────────────────────────────────────────────────
+function NavItem({
+    href, label, Icon, isActive, accentClass, iconActiveClass, badge, onClose,
+}: {
+    href: string;
+    label: string;
+    Icon: React.ElementType;
+    isActive: boolean;
+    accentClass: string;      // e.g. 'bg-amber-400'
+    iconActiveClass: string;  // e.g. 'text-amber-400'
+    badge?: number;
+    onClose?: () => void;
+}) {
+    return (
+        <Link
+            href={href}
+            onClick={onClose}
+            aria-current={isActive ? 'page' : undefined}
+            className={cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative overflow-hidden',
+                isActive
+                    ? 'bg-secondary/80 text-foreground ring-1 ring-border shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
+            )}
+        >
+            {isActive && (
+                <div className={cn('absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full', accentClass)} />
+            )}
+            <Icon className={cn('w-4 h-4 transition-colors shrink-0', isActive ? iconActiveClass : 'group-hover:text-foreground')} />
+            <span className="relative z-10 flex-1">{label}</span>
+            {badge != null && badge > 0 && (
+                <span className="bg-destructive text-destructive-foreground text-xs font-medium rounded-full min-w-[1.25rem] h-5 flex items-center justify-center px-1.5 shrink-0">
+                    {badge > 99 ? '99+' : badge}
+                </span>
+            )}
+        </Link>
+    );
+}
+
+// ── Section label ──────────────────────────────────────────────────────────
+function SectionLabel({ label }: { label: string }) {
+    return (
+        <div className="text-xs font-semibold text-muted-foreground/60 tracking-wider uppercase px-2 pt-4 pb-1.5">
+            {label}
+        </div>
+    );
+}
+
+// ── Main sidebar content ───────────────────────────────────────────────────
 function SidebarContent({ onClose }: { onClose?: () => void }) {
     const pathname = usePathname();
     const { logout, role, email } = useAuth();
+    const badgeCount = useShieldBadge();
 
-    const coreItems = [
-        { label: 'Dashboard', href: '/', icon: LayoutDashboard, allowed: ['admin', 'sre', 'dpo', 'auditor', 'operator'] },
-        { label: 'Playground', href: '/playground', icon: Play, allowed: ['admin', 'sre', 'operator'] },
-        { label: 'Audit Logs', href: '/logs', icon: ShieldAlert, allowed: ['admin', 'sre', 'dpo', 'auditor', 'operator'] },
-        { label: 'Assistants & RAG', href: '/assistants', icon: MessageSquareText, allowed: ['admin', 'sre', 'operator'] },
-        { label: 'API Keys', href: '/api-keys', icon: Key, allowed: ['admin'] },
-        { label: 'Approvals', href: '/approvals', icon: ShieldCheck, allowed: ['admin', 'sre', 'dpo'] },
-        { label: 'Compliance LGPD', href: '/compliance', icon: ToggleRight, allowed: ['admin', 'dpo'] },
-        { label: 'Reports', href: '/reports', icon: FileText, allowed: ['admin', 'dpo', 'auditor'] },
-    ];
+    // Role groups
+    const isGovernance = ['dpo', 'auditor', 'compliance'].includes(role ?? '');
+    const isTechnical  = ['sre', 'operator'].includes(role ?? '');
+    const isAdmin      = role === 'admin';
+    const isPlatformAdmin = role === 'platform_admin';
+    // Fallback: show everything if role is unknown/null
+    const showAll = !isGovernance && !isTechnical && !isAdmin && !isPlatformAdmin;
 
-    const detectionItems = [
-        { label: 'Shield Detection', href: '/shield', icon: ScanEye, allowed: ['admin', 'sre', 'dpo', 'auditor'] },
-        { label: 'Catálogo de Agentes', href: '/catalog', icon: BookOpen, allowed: ['admin', 'operator', 'auditor'] },
-        { label: 'Painel do Consultor', href: '/consultant', icon: UserCog, allowed: ['admin', 'sre', 'dpo'] },
-        { label: 'Arquiteto', href: '/architect', icon: BrainCircuit, allowed: ['admin', 'operator', 'dpo'] },
-    ];
-
-    const platformItems = [
-        { label: 'Organizações', href: '/organizations', icon: Building2, allowed: ['platform_admin'] },
-        { label: 'Webhooks', href: '/webhooks', icon: Bell, allowed: ['admin'] },
-    ];
-
-    const visibleCoreItems = coreItems.filter(item => item.allowed.includes(role));
-    const visibleDetectionItems = detectionItems.filter(item => item.allowed.includes(role));
-    const visiblePlatformItems = platformItems.filter(item => item.allowed.includes(role));
+    const showGovernance = isGovernance || isAdmin || isPlatformAdmin || showAll;
+    const showTechnical  = isTechnical  || isAdmin || isPlatformAdmin || showAll;
 
     return (
         <div className="w-64 border-r border-border bg-card/60 backdrop-blur-md flex flex-col h-full shrink-0 shadow-[4px_0_24px_-10px_rgba(0,0,0,0.5)] z-20">
+            {/* Logo */}
             <div className="h-16 flex items-center px-6 border-b border-border/50">
                 <Link href="/" className="flex items-center gap-3 flex-1" onClick={onClose}>
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-lg shadow-emerald-500/20 text-black flex items-center justify-center font-black text-lg">
@@ -61,97 +127,50 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 )}
             </div>
 
-            <div className="flex-1 py-6 px-4 flex flex-col gap-1.5 overflow-y-auto">
-                <div className="text-xs font-semibold text-muted-foreground/60 tracking-wider uppercase mb-2 px-2">
-                    Core Modules
-                </div>
-                {visibleCoreItems.map((item) => {
-                    const isActive = pathname === item.href;
-                    return (
-                        <Link
-                            key={item.href}
-                            href={item.href}
-                            onClick={onClose}
-                            aria-current={isActive ? 'page' : undefined}
-                            className={cn(
-                                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative overflow-hidden",
-                                isActive
-                                    ? "bg-secondary/80 text-foreground ring-1 ring-border shadow-sm"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/30"
-                            )}
-                        >
-                            {isActive && (
-                                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-emerald-500 rounded-r-full" />
-                            )}
-                            <item.icon className={cn("w-4 h-4 transition-colors", isActive ? "text-emerald-500" : "group-hover:text-foreground")} />
-                            <span className="relative z-10">{item.label}</span>
-                        </Link>
-                    )
-                })}
+            {/* Nav */}
+            <div className="flex-1 py-4 px-3 flex flex-col overflow-y-auto">
 
-                {visibleDetectionItems.length > 0 && (
+                {/* GOVERNANÇA group */}
+                {showGovernance && (
                     <>
-                        <div className="text-xs font-semibold text-muted-foreground/60 tracking-wider uppercase mt-4 mb-2 px-2">
-                            Detection &amp; Registry
-                        </div>
-                        {visibleDetectionItems.map((item) => {
-                            const isActive = pathname === item.href;
-                            return (
-                                <Link
-                                    key={item.href}
-                                    href={item.href}
-                                    onClick={onClose}
-                                    aria-current={isActive ? 'page' : undefined}
-                                    className={cn(
-                                        "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative overflow-hidden",
-                                        isActive
-                                            ? "bg-secondary/80 text-foreground ring-1 ring-border shadow-sm"
-                                            : "text-muted-foreground hover:text-foreground hover:bg-secondary/30"
-                                    )}
-                                >
-                                    {isActive && (
-                                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-amber-400 rounded-r-full" />
-                                    )}
-                                    <item.icon className={cn("w-4 h-4 transition-colors", isActive ? "text-amber-400" : "group-hover:text-foreground")} />
-                                    <span className="relative z-10">{item.label}</span>
-                                </Link>
-                            )
-                        })}
+                        {(isAdmin || showAll) && <SectionLabel label="Governança" />}
+                        <NavItem href="/shield"     label="Postura de Risco"        Icon={ScanEye}     isActive={pathname === '/shield'}     accentClass="bg-amber-400"   iconActiveClass="text-amber-400"   badge={badgeCount} onClose={onClose} />
+                        <NavItem href="/catalog"    label="Catálogo de Agentes"     Icon={BookOpen}    isActive={pathname === '/catalog'}    accentClass="bg-amber-400"   iconActiveClass="text-amber-400"   onClose={onClose} />
+                        <NavItem href="/approvals"  label="Fila de Aprovação"       Icon={ShieldCheck} isActive={pathname === '/approvals'}  accentClass="bg-amber-400"   iconActiveClass="text-amber-400"   onClose={onClose} />
+                        <NavItem href="/reports"    label="Evidências & Relatórios" Icon={FileText}    isActive={pathname === '/reports'}    accentClass="bg-amber-400"   iconActiveClass="text-amber-400"   onClose={onClose} />
+                        <NavItem href="/compliance" label="Compliance LGPD"         Icon={ToggleRight} isActive={pathname === '/compliance'} accentClass="bg-amber-400"   iconActiveClass="text-amber-400"   onClose={onClose} />
+                        <NavItem href="/logs"       label="Audit Logs"              Icon={ShieldAlert} isActive={pathname === '/logs'}       accentClass="bg-amber-400"   iconActiveClass="text-amber-400"   onClose={onClose} />
                     </>
                 )}
 
-                {visiblePlatformItems.length > 0 && (
+                {/* TÉCNICO group */}
+                {showTechnical && (
                     <>
-                        <div className="text-xs font-semibold text-indigo-400/70 tracking-wider uppercase mt-4 mb-2 px-2">
-                            Platform
-                        </div>
-                        {visiblePlatformItems.map((item) => {
-                            const isActive = pathname === item.href;
-                            return (
-                                <Link
-                                    key={item.href}
-                                    href={item.href}
-                                    onClick={onClose}
-                                    aria-current={isActive ? 'page' : undefined}
-                                    className={cn(
-                                        "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative overflow-hidden",
-                                        isActive
-                                            ? "bg-indigo-500/10 text-foreground ring-1 ring-indigo-500/30 shadow-sm"
-                                            : "text-muted-foreground hover:text-foreground hover:bg-secondary/30"
-                                    )}
-                                >
-                                    {isActive && (
-                                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-indigo-400 rounded-r-full" />
-                                    )}
-                                    <item.icon className={cn("w-4 h-4 transition-colors", isActive ? "text-indigo-400" : "group-hover:text-foreground")} />
-                                    <span className="relative z-10">{item.label}</span>
-                                </Link>
-                            )
-                        })}
+                        {(isAdmin || showAll) && <SectionLabel label="Técnico" />}
+                        <NavItem href="/"           label="Dashboard"        Icon={LayoutDashboard}  isActive={pathname === '/'}           accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        <NavItem href="/assistants" label="Assistants & RAG" Icon={MessageSquareText} isActive={pathname === '/assistants'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        <NavItem href="/playground" label="Playground"       Icon={Play}             isActive={pathname === '/playground'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        <NavItem href="/api-keys"   label="API Keys"         Icon={Key}              isActive={pathname === '/api-keys'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        <NavItem href="/architect"  label="Arquiteto"        Icon={BrainCircuit}     isActive={pathname === '/architect'}  accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        <NavItem href="/webhooks"   label="Webhooks"         Icon={Bell}             isActive={pathname === '/webhooks'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                    </>
+                )}
+
+                {/* Consultant (admin, sre, dpo — roles that had it before) */}
+                {(isAdmin || isTechnical || isGovernance || showAll) && (
+                    <NavItem href="/consultant" label="Painel do Consultor" Icon={UserCog} isActive={pathname === '/consultant'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                )}
+
+                {/* Platform (admin + platform_admin) */}
+                {(isAdmin || isPlatformAdmin || showAll) && (
+                    <>
+                        <SectionLabel label="Platform" />
+                        <NavItem href="/organizations" label="Organizações" Icon={Building2} isActive={pathname === '/organizations'} accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
                     </>
                 )}
             </div>
 
+            {/* Footer */}
             <div className="p-4 border-t border-border/50 bg-background/30">
                 <div className="flex items-center gap-3 px-3 py-3 mb-2 rounded-lg bg-secondary/30 border border-border/30">
                     <div className="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-xs ring-1 ring-indigo-500/30 uppercase">
@@ -162,7 +181,6 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         <span className="text-[10px] text-muted-foreground max-w-[150px] truncate" title={email}>{email}</span>
                     </div>
                 </div>
-
                 <button
                     onClick={logout}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-destructive/80 hover:text-destructive hover:bg-destructive/10 transition-colors"
@@ -175,6 +193,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     );
 }
 
+// ── Exported component ─────────────────────────────────────────────────────
 export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
     return (
         <>
@@ -183,7 +202,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                 <SidebarContent />
             </aside>
 
-            {/* Mobile overlay — shown when mobileOpen */}
+            {/* Mobile overlay */}
             {mobileOpen && (
                 <aside className="fixed inset-0 z-50 lg:hidden flex">
                     <div
