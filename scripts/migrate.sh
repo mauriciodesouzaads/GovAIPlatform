@@ -8,6 +8,10 @@
 # Aplica todas as migrations SQL em ordem contra o banco PostgreSQL alvo.
 # Utiliza a tabela _migrations para rastrear quais já foram aplicadas —
 # re-executar o script é seguro (idempotente).
+#
+# Migrations que contêm comandos privilegiados (CREATE POLICY, ALTER POLICY,
+# ALTER ROLE, GRANT, SET ROLE) são executadas com credenciais de superuser.
+# Configure POSTGRES_SUPERUSER_URL ou DB_PASSWORD no ambiente.
 # ============================================================================
 
 set -euo pipefail
@@ -25,8 +29,39 @@ MASKED_URL=$(echo "$DB_URL" | sed 's|://[^:]*:[^@]*@|://***:***@|')
 echo "Target: $MASKED_URL"
 echo ""
 
-# ─── Garantir tabela de tracking ─────────────────────────────────────────────
-psql "$DB_URL" -v ON_ERROR_STOP=1 -q <<'SQL'
+# ─── Superuser URL ───────────────────────────────────────────────────────────
+# Usado para migrations que contêm CREATE POLICY, ALTER POLICY, ALTER ROLE,
+# GRANT ou SET ROLE — operações que exigem ser owner da tabela ou superuser.
+#
+# Resolução em ordem de prioridade:
+#   1. Variável POSTGRES_SUPERUSER_URL (ex: definida no docker-compose)
+#   2. Substituição do user:pass em DB_URL pelo postgres + DB_PASSWORD
+#   3. Fallback para DB_URL (pode falhar em migrations privilegiadas)
+if [ -n "${POSTGRES_SUPERUSER_URL:-}" ]; then
+    SU_URL="$POSTGRES_SUPERUSER_URL"
+    MASKED_SU=$(echo "$SU_URL" | sed 's|://[^:]*:[^@]*@|://***:***@|')
+    echo "[MIGRATE] Superuser URL configurada: $MASKED_SU"
+elif [ -n "${DB_PASSWORD:-}" ]; then
+    SU_URL=$(echo "$DB_URL" | sed "s|://[^:]*:[^@]*@|://postgres:${DB_PASSWORD}@|")
+    MASKED_SU=$(echo "$SU_URL" | sed 's|://[^:]*:[^@]*@|://***:***@|')
+    echo "[MIGRATE] Superuser URL derivada de DB_PASSWORD: $MASKED_SU"
+else
+    SU_URL="$DB_URL"
+    echo "[MIGRATE] WARNING: Sem credenciais de superuser — migrations privilegiadas podem falhar."
+    echo "[MIGRATE] Defina POSTGRES_SUPERUSER_URL ou DB_PASSWORD para resolver."
+fi
+echo ""
+
+# ─── Detecção de migrations privilegiadas ────────────────────────────────────
+# Retorna 0 (true) se o arquivo contém comandos que exigem superuser ou
+# ownership de tabela no PostgreSQL.
+needs_superuser() {
+    local file="$1"
+    grep -qiE '(CREATE[[:space:]]+POLICY|ALTER[[:space:]]+POLICY|ALTER[[:space:]]+ROLE|^[[:space:]]*GRANT[[:space:]]|SET[[:space:]]+ROLE)' "$file"
+}
+
+# ─── Garantir tabela de tracking (como superuser para evitar problemas de permissão) ──
+psql "$SU_URL" -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE TABLE IF NOT EXISTS _migrations (
     name        TEXT PRIMARY KEY,
     applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -103,7 +138,7 @@ for migration in "${MIGRATIONS[@]}"; do
     fi
 
     # Verifica se já foi aplicada
-    ALREADY_APPLIED=$(psql "$DB_URL" -tAq -c \
+    ALREADY_APPLIED=$(psql "$SU_URL" -tAq -c \
         "SELECT COUNT(*) FROM _migrations WHERE name = '$migration'" 2>/dev/null || echo "0")
 
     if [ "$ALREADY_APPLIED" = "1" ]; then
@@ -112,12 +147,20 @@ for migration in "${MIGRATIONS[@]}"; do
         continue
     fi
 
-    echo -n "▶ Aplicando $migration... "
+    # Decide qual credencial usar para esta migration
+    if [ "$SU_URL" != "$DB_URL" ] && needs_superuser "$FILEPATH"; then
+        MIGRATION_URL="$SU_URL"
+        echo -n "▶ [MIGRATE] $migration requires superuser — executing with elevated privileges... "
+    else
+        MIGRATION_URL="$DB_URL"
+        echo -n "▶ Aplicando $migration... "
+    fi
 
-    # Executa a migration dentro de uma transação
-    if psql "$DB_URL" -v ON_ERROR_STOP=1 -q -c "BEGIN;" \
+    # Executa a migration dentro de uma transação e registra na tabela de tracking
+    if psql "$MIGRATION_URL" -v ON_ERROR_STOP=1 -q \
+        -c "BEGIN;" \
         -f "$FILEPATH" \
-        -c "INSERT INTO _migrations (name) VALUES ('$migration');" \
+        -c "INSERT INTO _migrations (name) VALUES ('$migration') ON CONFLICT DO NOTHING;" \
         -c "COMMIT;"; then
         echo "✅ OK"
         SUCCESS=$((SUCCESS+1))

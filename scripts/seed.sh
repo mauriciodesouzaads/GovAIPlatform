@@ -3,6 +3,9 @@
 # GovAI Platform — Demo Seed Runner
 # ============================================================================
 # Idempotent: safe to run multiple times (all inserts use ON CONFLICT DO NOTHING).
+# Conditional: skips entirely if the database is already seeded (organizations
+# table has at least one row).
+#
 # Requires: DATABASE_URL and SIGNING_SECRET (from env or .env file).
 #
 # Usage (local, outside Docker):
@@ -37,6 +40,18 @@ echo "╚═══════════════════════�
 echo ""
 MASKED=$(echo "$DB_URL" | sed 's|://[^:]*:[^@]*@|://***:***@|')
 echo "Target: $MASKED"
+echo ""
+
+# ── Guard: skip if database is already seeded ────────────────────────────────
+ORG_COUNT=$(psql "$DB_URL" -tAq -c "SELECT COUNT(*) FROM organizations" 2>/dev/null || echo "0")
+ORG_COUNT="${ORG_COUNT//[[:space:]]/}"   # trim whitespace
+
+if [ "${ORG_COUNT}" != "0" ] && [ -n "${ORG_COUNT}" ]; then
+    echo "[SEED] Database already seeded — skipping (organizations count: ${ORG_COUNT})"
+    exit 0
+fi
+
+echo "[SEED] Database is empty — applying demo seed..."
 echo ""
 
 # ── Step 1: Static rows (org, user, assistant) ──────────────────────────────

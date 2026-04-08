@@ -95,7 +95,9 @@ services:
     command: ["/bin/bash", "/app/scripts/entrypoint.sh"]
     environment:
       DATABASE_URL: postgresql://govai_app:${DB_APP_PASSWORD}@database:5432/govai_platform
+      POSTGRES_SUPERUSER_URL: postgresql://postgres:${DB_PASSWORD}@database:5432/govai_platform
       DB_APP_PASSWORD: ${DB_APP_PASSWORD}
+      DB_PASSWORD: ${DB_PASSWORD}
       LITELLM_URL: http://litellm:4000
       SIGNING_SECRET: ${SIGNING_SECRET}
       JWT_SECRET: ${JWT_SECRET}
@@ -136,11 +138,11 @@ services:
     networks:
       - govai-net
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 30s
 
   admin-ui:
     build:
