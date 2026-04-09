@@ -18,7 +18,7 @@ import { PageHeader } from '@/components/PageHeader';
 
 interface RiskDistItem { risk_level: string; count: string; }
 interface ShadowFinding { id: string; assistant_name: string; finding_type: string; severity: string; created_at: string; }
-interface PosturePoint { snapshot_date: string; posture_score: number; }
+interface PosturePoint { generated_at: string; summary_score: number; open_findings: number; }
 
 interface DashboardStats {
   total_assistants: number;
@@ -130,8 +130,8 @@ export default function DashboardPage() {
   })) ?? [];
 
   const postureData = stats?.posture_history?.map(p => ({
-    name: new Date(p.snapshot_date).toLocaleDateString('pt-BR', { month: 'short', day: 'numeric' }),
-    score: p.posture_score,
+    name: new Date(p.generated_at).toLocaleDateString('pt-BR', { month: 'short', day: 'numeric' }),
+    score: p.summary_score,
   })) ?? [];
 
   const totalRisk = pieData.reduce((s, d) => s + d.value, 0);

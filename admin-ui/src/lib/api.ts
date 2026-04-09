@@ -41,6 +41,7 @@ export const ENDPOINTS = {
     KNOWLEDGE: '/v1/admin/knowledge',
     API_KEYS: '/v1/admin/api-keys',
     REPORTS_COMPLIANCE: '/v1/admin/reports/compliance',
+    REPORTS_COMPLIANCE_AUDIT: '/v1/admin/reports/compliance-audit',
 
     // Shield Detection
     SHIELD_POSTURE:           '/v1/admin/shield/posture',

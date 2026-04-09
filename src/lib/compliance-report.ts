@@ -307,3 +307,246 @@ export function generateComplianceReport(data: ComplianceReportData): Promise<Bu
         doc.end();
     }); // end Promise
 }
+
+// ---------------------------------------------------------------------------
+// Compliance Audit Report (7-section, SHA-256 integrity)
+// ---------------------------------------------------------------------------
+
+export interface ComplianceAuditReportData {
+    organization: { id: string; name: string };
+    period: { from: string; to: string };
+    generatedAt: string;
+    sections: {
+        executiveSummary: {
+            totalAssistants: number;
+            activeAssistants: number;
+            postureScore: number;
+            complianceRate: string;
+            totalExecutions: number;
+            totalViolations: number;
+            pendingApprovals: number;
+        };
+        assistantInventory: Array<{
+            id: string; name: string; status: string;
+            lifecycle_state: string; risk_level: string;
+            data_classification: string; created_at: string;
+        }>;
+        postureHistory: Array<{
+            generated_at: string; summary_score: number;
+            open_findings: number; unresolved_critical: number;
+        }>;
+        shadowAI: {
+            total: number;
+            bySeverity: Record<string, number>;
+            byStatus: Record<string, number>;
+        };
+        executionMetrics: {
+            byAction: Record<string, number>;
+            period: { from: string; to: string };
+        };
+        auditTrail: Array<{
+            id: string; action: string; created_at: string;
+            signature: string; signatureValid: boolean; metadata: any;
+        }>;
+    };
+    integrity: { hash: string; algorithm: string };
+}
+
+export function generateAuditReport(data: ComplianceAuditReportData): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+        const chunks: Buffer[] = [];
+        doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', reject);
+
+        const s = data.sections;
+        const rate = parseFloat(s.executiveSummary.complianceRate);
+        const badgeColor = rate >= 95 ? COLORS.success : rate >= 80 ? COLORS.warning : COLORS.danger;
+
+        // ===== HEADER =====
+        doc.rect(0, 0, 595, 100).fill(COLORS.primary);
+        doc.fontSize(20).font('Helvetica-Bold').fillColor(COLORS.white).text('GovAI Platform', 50, 22);
+        doc.fontSize(10).font('Helvetica').fillColor('#94A3B8').text('Relatório de Auditoria de Conformidade — BCB 4.557 / LGPD', 50, 48);
+        doc.fontSize(8).fillColor('#64748B')
+            .text(`Organização: ${data.organization.name}`, 50, 70)
+            .text(`Período: ${data.period.from} a ${data.period.to}`, 230, 70)
+            .text(`Gerado em: ${new Date(data.generatedAt).toLocaleString('pt-BR')}`, 415, 70);
+
+        doc.roundedRect(450, 18, 95, 42, 5).fill(badgeColor);
+        doc.fontSize(15).font('Helvetica-Bold').fillColor(COLORS.white).text(`${s.executiveSummary.complianceRate}%`, 460, 25, { width: 75, align: 'center' });
+        doc.fontSize(7).font('Helvetica').fillColor(COLORS.white).text('COMPLIANCE', 460, 43, { width: 75, align: 'center' });
+
+        let y = 115;
+
+        // ===== SECTION 1: EXECUTIVE SUMMARY =====
+        y = drawSectionTitle(doc, '1. Sumário Executivo', y);
+
+        const kpis = [
+            { label: 'Assistentes', value: s.executiveSummary.totalAssistants.toString(), color: COLORS.accent },
+            { label: 'Postura IA', value: `${s.executiveSummary.postureScore}/100`, color: s.executiveSummary.postureScore >= 70 ? COLORS.success : s.executiveSummary.postureScore >= 50 ? COLORS.warning : COLORS.danger },
+            { label: 'Execuções', value: s.executiveSummary.totalExecutions.toString(), color: COLORS.accent },
+            { label: 'Violações', value: s.executiveSummary.totalViolations.toString(), color: COLORS.danger },
+        ];
+        kpis.forEach((kpi, i) => {
+            const cx = 50 + i * 125;
+            doc.roundedRect(cx, y, 115, 45, 4).fillAndStroke(COLORS.lightBg, COLORS.border);
+            doc.fontSize(16).font('Helvetica-Bold').fillColor(kpi.color).text(kpi.value, cx + 8, y + 6, { width: 99 });
+            doc.fontSize(7.5).font('Helvetica').fillColor(COLORS.secondary).text(kpi.label, cx + 8, y + 28, { width: 99 });
+        });
+        y += 58;
+
+        doc.fontSize(8.5).font('Helvetica').fillColor(COLORS.secondary).lineGap(2)
+            .text(`Durante o período de ${data.period.from} a ${data.period.to}, a plataforma GovAI registrou ${s.executiveSummary.totalExecutions} execuções de agentes de IA com índice de compliance de ${s.executiveSummary.complianceRate}%. O score de postura atual é ${s.executiveSummary.postureScore}/100. Foram interceptadas ${s.executiveSummary.totalViolations} violações de política, com ${s.executiveSummary.pendingApprovals} aprovações pendentes de revisão humana (HITL).`,
+                55, y, { width: 495, align: 'justify' });
+        y += 40;
+
+        // ===== SECTION 2: ASSISTANT INVENTORY =====
+        y = checkPageBreak(doc, y, 80);
+        y = drawSectionTitle(doc, '2. Inventário de Assistentes (oficial / aprovado / em revisão)', y);
+
+        const invHeaders = ['Nome', 'Status', 'Ciclo de Vida', 'Risco', 'Classificação de Dados'];
+        const invWidths = [120, 58, 88, 62, 167];
+        y = drawTableHeader(doc, invHeaders, invWidths, y);
+        if (s.assistantInventory.length === 0) {
+            doc.fontSize(9).font('Helvetica').fillColor(COLORS.secondary).text('Nenhum assistente no inventário.', 55, y + 5);
+            y += 25;
+        } else {
+            s.assistantInventory.forEach((a, i) => {
+                y = checkPageBreak(doc, y);
+                y = drawTableRow(doc, [
+                    a.name,
+                    (a.status || '—').toUpperCase(),
+                    (a.lifecycle_state || '—').replace(/_/g, ' '),
+                    (a.risk_level || '—').toUpperCase(),
+                    a.data_classification || '—',
+                ], invWidths, y, i % 2 === 0);
+            });
+        }
+        y += 15;
+
+        // ===== SECTION 3: POSTURE HISTORY =====
+        y = checkPageBreak(doc, y, 80);
+        y = drawSectionTitle(doc, '3. Histórico de Postura de Risco (IA Shield)', y);
+
+        const phHeaders = ['Data do Snapshot', 'Score', 'Findings Abertos', 'Críticos'];
+        const phWidths = [150, 80, 140, 125];
+        y = drawTableHeader(doc, phHeaders, phWidths, y);
+        if (s.postureHistory.length === 0) {
+            doc.fontSize(9).font('Helvetica').fillColor(COLORS.secondary).text('Nenhum snapshot disponível.', 55, y + 5);
+            y += 25;
+        } else {
+            s.postureHistory.forEach((p, i) => {
+                y = checkPageBreak(doc, y);
+                y = drawTableRow(doc, [
+                    new Date(p.generated_at).toLocaleDateString('pt-BR'),
+                    `${p.summary_score}/100`,
+                    p.open_findings.toString(),
+                    p.unresolved_critical.toString(),
+                ], phWidths, y, i % 2 === 0);
+            });
+        }
+        y += 15;
+
+        // ===== SECTION 4: SHADOW AI =====
+        y = checkPageBreak(doc, y, 80);
+        y = drawSectionTitle(doc, `4. Shadow AI — Findings Detectados (Total: ${s.shadowAI.total})`, y);
+
+        const sevEntries = Object.entries(s.shadowAI.bySeverity).sort((a, b) => b[1] - a[1]);
+        if (sevEntries.length > 0) {
+            doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.primary).text('Por Severidade:', 55, y); y += 14;
+            y = drawTableHeader(doc, ['Severidade', 'Qtd'], [200, 295], y);
+            sevEntries.forEach(([sev, cnt], i) => {
+                y = checkPageBreak(doc, y);
+                y = drawTableRow(doc, [sev.toUpperCase(), cnt.toString()], [200, 295], y, i % 2 === 0);
+            });
+            y += 10;
+        }
+
+        const statusEntries = Object.entries(s.shadowAI.byStatus).sort((a, b) => b[1] - a[1]);
+        if (statusEntries.length > 0) {
+            y = checkPageBreak(doc, y, 60);
+            doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.primary).text('Por Status:', 55, y); y += 14;
+            y = drawTableHeader(doc, ['Status', 'Qtd'], [200, 295], y);
+            statusEntries.forEach(([status, cnt], i) => {
+                y = checkPageBreak(doc, y);
+                y = drawTableRow(doc, [status.replace(/_/g, ' ').toUpperCase(), cnt.toString()], [200, 295], y, i % 2 === 0);
+            });
+        }
+
+        if (sevEntries.length === 0 && statusEntries.length === 0) {
+            doc.fontSize(9).font('Helvetica').fillColor(COLORS.success).text('✓ Nenhum finding de Shadow AI registrado.', 55, y + 5);
+            y += 25;
+        }
+        y += 15;
+
+        // ===== SECTION 5: EXECUTION METRICS =====
+        y = checkPageBreak(doc, y, 80);
+        y = drawSectionTitle(doc, '5. Métricas de Execução por Tipo de Evento', y);
+
+        const actionEntries = Object.entries(s.executionMetrics.byAction).sort((a, b) => b[1] - a[1]);
+        if (actionEntries.length === 0) {
+            doc.fontSize(9).font('Helvetica').fillColor(COLORS.secondary).text('Nenhum evento registrado no período.', 55, y + 5);
+            y += 25;
+        } else {
+            const emHeaders = ['Ação', 'Ocorrências', '% do Total'];
+            const emWidths = [250, 120, 125];
+            y = drawTableHeader(doc, emHeaders, emWidths, y);
+            const totalActions = actionEntries.reduce((sum, [, v]) => sum + v, 0);
+            actionEntries.forEach(([action, cnt], i) => {
+                y = checkPageBreak(doc, y);
+                const pct = totalActions > 0 ? ((cnt / totalActions) * 100).toFixed(1) + '%' : '0%';
+                y = drawTableRow(doc, [action.replace(/_/g, ' '), cnt.toString(), pct], emWidths, y, i % 2 === 0);
+            });
+        }
+        y += 15;
+
+        // ===== SECTION 6: AUDIT TRAIL =====
+        y = checkPageBreak(doc, y, 80);
+        y = drawSectionTitle(doc, `6. Trilha de Auditoria — Últimas ${s.auditTrail.length} Entradas`, y);
+
+        doc.fontSize(7.5).font('Helvetica').fillColor(COLORS.secondary)
+            .text('Cada registro contém assinatura HMAC-SHA256. Status "VÁLIDA" confirma que o registro não foi adulterado.', 55, y, { width: 495 });
+        y += 16;
+
+        const atHeaders = ['Data/Hora', 'Ação', 'Assinatura (12ch)', 'Verificação'];
+        const atWidths = [110, 145, 130, 110];
+        y = drawTableHeader(doc, atHeaders, atWidths, y);
+        s.auditTrail.forEach((log, i) => {
+            y = checkPageBreak(doc, y);
+            y = drawTableRow(doc, [
+                new Date(log.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' }),
+                log.action.replace(/_/g, ' '),
+                (log.signature || '').substring(0, 12) + '...',
+                log.signatureValid ? '✓ VÁLIDA' : '✗ INVÁLIDA',
+            ], atWidths, y, i % 2 === 0);
+        });
+        y += 15;
+
+        // ===== SECTION 7: INTEGRITY HASH =====
+        y = checkPageBreak(doc, y, 80);
+        y = drawSectionTitle(doc, '7. Hash de Integridade do Relatório', y);
+
+        doc.fontSize(8.5).font('Helvetica').fillColor(COLORS.secondary)
+            .text(`Algoritmo: ${data.integrity.algorithm}`, 55, y); y += 14;
+        doc.fontSize(7).font('Courier').fillColor(COLORS.primary)
+            .text(data.integrity.hash, 55, y, { width: 495 });
+        y += 20;
+        doc.fontSize(8).font('Helvetica').fillColor(COLORS.secondary)
+            .text('Este hash certifica a integridade do conteúdo completo deste relatório no momento de sua geração. Qualquer alteração posterior invalidará este certificado.',
+                55, y, { width: 495, align: 'justify' });
+
+        // ===== FOOTER (all pages) =====
+        const pages = doc.bufferedPageRange();
+        for (let i = 0; i < pages.count; i++) {
+            doc.switchToPage(i);
+            doc.fontSize(7).font('Helvetica').fillColor(COLORS.secondary)
+                .text(
+                    `GovAI Platform — Relatório de Auditoria de Conformidade  |  Gerado em: ${new Date(data.generatedAt).toLocaleString('pt-BR')}  |  Página ${i + 1} de ${pages.count}`,
+                    50, 780, { width: 495, align: 'center' }
+                );
+        }
+
+        doc.end();
+    });
+}
