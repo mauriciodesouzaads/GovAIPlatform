@@ -529,6 +529,7 @@ import { consultantRoutes } from './routes/consultant.routes';
 import { shieldRoutes } from './routes/shield.routes';
 import { architectRoutes } from './routes/architect.routes';
 import { webhookRoutes } from './routes/webhook.routes';
+import { policiesRoutes } from './routes/policies.routes';
 
 fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, requireRole: requireTenantRole, requirePlatformAdmin });
 // assistantsRoutes, approvalsRoutes, reportsRoutes registered internally by adminRoutes
@@ -537,6 +538,7 @@ fastify.register(consultantRoutes, { pgPool, requireTenantRole });
 fastify.register(shieldRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(architectRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(webhookRoutes, { pgPool, requireRole: requireTenantRole });
+fastify.register(policiesRoutes, { pgPool, requireRole: requireTenantRole });
 
 // ---------------------------------------------------------------------------
 // Global error handler — captures unhandled 500s to Sentry

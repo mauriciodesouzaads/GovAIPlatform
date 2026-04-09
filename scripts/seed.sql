@@ -80,8 +80,8 @@ INSERT INTO policy_versions (id, org_id, name, rules_jsonb, version)
 VALUES (
     '00000000-0000-0000-0003-000000000001',
     '00000000-0000-0000-0000-000000000001',
-    'Política Padrão v1',
-    '{"forbidden_topics":["armas","drogas","conteúdo adulto"],"pii_filter":true,"strict_mode":false,"hitl_keywords":["demitir","rescindir","processo judicial"],"max_tokens":4096}'::jsonb,
+    'Política Padrão',
+    '{"forbidden_topics":["armas","drogas","conteúdo adulto"],"pii_filter":true,"strict_mode":false,"hitl_enabled":true,"hitl_keywords":["demitir","rescindir","processo judicial"],"max_tokens":4096}'::jsonb,
     1
 ) ON CONFLICT (id) DO NOTHING;
 
@@ -89,8 +89,8 @@ INSERT INTO policy_versions (id, org_id, name, rules_jsonb, version)
 VALUES (
     '00000000-0000-0000-0003-000000000002',
     '00000000-0000-0000-0000-000000000001',
-    'Política Restritiva v1',
-    '{"forbidden_topics":["armas","drogas","conteúdo adulto","dados pessoais","informações financeiras"],"pii_filter":true,"strict_mode":true,"hitl_keywords":["demitir","rescindir","processo judicial","remover limite","override"],"max_tokens":2048}'::jsonb,
+    'Política Restritiva',
+    '{"forbidden_topics":["armas","drogas","conteúdo adulto","dados pessoais","informações financeiras"],"pii_filter":true,"strict_mode":true,"hitl_enabled":true,"hitl_keywords":["demitir","rescindir","processo judicial","remover limite","override"],"max_tokens":2048}'::jsonb,
     1
 ) ON CONFLICT (id) DO NOTHING;
 
@@ -647,7 +647,7 @@ VALUES (
 
 -- ── 1.12 Policy Exceptions (2) ───────────────────────────────────────────────
 
--- Exception 1: Análise de Crédito — extend_token_limit
+-- Exception 1: Análise de Crédito — extend_token_limit (expires in 12 days)
 INSERT INTO policy_exceptions (id, org_id, assistant_id, exception_type, justification, approved_by, approved_at, expires_at, status, created_by)
 VALUES (
     '00000000-0000-0000-0009-000000000001',
@@ -657,12 +657,15 @@ VALUES (
     'Análises de crédito complexas requerem contexto maior que o limite padrão de 4096 tokens. Aprovado pelo CISO para o período de safra de crédito Q1 2026.',
     '00000000-0000-0000-0001-000000000004',
     NOW() - INTERVAL '15 days',
-    NOW() + INTERVAL '75 days',
+    NOW() + INTERVAL '12 days',
     'approved',
     '00000000-0000-0000-0001-000000000004'
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET
+    expires_at   = NOW() + INTERVAL '12 days',
+    approved_at  = NOW() - INTERVAL '15 days',
+    status       = 'approved';
 
--- Exception 2: Assistente Jurídico — allow_sensitive_topic
+-- Exception 2: Assistente Jurídico — allow_sensitive_topic (expires in 48 days)
 INSERT INTO policy_exceptions (id, org_id, assistant_id, exception_type, justification, approved_by, approved_at, expires_at, status, created_by)
 VALUES (
     '00000000-0000-0000-0009-000000000002',
@@ -672,10 +675,28 @@ VALUES (
     'O assistente jurídico precisa processar temas relacionados a "processo judicial" que normalmente acionam HITL. Exceção aprovada para o time jurídico após revisão de compliance.',
     '00000000-0000-0000-0001-000000000002',
     NOW() - INTERVAL '30 days',
-    NOW() + INTERVAL '30 days',
+    NOW() + INTERVAL '48 days',
     'approved',
     '00000000-0000-0000-0001-000000000002'
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET
+    expires_at   = NOW() + INTERVAL '48 days',
+    approved_at  = NOW() - INTERVAL '30 days',
+    status       = 'approved';
+
+-- Exception 3: Chatbot Atendimento — bypass_hitl (pending)
+INSERT INTO policy_exceptions (id, org_id, assistant_id, exception_type, justification, expires_at, status, created_by)
+VALUES (
+    '00000000-0000-0000-0009-000000000003',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0002-000000000005',
+    'bypass_hitl',
+    'FAQ não contém dados sensíveis, HITL causa atrito desnecessário no atendimento ao cliente nível 1. Solicitado pelo time de produto após análise de risco.',
+    NOW() + INTERVAL '30 days',
+    'pending',
+    '00000000-0000-0000-0001-000000000003'
+) ON CONFLICT (id) DO UPDATE SET
+    status     = 'pending',
+    expires_at = NOW() + INTERVAL '30 days';
 
 -- ── 1.13 Demand Cases for Architect (3) ──────────────────────────────────────
 

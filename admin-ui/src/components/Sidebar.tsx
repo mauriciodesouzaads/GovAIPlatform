@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
     LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck,
     ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2, X, Bell,
+    ScrollText, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
@@ -32,6 +33,29 @@ function useShieldBadge() {
                 ).length);
             } catch {
                 // silent — badge is non-critical UI
+            }
+        };
+        load();
+        const interval = setInterval(load, 60_000);
+        return () => clearInterval(interval);
+    }, [orgId]);
+
+    return count;
+}
+
+// ── Exceptions badge: count expiring within 30 days ───────────────────────
+function useExceptionsBadge() {
+    const { orgId } = useAuth();
+    const [count, setCount] = useState(0);
+
+    useEffect(() => {
+        if (!orgId) return;
+        const load = async () => {
+            try {
+                const res = await api.get(ENDPOINTS.POLICY_EXCEPTIONS_EXPIRING);
+                setCount((res.data as unknown[]).length);
+            } catch {
+                // silent
             }
         };
         load();
@@ -94,7 +118,8 @@ function SectionLabel({ label }: { label: string }) {
 function SidebarContent({ onClose }: { onClose?: () => void }) {
     const pathname = usePathname();
     const { logout, role, email } = useAuth();
-    const badgeCount = useShieldBadge();
+    const badgeCount      = useShieldBadge();
+    const exceptionsBadge = useExceptionsBadge();
 
     // Role groups
     const isGovernance = ['dpo', 'auditor', 'compliance'].includes(role ?? '');
@@ -134,12 +159,14 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 {showGovernance && (
                     <>
                         {(isAdmin || showAll) && <SectionLabel label="Governança" />}
-                        <NavItem href="/shield"     label="Postura de Risco"        Icon={ScanEye}     isActive={pathname === '/shield'}     accentClass="bg-amber-400"   iconActiveClass="text-amber-400"   badge={badgeCount} onClose={onClose} />
-                        <NavItem href="/catalog"    label="Catálogo de Agentes"     Icon={BookOpen}    isActive={pathname === '/catalog'}    accentClass="bg-amber-400"   iconActiveClass="text-amber-400"   onClose={onClose} />
-                        <NavItem href="/approvals"  label="Fila de Aprovação"       Icon={ShieldCheck} isActive={pathname === '/approvals'}  accentClass="bg-amber-400"   iconActiveClass="text-amber-400"   onClose={onClose} />
-                        <NavItem href="/reports"    label="Evidências & Relatórios" Icon={FileText}    isActive={pathname === '/reports'}    accentClass="bg-amber-400"   iconActiveClass="text-amber-400"   onClose={onClose} />
-                        <NavItem href="/compliance" label="Compliance LGPD"         Icon={ToggleRight} isActive={pathname === '/compliance'} accentClass="bg-amber-400"   iconActiveClass="text-amber-400"   onClose={onClose} />
-                        <NavItem href="/logs"       label="Audit Logs"              Icon={ShieldAlert} isActive={pathname === '/logs'}       accentClass="bg-amber-400"   iconActiveClass="text-amber-400"   onClose={onClose} />
+                        <NavItem href="/shield"     label="Postura de Risco"        Icon={ScanEye}       isActive={pathname === '/shield'}      accentClass="bg-amber-400" iconActiveClass="text-amber-400" badge={badgeCount}      onClose={onClose} />
+                        <NavItem href="/catalog"    label="Catálogo de Agentes"     Icon={BookOpen}      isActive={pathname === '/catalog'}     accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/approvals"  label="Fila de Aprovação"       Icon={ShieldCheck}   isActive={pathname === '/approvals'}   accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/reports"    label="Evidências & Relatórios" Icon={FileText}      isActive={pathname === '/reports'}     accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/compliance" label="Compliance LGPD"         Icon={ToggleRight}   isActive={pathname === '/compliance'}  accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/policies"   label="Políticas"               Icon={ScrollText}    isActive={pathname === '/policies'}    accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/exceptions" label="Exceções"                Icon={AlertTriangle} isActive={pathname === '/exceptions'}  accentClass="bg-amber-400" iconActiveClass="text-amber-400" badge={exceptionsBadge} onClose={onClose} />
+                        <NavItem href="/logs"       label="Audit Logs"              Icon={ShieldAlert}   isActive={pathname === '/logs'}        accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
                     </>
                 )}
 

@@ -43,6 +43,18 @@ export const ENDPOINTS = {
     REPORTS_COMPLIANCE: '/v1/admin/reports/compliance',
     REPORTS_COMPLIANCE_AUDIT: '/v1/admin/reports/compliance-audit',
 
+    // Governance Policies (visual editor)
+    GOV_POLICIES: '/v1/admin/policies',
+    GOV_POLICY: (id: string) => `/v1/admin/policies/${id}`,
+    GOV_POLICY_HISTORY: (id: string) => `/v1/admin/policies/${id}/history`,
+
+    // Policy Exceptions
+    POLICY_EXCEPTIONS: '/v1/admin/policy-exceptions',
+    POLICY_EXCEPTIONS_EXPIRING: '/v1/admin/policy-exceptions/expiring',
+    POLICY_EXCEPTION_APPROVE: (id: string) => `/v1/admin/policy-exceptions/${id}/approve`,
+    POLICY_EXCEPTION_REJECT: (id: string) => `/v1/admin/policy-exceptions/${id}/reject`,
+    POLICY_EXCEPTION_REVOKE: (id: string) => `/v1/admin/policy-exceptions/${id}`,
+
     // Shield Detection
     SHIELD_POSTURE:           '/v1/admin/shield/posture',
     SHIELD_POSTURE_GENERATE:  '/v1/admin/shield/posture/generate',

@@ -916,6 +916,95 @@ export async function adminRoutes(app: FastifyInstance, opts: { pgPool: Pool; re
 
     // --- Policy Exceptions (formal exception management with approval lifecycle) ---
 
+    // GET /v1/admin/policy-exceptions — list all exceptions with JOINs
+    app.get('/v1/admin/policy-exceptions', { preHandler: requireRole(['admin', 'dpo', 'compliance', 'auditor']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(`
+                SELECT pe.*,
+                       a.name as assistant_name,
+                       u.email as approved_by_email,
+                       u.name as approved_by_name
+                FROM policy_exceptions pe
+                LEFT JOIN assistants a ON pe.assistant_id = a.id
+                LEFT JOIN users u ON pe.approved_by = u.id
+                WHERE pe.org_id = $1
+                ORDER BY
+                  CASE pe.status
+                    WHEN 'pending'  THEN 0
+                    WHEN 'approved' THEN 1
+                    WHEN 'rejected' THEN 2
+                    WHEN 'revoked'  THEN 3
+                    WHEN 'expired'  THEN 4
+                    ELSE 5
+                  END,
+                  pe.expires_at ASC
+            `, [orgId]);
+            return reply.send(res.rows);
+        } catch (error) {
+            app.log.error(error, 'Error listing policy exceptions');
+            return reply.status(500).send({ error: 'Erro ao listar exceções de política.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // GET /v1/admin/policy-exceptions/expiring — exceptions expiring within 30 days
+    app.get('/v1/admin/policy-exceptions/expiring', { preHandler: requireRole(['admin', 'dpo', 'compliance', 'auditor']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(`
+                SELECT pe.*, a.name as assistant_name
+                FROM policy_exceptions pe
+                LEFT JOIN assistants a ON pe.assistant_id = a.id
+                WHERE pe.org_id = $1
+                  AND pe.status = 'approved'
+                  AND pe.expires_at BETWEEN NOW() AND NOW() + INTERVAL '30 days'
+                ORDER BY pe.expires_at ASC
+            `, [orgId]);
+            return reply.send(res.rows);
+        } catch (error) {
+            app.log.error(error, 'Error fetching expiring exceptions');
+            return reply.status(500).send({ error: 'Erro ao buscar exceções expirando.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // POST /v1/admin/policy-exceptions/:id/reject — reject pending exception
+    app.post('/v1/admin/policy-exceptions/:id/reject', { preHandler: requireRole(['admin', 'dpo']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+        const { id } = request.params as { id: string };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `UPDATE policy_exceptions
+                 SET status = 'rejected'
+                 WHERE id = $1 AND org_id = $2 AND status = 'pending'
+                 RETURNING id, status`,
+                [id, orgId]
+            );
+            if (res.rows.length === 0) return reply.status(404).send({ error: 'Exceção não encontrada ou não está pendente.' });
+            return reply.send(res.rows[0]);
+        } catch (error) {
+            app.log.error(error, 'Error rejecting policy exception');
+            return reply.status(500).send({ error: 'Erro ao rejeitar exceção de política.' });
+        } finally {
+            client.release();
+        }
+    });
+
     // POST /v1/admin/policy-exceptions — create exception request (status: pending)
     app.post('/v1/admin/policy-exceptions', { preHandler: requireRole(['admin']) }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
