@@ -5,7 +5,7 @@ import api, { ENDPOINTS } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import {
     ShieldCheck, Plus, X, ChevronDown, ChevronUp, Clock, History,
-    Loader2, Save, AlertTriangle, Info,
+    Loader2, Save, AlertTriangle, Info, GitCompare,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -124,6 +124,20 @@ function FieldSection({ title, description, children }: { title: string; descrip
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
+interface PolicyDiffChange {
+    key: string;
+    before: unknown;
+    after: unknown;
+    type: 'added' | 'removed' | 'changed' | 'unchanged';
+}
+
+interface PolicyDiff {
+    from: { id: string; name: string; version: number };
+    to:   { id: string; name: string; version: number };
+    changes: PolicyDiffChange[];
+    has_changes: boolean;
+}
+
 export default function PoliciesPage() {
     const [policies, setPolicies]         = useState<PolicyVersion[]>([]);
     const [selected, setSelected]         = useState<PolicyVersion | null>(null);
@@ -138,6 +152,8 @@ export default function PoliciesPage() {
     const [newPolicyModal, setNewPolicyModal] = useState(false);
     const [newPolicyName, setNewPolicyName]   = useState('');
     const [creating, setCreating]         = useState(false);
+    const [diffResult, setDiffResult]     = useState<PolicyDiff | null>(null);
+    const [diffLoading, setDiffLoading]   = useState(false);
 
     const showToast = (msg: string) => {
         setToast(msg);
@@ -213,6 +229,19 @@ export default function PoliciesPage() {
         setRules(r => ({ ...r, [key]: value }));
     };
 
+    const compareVersions = async (fromId: string, toId: string) => {
+        setDiffLoading(true);
+        setDiffResult(null);
+        try {
+            const res = await api.get(ENDPOINTS.GOV_POLICY_DIFF(fromId, toId));
+            setDiffResult(res.data as PolicyDiff);
+        } catch {
+            setError('Erro ao comparar versões');
+        } finally {
+            setDiffLoading(false);
+        }
+    };
+
     return (
         <div className="flex-1 overflow-auto">
             <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-4">
@@ -280,19 +309,73 @@ export default function PoliciesPage() {
                                     {historyOpen ? <ChevronUp className="w-3.5 h-3.5 ml-auto" /> : <ChevronDown className="w-3.5 h-3.5 ml-auto" />}
                                 </button>
                                 {historyOpen && (
-                                    <div className="space-y-1 mt-1">
-                                        {history.map(h => (
-                                            <button
-                                                key={h.id}
-                                                onClick={() => selectHistoryVersion(h)}
-                                                className="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-secondary/50 transition-colors text-muted-foreground hover:text-foreground"
-                                            >
-                                                <div className="flex items-center gap-2">
-                                                    <Clock className="w-3 h-3" />
-                                                    <span>v{h.version}</span>
-                                                    <span>— {format(new Date(h.created_at), 'dd/MM/yyyy HH:mm', { locale: ptBR })}</span>
-                                                </div>
-                                            </button>
+                                    <div className="space-y-0.5 mt-1">
+                                        {history.map((h, idx) => (
+                                            <div key={h.id}>
+                                                <button
+                                                    onClick={() => selectHistoryVersion(h)}
+                                                    className="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-secondary/50 transition-colors text-muted-foreground hover:text-foreground"
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <Clock className="w-3 h-3" />
+                                                        <span>v{h.version}</span>
+                                                        <span>— {format(new Date(h.created_at), 'dd/MM/yyyy HH:mm', { locale: ptBR })}</span>
+                                                    </div>
+                                                </button>
+                                                {idx < history.length - 1 && (
+                                                    <button
+                                                        onClick={() => {
+                                                            setHistoryOpen(true);
+                                                            setDiffResult(null);
+                                                            compareVersions(history[idx + 1].id, h.id);
+                                                        }}
+                                                        disabled={diffLoading}
+                                                        className="w-full flex items-center justify-center gap-1 py-1 text-[10px] text-primary/60 hover:text-primary hover:bg-secondary/20 rounded transition-colors disabled:opacity-40"
+                                                    >
+                                                        <GitCompare className="w-3 h-3" />
+                                                        Comparar v{history[idx + 1].version} → v{h.version}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Diff result panel */}
+                        {(diffLoading || diffResult) && (
+                            <div className="mt-2 rounded-lg border border-border overflow-hidden">
+                                <div className="bg-secondary/30 px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5"><GitCompare className="w-3 h-3" /> Comparação</span>
+                                    <button onClick={() => setDiffResult(null)} className="text-muted-foreground hover:text-foreground"><X className="w-3 h-3" /></button>
+                                </div>
+                                {diffLoading && <div className="p-3 text-xs text-muted-foreground animate-pulse">Calculando diff...</div>}
+                                {diffResult && (
+                                    <div className="p-2 space-y-1 max-h-64 overflow-y-auto">
+                                        {!diffResult.has_changes && (
+                                            <p className="text-xs text-muted-foreground p-1">Nenhuma alteração entre as versões.</p>
+                                        )}
+                                        {diffResult.changes.filter(c => c.type !== 'unchanged').map(change => (
+                                            <div key={change.key} className={`rounded p-2 text-xs ${
+                                                change.type === 'added'   ? 'bg-emerald-500/10 text-emerald-300' :
+                                                change.type === 'removed' ? 'bg-rose-500/10 text-rose-300' :
+                                                'bg-amber-500/10 text-amber-300'
+                                            }`}>
+                                                <span className="font-semibold font-mono">{change.key}</span>
+                                                {change.type === 'changed' && (
+                                                    <div className="mt-0.5 font-mono text-[10px] space-y-0.5">
+                                                        <div className="text-rose-400 line-through">{JSON.stringify(change.before)}</div>
+                                                        <div className="text-emerald-400">{JSON.stringify(change.after)}</div>
+                                                    </div>
+                                                )}
+                                                {change.type === 'added' && (
+                                                    <div className="mt-0.5 font-mono text-[10px]">{JSON.stringify(change.after)}</div>
+                                                )}
+                                                {change.type === 'removed' && (
+                                                    <div className="mt-0.5 font-mono text-[10px] line-through">{JSON.stringify(change.before)}</div>
+                                                )}
+                                            </div>
                                         ))}
                                     </div>
                                 )}

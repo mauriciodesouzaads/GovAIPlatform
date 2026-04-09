@@ -47,6 +47,7 @@ export const ENDPOINTS = {
     GOV_POLICIES: '/v1/admin/policies',
     GOV_POLICY: (id: string) => `/v1/admin/policies/${id}`,
     GOV_POLICY_HISTORY: (id: string) => `/v1/admin/policies/${id}/history`,
+    GOV_POLICY_DIFF: (id: string, otherId: string) => `/v1/admin/policies/${id}/diff/${otherId}`,
 
     // Policy Exceptions
     POLICY_EXCEPTIONS: '/v1/admin/policy-exceptions',
@@ -84,6 +85,8 @@ export const ENDPOINTS = {
     CATALOG_EXIT_PERIMETER:   (id: string) => `/v1/admin/assistants/${id}/exit-perimeter`,
     ASSISTANT_EVIDENCE:       (id: string) => `/v1/admin/assistants/${id}/evidence`,
     ASSISTANT_EVIDENCE_PDF:   (id: string) => `/v1/admin/assistants/${id}/evidence/pdf`,
+    ASSISTANT_VERSIONS:       (id: string) => `/v1/admin/assistants/${id}/versions`,
+    ASSISTANT_VERSION_DIFF:   (id: string, v1Id: string, v2Id: string) => `/v1/admin/assistants/${id}/versions/${v1Id}/diff/${v2Id}`,
     REVIEW_TRACKS:            '/v1/admin/review-tracks',
     REVIEW_STATUS:            (id: string) => `/v1/admin/assistants/${id}/review-status`,
     REVIEW_TRACK_DECIDE:      (id: string, trackId: string) => `/v1/admin/assistants/${id}/review/${trackId}`,
@@ -94,6 +97,7 @@ export const ENDPOINTS = {
     WEBHOOKS:                 '/v1/admin/webhooks',
     WEBHOOK:                  (id: string) => `/v1/admin/webhooks/${id}`,
     WEBHOOK_DELIVERIES:       (id: string) => `/v1/admin/webhooks/${id}/deliveries`,
+    WEBHOOK_DELIVERY_RETRY:   (webhookId: string, deliveryId: string) => `/v1/admin/webhooks/${webhookId}/deliveries/${deliveryId}/retry`,
 
     // Audit Export
     AUDIT_EXPORT:             '/v1/admin/audit-logs/export',

@@ -12,7 +12,7 @@ import { DataTable } from '@/components/DataTable';
 import {
     FileCheck, Download, Printer, AlertTriangle,
     Clock, FileText, Upload, ShieldCheck, ShieldAlert,
-    Zap, Ban, UserCheck, Scale,
+    Zap, Ban, UserCheck, Scale, GitCompare, ChevronDown,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -140,6 +140,205 @@ function lifecycleVariant(s: string): 'success' | 'warning' | 'error' | 'info' |
 function fmt(d?: string) {
     if (!d) return '—';
     return new Date(d).toLocaleString('pt-BR');
+}
+
+// ── Version types ──────────────────────────────────────────────────────────
+
+interface AssistantVersion {
+    id: string;
+    version_major: number;
+    version_minor: number;
+    version_patch: number;
+    change_type?: string;
+    changelog?: string;
+    status: string;
+    created_at: string;
+    prompt_preview?: string;
+    prompt_hash?: string;
+    tools_count: number;
+    policy_name?: string;
+    policy_version?: number;
+}
+
+interface DiffLine {
+    line: string;
+    type: 'added' | 'removed' | 'unchanged';
+}
+
+interface VersionDiff {
+    from: { id: string; version: string; created_at: string };
+    to:   { id: string; version: string; created_at: string };
+    prompt_diff: DiffLine[];
+    tools_diff: { added: string[]; removed: string[] };
+    policy_diff: { changed: boolean; before_id?: string | null; after_id?: string | null };
+    stats: { lines_added: number; lines_removed: number; lines_unchanged: number };
+}
+
+// ── Version Diff Panel ─────────────────────────────────────────────────────
+
+function VersionDiffPanel({ assistantId }: { assistantId: string }) {
+    const [versions, setVersions] = useState<AssistantVersion[]>([]);
+    const [fromId, setFromId] = useState('');
+    const [toId, setToId] = useState('');
+    const [diff, setDiff] = useState<VersionDiff | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [fetching, setFetching] = useState(true);
+
+    useEffect(() => {
+        api.get(ENDPOINTS.ASSISTANT_VERSIONS(assistantId))
+            .then(res => {
+                const vers: AssistantVersion[] = res.data?.versions ?? [];
+                setVersions(vers);
+                if (vers.length >= 2) {
+                    setToId(vers[0].id);
+                    setFromId(vers[1].id);
+                }
+            })
+            .catch(() => {})
+            .finally(() => setFetching(false));
+    }, [assistantId]);
+
+    const compare = async () => {
+        if (!fromId || !toId || fromId === toId) return;
+        setLoading(true);
+        setDiff(null);
+        try {
+            const res = await api.get(ENDPOINTS.ASSISTANT_VERSION_DIFF(assistantId, fromId, toId));
+            setDiff(res.data as VersionDiff);
+        } catch {
+            // silently show nothing
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (fetching) return (
+        <div className="h-8 bg-secondary/40 rounded animate-pulse" />
+    );
+
+    if (versions.length < 2) return (
+        <p className="text-sm text-muted-foreground">Apenas uma versão disponível — sem histórico para comparar.</p>
+    );
+
+    const vLabel = (v: AssistantVersion) =>
+        `v${v.version_major}.${v.version_minor}.${v.version_patch} — ${new Date(v.created_at).toLocaleDateString('pt-BR')}`;
+
+    return (
+        <div className="space-y-4">
+            {/* Selector row */}
+            <div className="flex flex-wrap items-end gap-3">
+                <div className="flex-1 min-w-[140px]">
+                    <label className="block text-xs text-muted-foreground mb-1">De (versão base)</label>
+                    <div className="relative">
+                        <select
+                            value={fromId}
+                            onChange={e => setFromId(e.target.value)}
+                            className="w-full bg-secondary/40 border border-border rounded-lg px-3 py-2 text-sm text-foreground appearance-none pr-8 focus:outline-none focus:ring-1 focus:ring-primary"
+                        >
+                            {versions.map(v => (
+                                <option key={v.id} value={v.id}>{vLabel(v)}</option>
+                            ))}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    </div>
+                </div>
+                <div className="flex-1 min-w-[140px]">
+                    <label className="block text-xs text-muted-foreground mb-1">Para (versão nova)</label>
+                    <div className="relative">
+                        <select
+                            value={toId}
+                            onChange={e => setToId(e.target.value)}
+                            className="w-full bg-secondary/40 border border-border rounded-lg px-3 py-2 text-sm text-foreground appearance-none pr-8 focus:outline-none focus:ring-1 focus:ring-primary"
+                        >
+                            {versions.map(v => (
+                                <option key={v.id} value={v.id}>{vLabel(v)}</option>
+                            ))}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    </div>
+                </div>
+                <button
+                    onClick={compare}
+                    disabled={loading || !fromId || !toId || fromId === toId}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                    <GitCompare className="w-4 h-4" />
+                    {loading ? 'Comparando...' : 'Comparar'}
+                </button>
+            </div>
+
+            {/* Diff result */}
+            {diff && (
+                <div className="space-y-4">
+                    {/* Stats bar */}
+                    <div className="flex items-center gap-4 text-xs font-mono">
+                        <span className="text-emerald-400">+{diff.stats.lines_added} linhas</span>
+                        <span className="text-rose-400">−{diff.stats.lines_removed} linhas</span>
+                        <span className="text-muted-foreground">{diff.stats.lines_unchanged} inalteradas</span>
+                        {diff.tools_diff.added.length > 0 && (
+                            <span className="text-blue-400">+{diff.tools_diff.added.length} tools</span>
+                        )}
+                        {diff.tools_diff.removed.length > 0 && (
+                            <span className="text-amber-400">−{diff.tools_diff.removed.length} tools</span>
+                        )}
+                    </div>
+
+                    {/* Prompt diff */}
+                    {diff.prompt_diff.length > 0 && (
+                        <div className="rounded-lg border border-border overflow-hidden">
+                            <div className="bg-secondary/30 px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border">
+                                Prompt — Diff
+                            </div>
+                            <div className="font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto">
+                                {diff.prompt_diff.map((line, i) => (
+                                    <div
+                                        key={i}
+                                        className={`px-3 py-0.5 whitespace-pre-wrap break-all ${
+                                            line.type === 'added'   ? 'bg-emerald-500/10 text-emerald-300' :
+                                            line.type === 'removed' ? 'bg-rose-500/10 text-rose-300' :
+                                            'text-muted-foreground'
+                                        }`}
+                                    >
+                                        <span className="select-none mr-2 opacity-50">
+                                            {line.type === 'added' ? '+' : line.type === 'removed' ? '−' : ' '}
+                                        </span>
+                                        {line.line}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Tools diff */}
+                    {(diff.tools_diff.added.length > 0 || diff.tools_diff.removed.length > 0) && (
+                        <div className="rounded-lg border border-border p-3 space-y-2">
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tools</p>
+                            {diff.tools_diff.added.map(t => (
+                                <div key={t} className="flex items-center gap-2 text-xs text-emerald-400 font-mono">
+                                    <span className="opacity-60">+</span> {t}
+                                </div>
+                            ))}
+                            {diff.tools_diff.removed.map(t => (
+                                <div key={t} className="flex items-center gap-2 text-xs text-rose-400 font-mono">
+                                    <span className="opacity-60">−</span> {t}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Policy diff */}
+                    {diff.policy_diff.changed && (
+                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-300">
+                            <p className="font-semibold mb-1">Política alterada</p>
+                            <p className="font-mono text-muted-foreground">
+                                {diff.policy_diff.before_id?.slice(0, 8) ?? '—'} → {diff.policy_diff.after_id?.slice(0, 8) ?? '—'}
+                            </p>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
 }
 
 // ── Stat mini-card ─────────────────────────────────────────────────────────
@@ -415,6 +614,15 @@ export default function EvidencePage({ params }: { params: { assistantId: string
                                         title="Nenhuma versão publicada"
                                     />
                                 )}
+                            </Card>
+
+                            {/* Version History & Diff */}
+                            <Card>
+                                <h3 className="text-base font-semibold mb-4 flex items-center gap-2">
+                                    <GitCompare className="w-4 h-4 text-muted-foreground" />
+                                    Histórico de Versões
+                                </h3>
+                                <VersionDiffPanel assistantId={assistantId} />
                             </Card>
 
                             {/* Publication Events */}

@@ -36,6 +36,7 @@ const ALL_EVENTS = [
     'approval.pending', 'approval.granted', 'approval.rejected',
     'exit.perimeter', 'shield.critical_finding',
     'assistant.published', 'review.completed', 'exception.expiring',
+    'policy.updated',
 ];
 
 function statusBadge(status: string) {
@@ -214,6 +215,8 @@ function WebhookFormModal({ initial, onClose, onSaved }: FormModalProps) {
 function DeliveryLog({ webhookId }: { webhookId: string }) {
     const [deliveries, setDeliveries] = useState<Delivery[]>([]);
     const [loading, setLoading] = useState(false);
+    const [retrying, setRetrying] = useState<string | null>(null);
+    const { toast } = useToast();
 
     const fetchDeliveries = useCallback(async () => {
         setLoading(true);
@@ -227,6 +230,19 @@ function DeliveryLog({ webhookId }: { webhookId: string }) {
 
     useEffect(() => { fetchDeliveries(); }, [fetchDeliveries]);
 
+    const retry = async (deliveryId: string) => {
+        setRetrying(deliveryId);
+        try {
+            await api.post(ENDPOINTS.WEBHOOK_DELIVERY_RETRY(webhookId, deliveryId));
+            toast('Entrega reenviada para fila', 'success');
+            fetchDeliveries();
+        } catch (e: any) {
+            toast(e.response?.data?.error ?? 'Erro ao reenviar', 'error');
+        } finally {
+            setRetrying(null);
+        }
+    };
+
     if (loading) return <div className="p-3 text-xs text-muted-foreground animate-pulse">Carregando entregas...</div>;
     if (deliveries.length === 0) return <div className="p-3 text-xs text-muted-foreground">Nenhuma entrega registrada.</div>;
 
@@ -239,7 +255,8 @@ function DeliveryLog({ webhookId }: { webhookId: string }) {
                         <th className="text-left text-muted-foreground font-semibold uppercase tracking-wider pb-2 pr-3">Status</th>
                         <th className="text-left text-muted-foreground font-semibold uppercase tracking-wider pb-2 pr-3">HTTP</th>
                         <th className="text-left text-muted-foreground font-semibold uppercase tracking-wider pb-2 pr-3">Tentativas</th>
-                        <th className="text-left text-muted-foreground font-semibold uppercase tracking-wider pb-2">Data</th>
+                        <th className="text-left text-muted-foreground font-semibold uppercase tracking-wider pb-2 pr-3">Data / Próxima</th>
+                        <th className="text-left text-muted-foreground font-semibold uppercase tracking-wider pb-2">Ação</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40">
@@ -253,7 +270,28 @@ function DeliveryLog({ webhookId }: { webhookId: string }) {
                             </td>
                             <td className="py-2 pr-3 text-muted-foreground">{d.response_code ?? '—'}</td>
                             <td className="py-2 pr-3 text-muted-foreground">{d.attempts}</td>
-                            <td className="py-2 text-muted-foreground">{fmtDate(d.created_at)}</td>
+                            <td className="py-2 pr-3 text-muted-foreground">
+                                <span>{fmtDate(d.created_at)}</span>
+                                {d.status === 'retrying' && d.next_retry_at && (
+                                    <span className="block text-amber-400 mt-0.5">→ {fmtDate(d.next_retry_at)}</span>
+                                )}
+                            </td>
+                            <td className="py-2">
+                                {d.status === 'failed' && (
+                                    <button
+                                        onClick={() => retry(d.id)}
+                                        disabled={retrying === d.id}
+                                        className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+                                        title="Reenviar"
+                                    >
+                                        {retrying === d.id
+                                            ? <Loader2 className="w-3 h-3 animate-spin" />
+                                            : <RefreshCw className="w-3 h-3" />
+                                        }
+                                        Reenviar
+                                    </button>
+                                )}
+                            </td>
                         </tr>
                     ))}
                 </tbody>

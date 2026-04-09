@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
+import { notificationQueue } from '../workers/notification.worker';
 
 /**
  * Webhook Routes — CRUD for per-org webhook configurations + delivery log (FASE-C1).
@@ -150,6 +151,60 @@ export async function webhookRoutes(
         } catch (error) {
             app.log.error(error, 'Error fetching webhook deliveries');
             return reply.status(500).send({ error: 'Erro ao buscar entregas.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // ── POST /v1/admin/webhooks/:webhookId/deliveries/:deliveryId/retry ──────
+    app.post('/v1/admin/webhooks/:webhookId/deliveries/:deliveryId/retry', { preHandler: requireRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { webhookId, deliveryId } = request.params as { webhookId: string; deliveryId: string };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            // Fetch delivery + webhook data
+            const res = await client.query(
+                `SELECT d.id, d.event, d.payload, d.status,
+                        wc.url, wc.secret
+                 FROM webhook_deliveries d
+                 JOIN webhook_configs wc ON wc.id = d.webhook_id
+                 WHERE d.id = $1 AND d.webhook_id = $2 AND d.org_id = $3`,
+                [deliveryId, webhookId, orgId]
+            );
+
+            if (res.rows.length === 0) {
+                return reply.status(404).send({ error: 'Entrega não encontrada.' });
+            }
+
+            const delivery = res.rows[0];
+
+            // Re-queue the original payload
+            const originalPayload = typeof delivery.payload === 'string'
+                ? JSON.parse(delivery.payload) : delivery.payload;
+
+            await notificationQueue.add(`retry:${delivery.event}`, {
+                ...originalPayload,
+                event: delivery.event,
+                orgId,
+                approvalId: originalPayload.approvalId ?? deliveryId,
+                timestamp: new Date().toISOString(),
+            });
+
+            // Mark delivery as retrying
+            await client.query(
+                `UPDATE webhook_deliveries SET status = 'retrying', next_retry_at = NOW() + interval '30 seconds' WHERE id = $1`,
+                [deliveryId]
+            );
+
+            return reply.send({ success: true, queued: true });
+        } catch (error) {
+            app.log.error(error, 'Error retrying webhook delivery');
+            return reply.status(500).send({ error: 'Erro ao reenviar entrega.' });
         } finally {
             client.release();
         }

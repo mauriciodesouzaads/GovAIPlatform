@@ -8,6 +8,7 @@ import { redisCache } from '../lib/redis';
 import { CreateAssistantSchema, CreateApiKeySchema, zodErrors } from '../lib/schemas';
 import { recordEvidence, getEvidenceChain } from '../lib/evidence';
 import { calculateRiskScore, RiskInput } from '../lib/risk-scoring';
+import { notificationQueue } from '../workers/notification.worker';
 
 
 export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Pool; requireAdminAuth: any; requireRole: any; requireTenantRole?: any; requirePlatformAdmin?: any }) {
@@ -452,6 +453,17 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                 resourceType: 'assistant_version', resourceId: versionId,
                 metadata: { assistantId, versionId, publishedBy: authUser.email || authUser.userId, checklist },
             });
+
+            // Dispatch assistant.published notification
+            await notificationQueue.add('assistant.published', {
+                event: 'assistant.published',
+                orgId,
+                assistantId,
+                approvalId: versionId,
+                reason: `Assistente publicado como oficial por ${authUser.email || authUser.userId}`,
+                timestamp: new Date().toISOString(),
+                metadata: { versionId, publishedBy: authUser.email || authUser.userId },
+            }).catch(() => {});
 
             return reply.send({ success: true, message: `Versão ${versionId} do assistente ${assistantId} aprovada e publicada.`, approved_by: authUser.email || authUser.userId });
         } catch (error) {
@@ -915,6 +927,19 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                 resourceType: 'assistant', resourceId: id,
                 metadata: { decision, newState, comments: comments ?? null },
             });
+
+            // Dispatch review.completed notification when approved
+            if (decision === 'approved') {
+                await notificationQueue.add('review.completed', {
+                    event: 'review.completed',
+                    orgId,
+                    assistantId: id,
+                    approvalId: id,
+                    reason: `Revisão de catálogo concluída: ${decision} por ${authUser.email || authUser.userId}`,
+                    timestamp: new Date().toISOString(),
+                    metadata: { decision, newState, reviewer: authUser.email || authUser.userId },
+                }).catch(() => {});
+            }
 
             return reply.send({ success: true, decision, newLifecycleState: newState, assistant: res.rows[0] });
         } catch (error) {
@@ -1834,6 +1859,129 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             return reply.status(500).send({ error: 'Erro ao processar decisão de track.' });
         } finally {
             await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+    // ── Version History & Diff ─────────────────────────────────────────────
+
+    // GET /v1/admin/assistants/:id/versions — list all versions
+    app.get('/v1/admin/assistants/:id/versions', { preHandler: requireTenantRole(['admin', 'sre', 'operator', 'auditor', 'dpo']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+        const { id } = request.params as { id: string };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `SELECT v.id, v.version_major, v.version_minor, v.version_patch,
+                        v.change_type, v.changelog, v.status, v.created_at,
+                        LEFT(v.prompt_template, 120) AS prompt_preview,
+                        v.prompt_hash,
+                        jsonb_array_length(COALESCE(v.tools_jsonb, '[]'::jsonb)) AS tools_count,
+                        pv.name AS policy_name, pv.version AS policy_version
+                 FROM assistant_versions v
+                 LEFT JOIN policy_versions pv ON pv.id = v.policy_version_id
+                 WHERE v.assistant_id = $1 AND v.org_id = $2
+                 ORDER BY v.version_major DESC, v.version_minor DESC, v.version_patch DESC`,
+                [id, orgId]
+            );
+            return reply.send({ total: res.rowCount, versions: res.rows });
+        } catch (error) {
+            app.log.error(error, 'Error listing assistant versions');
+            return reply.status(500).send({ error: 'Erro ao listar versões.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // GET /v1/admin/assistants/:id/versions/:v1Id/diff/:v2Id — LCS-based diff
+    app.get('/v1/admin/assistants/:id/versions/:v1Id/diff/:v2Id', { preHandler: requireTenantRole(['admin', 'sre', 'operator', 'auditor', 'dpo']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+        const { id, v1Id, v2Id } = request.params as { id: string; v1Id: string; v2Id: string };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            const [r1, r2] = await Promise.all([
+                client.query(
+                    `SELECT id, version_major, version_minor, version_patch, prompt_template, tools_jsonb, policy_version_id, created_at
+                     FROM assistant_versions WHERE id = $1 AND assistant_id = $2 AND org_id = $3`,
+                    [v1Id, id, orgId]
+                ),
+                client.query(
+                    `SELECT id, version_major, version_minor, version_patch, prompt_template, tools_jsonb, policy_version_id, created_at
+                     FROM assistant_versions WHERE id = $1 AND assistant_id = $2 AND org_id = $3`,
+                    [v2Id, id, orgId]
+                ),
+            ]);
+
+            if (r1.rowCount === 0 || r2.rowCount === 0) {
+                return reply.status(404).send({ error: 'Uma ou ambas as versões não foram encontradas.' });
+            }
+
+            const va = r1.rows[0];
+            const vb = r2.rows[0];
+
+            // ── LCS prompt diff ────────────────────────────────────────────
+            const linesA = (va.prompt_template ?? '').split('\n');
+            const linesB = (vb.prompt_template ?? '').split('\n');
+            const m = linesA.length, n = linesB.length;
+            const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+            for (let i = 1; i <= m; i++) {
+                for (let j = 1; j <= n; j++) {
+                    if (linesA[i - 1] === linesB[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
+                    else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+                }
+            }
+            const promptDiff: Array<{ line: string; type: 'added' | 'removed' | 'unchanged' }> = [];
+            let pi = m, pj = n;
+            while (pi > 0 || pj > 0) {
+                if (pi > 0 && pj > 0 && linesA[pi - 1] === linesB[pj - 1]) {
+                    promptDiff.unshift({ line: linesA[pi - 1], type: 'unchanged' });
+                    pi--; pj--;
+                } else if (pj > 0 && (pi === 0 || dp[pi][pj - 1] >= dp[pi - 1][pj])) {
+                    promptDiff.unshift({ line: linesB[pj - 1], type: 'added' });
+                    pj--;
+                } else {
+                    promptDiff.unshift({ line: linesA[pi - 1], type: 'removed' });
+                    pi--;
+                }
+            }
+
+            // ── Tools diff ─────────────────────────────────────────────────
+            const toolsA: any[] = va.tools_jsonb ?? [];
+            const toolsB: any[] = vb.tools_jsonb ?? [];
+            const namesA = new Set(toolsA.map((t: any) => t.name ?? String(t)));
+            const namesB = new Set(toolsB.map((t: any) => t.name ?? String(t)));
+            const toolsDiff = {
+                added:   [...namesB].filter(tn => !namesA.has(tn)),
+                removed: [...namesA].filter(tn => !namesB.has(tn)),
+            };
+
+            // ── Policy diff ────────────────────────────────────────────────
+            const policyChanged = va.policy_version_id !== vb.policy_version_id;
+            const policyDiff = { changed: policyChanged, before_id: va.policy_version_id ?? null, after_id: vb.policy_version_id ?? null };
+
+            return reply.send({
+                from: { id: va.id, version: `${va.version_major}.${va.version_minor}.${va.version_patch}`, created_at: va.created_at },
+                to:   { id: vb.id, version: `${vb.version_major}.${vb.version_minor}.${vb.version_patch}`, created_at: vb.created_at },
+                prompt_diff: promptDiff,
+                tools_diff: toolsDiff,
+                policy_diff: policyDiff,
+                stats: {
+                    lines_added:     promptDiff.filter(l => l.type === 'added').length,
+                    lines_removed:   promptDiff.filter(l => l.type === 'removed').length,
+                    lines_unchanged: promptDiff.filter(l => l.type === 'unchanged').length,
+                },
+            });
+        } catch (error) {
+            app.log.error(error, 'Error computing version diff');
+            return reply.status(500).send({ error: 'Erro ao calcular diff de versões.' });
+        } finally {
             client.release();
         }
     });

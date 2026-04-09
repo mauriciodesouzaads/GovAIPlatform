@@ -24,7 +24,7 @@ import { renderPrometheusMetrics, getMetricsContentType, activePgConnections, up
 import oidcRoutes from './routes/oidc.routes';
 import { executeAssistant } from './services/execution.service';
 import { auditQueue, initAuditWorker } from './workers/audit.worker';
-import { initNotificationWorker } from './workers/notification.worker';
+import { initNotificationWorker, notificationQueue } from './workers/notification.worker';
 import { initTelemetryWorker } from './workers/telemetry.worker';
 import { initExpirationWorker } from './workers/expiration.worker';
 import { exportTenantData, exportToCSV, generateDueDiligencePDF } from './lib/offboarding';
@@ -597,6 +597,34 @@ const start = async () => {
     await refreshComplianceMetrics();
     const COMPLIANCE_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
     setInterval(refreshComplianceMetrics, COMPLIANCE_REFRESH_MS).unref();
+
+    // ── Exception expiring cron — daily check for exceptions expiring in <7 days ──
+    const checkExpiringExceptions = async () => {
+        try {
+            const res = await pgPool.query(
+                `SELECT pe.id, pe.org_id, pe.assistant_id, pe.exception_type, pe.expires_at
+                 FROM policy_exceptions pe
+                 WHERE pe.status = 'approved'
+                   AND pe.expires_at BETWEEN NOW() AND NOW() + interval '7 days'`
+            );
+            for (const exc of res.rows) {
+                await notificationQueue.add('exception.expiring', {
+                    event: 'exception.expiring',
+                    orgId: exc.org_id,
+                    assistantId: exc.assistant_id,
+                    approvalId: exc.id,
+                    reason: `Exceção "${exc.exception_type}" expira em ${new Date(exc.expires_at).toLocaleDateString('pt-BR')}`,
+                    expiresAt: exc.expires_at,
+                    timestamp: new Date().toISOString(),
+                    metadata: { exceptionId: exc.id, exceptionType: exc.exception_type },
+                }).catch(() => {});
+            }
+        } catch (err) {
+            fastify.log.warn(err, 'Failed to check expiring exceptions');
+        }
+    };
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    setInterval(checkExpiringExceptions, ONE_DAY_MS).unref();
 };
 
 start();

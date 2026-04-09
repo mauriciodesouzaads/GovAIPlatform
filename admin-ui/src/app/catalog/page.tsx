@@ -352,6 +352,16 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                             </span>
                                         )}
                                     </p>
+                                    {(assistant.version_count ?? 0) > 1 && (
+                                        <Link
+                                            href={`/evidence/${assistant.id}`}
+                                            className="text-[10px] text-primary hover:underline mt-1 inline-flex items-center gap-1"
+                                            onClick={onClose}
+                                        >
+                                            <History className="w-3 h-3" />
+                                            Ver alterações de versões →
+                                        </Link>
+                                    )}
                                 </div>
                                 <div>
                                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Revisado em</p>
