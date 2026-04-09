@@ -530,6 +530,8 @@ import { shieldRoutes } from './routes/shield.routes';
 import { architectRoutes } from './routes/architect.routes';
 import { webhookRoutes } from './routes/webhook.routes';
 import { policiesRoutes } from './routes/policies.routes';
+import { settingsRoutes } from './routes/settings.routes';
+import { runRetentionArchiving } from './jobs/retention-archive.job';
 
 fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, requireRole: requireTenantRole, requirePlatformAdmin });
 // assistantsRoutes, approvalsRoutes, reportsRoutes registered internally by adminRoutes
@@ -539,6 +541,7 @@ fastify.register(shieldRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(architectRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(webhookRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(policiesRoutes, { pgPool, requireRole: requireTenantRole });
+fastify.register(settingsRoutes, { pgPool, requireRole: requireTenantRole });
 
 // ---------------------------------------------------------------------------
 // Global error handler — captures unhandled 500s to Sentry
@@ -597,6 +600,17 @@ const start = async () => {
     await refreshComplianceMetrics();
     const COMPLIANCE_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
     setInterval(refreshComplianceMetrics, COMPLIANCE_REFRESH_MS).unref();
+
+    // ── Retention archiving cron — daily at ~03:30 ─────────────────────────────
+    setInterval(async () => {
+        const now = new Date();
+        if (now.getHours() === 3 && now.getMinutes() >= 30 && now.getMinutes() < 31) {
+            fastify.log.info('[RETENTION] Starting daily retention archiving...');
+            await runRetentionArchiving().catch(err =>
+                fastify.log.warn(err, '[RETENTION] Archiving job failed')
+            );
+        }
+    }, 60_000).unref();
 
     // ── Exception expiring cron — daily check for exceptions expiring in <7 days ──
     const checkExpiringExceptions = async () => {

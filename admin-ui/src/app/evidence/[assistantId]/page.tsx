@@ -373,6 +373,14 @@ function EvidenceSkeleton() {
     );
 }
 
+// ── Retention config type ──────────────────────────────────────────────────
+
+interface RetentionConfig {
+    audit_log_retention_days: number;
+    archive_enabled: boolean;
+    last_archive_run_at?: string;
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function EvidencePage({ params }: { params: { assistantId: string } }) {
@@ -381,12 +389,17 @@ export default function EvidencePage({ params }: { params: { assistantId: string
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
     const [downloading, setDownloading] = useState(false);
+    const [retentionConfig, setRetentionConfig] = useState<RetentionConfig | null>(null);
 
     useEffect(() => {
         api.get(ENDPOINTS.ASSISTANT_EVIDENCE(assistantId))
             .then(res => setEvidence(res.data as EvidenceData))
             .catch(() => setError(true))
             .finally(() => setLoading(false));
+
+        api.get(ENDPOINTS.SETTINGS_RETENTION)
+            .then(res => setRetentionConfig(res.data as RetentionConfig))
+            .catch(() => {});
     }, [assistantId]);
 
     const downloadPDF = async () => {
@@ -740,7 +753,7 @@ export default function EvidencePage({ params }: { params: { assistantId: string
                             )}
 
                             {/* Integrity Footer */}
-                            <div className="bg-card border border-border rounded-xl p-4">
+                            <div className="bg-card border border-border rounded-xl p-4 space-y-2">
                                 <div className="flex flex-col sm:flex-row justify-between gap-2 text-xs font-mono text-muted-foreground">
                                     <div>
                                         <span className="text-foreground font-semibold">Integridade:</span>{' '}
@@ -753,6 +766,15 @@ export default function EvidencePage({ params }: { params: { assistantId: string
                                         Gerado em {fmt(integrity.generated_at)}
                                     </div>
                                 </div>
+                                {retentionConfig && (
+                                    <p className="text-sm text-muted-foreground border-t border-border/40 pt-2">
+                                        Política de retenção:{' '}
+                                        <span className="font-medium text-foreground">
+                                            {retentionConfig.audit_log_retention_days} dias
+                                        </span>
+                                        {' '}({retentionConfig.archive_enabled ? 'archiving ativo' : 'archiving desativado'})
+                                    </p>
+                                )}
                             </div>
 
                             {/* Back link */}

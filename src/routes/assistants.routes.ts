@@ -817,9 +817,9 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                 metadata: { previousState: 'draft', newState: 'under_review' },
             });
 
-            // Create pending review_decisions for all org tracks
+            // Create pending review_decisions for all active org tracks
             const tracksRes = await client.query(
-                `SELECT id FROM review_tracks WHERE org_id = $1 ORDER BY sort_order`,
+                `SELECT id FROM review_tracks WHERE org_id = $1 AND is_active = true AND deleted_at IS NULL ORDER BY sort_order`,
                 [orgId]
             );
             for (const track of tracksRes.rows) {

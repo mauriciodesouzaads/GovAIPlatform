@@ -836,4 +836,10 @@ VALUES
     ('55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab', '00000000-0000-0000-0002-000000000002', '00000000-0000-0000-0000-000000000001')
 ON CONFLICT DO NOTHING;
 
+-- ── Retention Config (demo) ────────────────────────────────────────────────
+
+INSERT INTO org_retention_config (org_id, audit_log_retention_days, archive_enabled)
+VALUES ('00000000-0000-0000-0000-000000000001', 365, false)
+ON CONFLICT (org_id) DO NOTHING;
+
 COMMIT;

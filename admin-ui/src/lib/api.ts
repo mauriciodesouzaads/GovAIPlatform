@@ -102,6 +102,14 @@ export const ENDPOINTS = {
     // Audit Export
     AUDIT_EXPORT:             '/v1/admin/audit-logs/export',
 
+    // Settings
+    SETTINGS_ORGANIZATION:    '/v1/admin/settings/organization',
+    SETTINGS_REVIEW_TRACKS:   '/v1/admin/settings/review-tracks',
+    SETTINGS_REVIEW_TRACK:    (id: string) => `/v1/admin/settings/review-tracks/${id}`,
+    SETTINGS_TRACKS_REORDER:  '/v1/admin/settings/review-tracks/reorder',
+    SETTINGS_RETENTION:       '/v1/admin/settings/retention',
+    SETTINGS_RETENTION_PREVIEW: (days: number) => `/v1/admin/settings/retention/preview?days=${days}`,
+
     // Platform Admin — Organization Management
     PLATFORM_ORGS:            '/v1/admin/organizations',
     PLATFORM_ORG:             (id: string) => `/v1/admin/organizations/${id}`,
