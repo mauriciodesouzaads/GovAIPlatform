@@ -27,7 +27,11 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
             await client.query(`SELECT set_config('app.current_org_id', \$1, false)`, [orgId]);
 
             const res = await client.query(`
-                SELECT a.id, a.name, a.status, a.created_at, 
+                SELECT a.id, a.name, a.status, a.lifecycle_state, a.description,
+                       a.risk_level, a.risk_score, a.data_classification,
+                       a.pii_blocker_enabled, a.output_format,
+                       a.capability_tags, a.owner_id, a.owner_email,
+                       a.created_at, a.updated_at,
                        (
                            SELECT v.id
                            FROM assistant_versions v
@@ -39,7 +43,7 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
                            ORDER BY v.created_at DESC
                            LIMIT 1
                        ) as draft_version_id
-                FROM assistants a 
+                FROM assistants a
                 ORDER BY a.created_at DESC
             `);
             return reply.send(res.rows);

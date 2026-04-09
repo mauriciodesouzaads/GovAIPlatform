@@ -14,11 +14,14 @@ import { Badge, riskBadge, findingBadge } from '@/components/Badge';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-interface TopTool { toolName: string; riskScore: number; severity: string }
 interface Posture {
-    openFindings: number; criticalFindings: number; highFindings: number;
-    promotedFindings: number; acceptedRisk: number;
-    topTools: TopTool[]; overallScore: number;
+    summary_score: number;
+    open_findings: number;
+    unresolved_critical: number;
+    promoted_findings: number;
+    accepted_risk: number;
+    top_tools: { name: string; users: number }[];
+    posture: { status: string; trend: string };
 }
 interface Finding {
     id: string; tool_name: string; tool_name_normalized: string;
@@ -260,9 +263,9 @@ export default function ShieldPage() {
     };
 
     // ── KPI helpers ────────────────────────────────────────────────────────
-    const kpiShadowAIs = posture?.openFindings ?? null;
-    const kpiScore     = posture?.overallScore  ?? null;
-    const kpiCritical  = posture != null ? (posture.criticalFindings ?? 0) + (posture.highFindings ?? 0) : null;
+    const kpiShadowAIs = posture?.open_findings     ?? null;
+    const kpiScore     = posture?.summary_score     ?? null;
+    const kpiCritical  = posture?.unresolved_critical ?? null;
 
     const scoreColor = kpiScore == null ? 'text-foreground'
         : kpiScore >= 70 ? 'text-green-500'
@@ -372,7 +375,7 @@ export default function ShieldPage() {
                             <div className="w-9 h-9 rounded-xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center mb-3">
                                 <Eye className="w-4.5 h-4.5 text-amber-400" />
                             </div>
-                            <div className="text-2xl font-semibold text-foreground">{posture?.openFindings ?? 0}</div>
+                            <div className="text-2xl font-semibold text-foreground">{posture?.open_findings ?? 0}</div>
                             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-1">Ferramentas Detectadas</p>
                             <p className="text-xs text-amber-400/70 mt-0.5">findings ativos</p>
                         </div>
@@ -382,7 +385,7 @@ export default function ShieldPage() {
                             <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-3">
                                 <AlertTriangle className="w-4.5 h-4.5 text-rose-500" />
                             </div>
-                            <div className="text-2xl font-semibold text-foreground">{posture?.criticalFindings ?? 0}</div>
+                            <div className="text-2xl font-semibold text-foreground">{posture?.unresolved_critical ?? 0}</div>
                             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-1">Risco Crítico</p>
                             <p className="text-xs text-rose-400/70 mt-0.5">requerem ação imediata</p>
                         </div>
@@ -391,7 +394,7 @@ export default function ShieldPage() {
                             <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-3">
                                 <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500" />
                             </div>
-                            <div className="text-2xl font-semibold text-foreground">{posture?.promotedFindings ?? 0}</div>
+                            <div className="text-2xl font-semibold text-foreground">{posture?.promoted_findings ?? 0}</div>
                             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-1">Em Governança</p>
                             <p className="text-xs text-emerald-400/70 mt-0.5">promovidos ao catálogo</p>
                         </div>
@@ -400,7 +403,7 @@ export default function ShieldPage() {
                             <div className="w-9 h-9 rounded-xl bg-gray-400/10 border border-gray-400/20 flex items-center justify-center mb-3">
                                 <ShieldOff className="w-4.5 h-4.5 text-gray-400" />
                             </div>
-                            <div className="text-2xl font-semibold text-foreground">{posture?.acceptedRisk ?? 0}</div>
+                            <div className="text-2xl font-semibold text-foreground">{posture?.accepted_risk ?? 0}</div>
                             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-1">Risco Aceito</p>
                             <p className="text-xs text-gray-400/70 mt-0.5">aceitos formalmente</p>
                         </div>
@@ -408,26 +411,17 @@ export default function ShieldPage() {
                 )}
 
                 {/* Section B — Top Tools */}
-                {posture?.topTools && posture.topTools.length > 0 && (
+                {posture?.top_tools && posture.top_tools.length > 0 && (
                     <div className="bg-card border border-border rounded-2xl p-5">
                         <h2 className="text-sm font-bold text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
                             <Activity className="w-4 h-4 text-amber-400" />
                             Top Ferramentas em Risco
                         </h2>
                         <div className="flex flex-wrap gap-3">
-                            {posture.topTools.map((t, i) => (
+                            {posture.top_tools.map((t, i) => (
                                 <div key={i} className="flex items-center gap-3 bg-secondary/50 border border-border rounded-xl px-3 py-2">
-                                    <span className="text-sm font-semibold text-foreground capitalize">{t.toolName}</span>
-                                    <div className="w-20 h-1.5 bg-secondary/50 rounded-full overflow-hidden">
-                                        <div
-                                            className="h-full bg-amber-400 rounded-full"
-                                            style={{ width: `${Math.min(100, t.riskScore)}%` }}
-                                        />
-                                    </div>
-                                    <span className="text-xs text-amber-400 font-bold">{t.riskScore}</span>
-                                    <span className={`text-xs font-semibold uppercase tracking-widest rounded px-1.5 py-0.5 border ${severityColor(t.severity)}`}>
-                                        {t.severity}
-                                    </span>
+                                    <span className="text-sm font-semibold text-foreground capitalize">{t.name}</span>
+                                    <span className="text-xs text-amber-400 font-bold">{t.users} usuários</span>
                                 </div>
                             ))}
                         </div>

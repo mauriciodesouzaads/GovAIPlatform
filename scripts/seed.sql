@@ -112,7 +112,7 @@ INSERT INTO assistants (
     35,
     '{"total_score":35,"level":"high","computed_at":"2026-03-01T00:00:00Z","classification":{"score":10,"explanation":"Dados confidenciais processados pelo assistente (+10)"},"connectors":{"score":15,"explanation":"Conector read_write com sistema jurídico externo (+15)"},"extra_connectors":{"score":5,"explanation":"1 conector adicional além do primeiro (+5)"},"pii_blocker":{"score":0,"explanation":"PII blocker ativo — nenhuma penalidade aplicada"},"output_format":{"score":5,"explanation":"Saída em texto livre — menos previsível (+5)"}}'::jsonb,
     NOW() - INTERVAL '37 days',
-    ARRAY['jurídico','contratos','LGPD','compliance'],
+    ARRAY['Jurídico'],
     '00000000-0000-0000-0001-000000000002',
     'compliance@orga.com'
 ) ON CONFLICT (id) DO UPDATE SET
@@ -123,6 +123,7 @@ INSERT INTO assistants (
     pii_blocker_enabled = true,
     output_format      = 'free_text',
     risk_score         = 35,
+    capability_tags    = ARRAY['Jurídico'],
     risk_computed_at   = NOW() - INTERVAL '37 days';
 
 -- 2: FAQ Interno RH — low risk (official)
@@ -141,7 +142,7 @@ INSERT INTO assistants (
     0,
     '{"total_score":0,"level":"low","computed_at":"2026-02-15T00:00:00Z","classification":{"score":0,"explanation":"Dados classificados como internos — risco base zero"},"connectors":{"score":0,"explanation":"Sem integrações externas ativas"},"extra_connectors":{"score":0,"explanation":"Nenhum conector adicional"},"pii_blocker":{"score":0,"explanation":"PII blocker ativo — nenhuma penalidade aplicada"},"output_format":{"score":0,"explanation":"Saída estruturada JSON — totalmente auditável"}}'::jsonb,
     NOW() - INTERVAL '22 days',
-    ARRAY['rh','faq','benefícios','onboarding'],
+    ARRAY['RH'],
     '55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab',
     'admin@orga.com'
 ) ON CONFLICT (id) DO UPDATE SET
@@ -152,6 +153,7 @@ INSERT INTO assistants (
     pii_blocker_enabled = true,
     output_format      = 'structured_json',
     risk_score         = 0,
+    capability_tags    = ARRAY['RH'],
     risk_computed_at   = NOW() - INTERVAL '22 days';
 
 -- 3: Análise de Crédito — critical risk (official)
@@ -170,7 +172,7 @@ INSERT INTO assistants (
     55,
     '{"total_score":55,"level":"critical","computed_at":"2026-03-15T00:00:00Z","classification":{"score":25,"explanation":"Dados restritos (BACEN/financeiro) — maior penalidade de classificação (+25)"},"connectors":{"score":20,"explanation":"Conector externo (sistema legado BACEN) — maior penalidade de integração (+20)"},"extra_connectors":{"score":5,"explanation":"1 conector adicional (datawarehouse financeiro) (+5)"},"pii_blocker":{"score":0,"explanation":"PII blocker ativo — nenhuma penalidade aplicada"},"output_format":{"score":5,"explanation":"Saída em texto livre — menos previsível (+5)"}}'::jsonb,
     NOW() - INTERVAL '7 days',
-    ARRAY['crédito','risco','financeiro','BACEN'],
+    ARRAY['Financeiro'],
     '00000000-0000-0000-0001-000000000004',
     'ciso@orga.com'
 ) ON CONFLICT (id) DO UPDATE SET
@@ -181,6 +183,7 @@ INSERT INTO assistants (
     pii_blocker_enabled = true,
     output_format      = 'free_text',
     risk_score         = 55,
+    capability_tags    = ARRAY['Financeiro'],
     risk_computed_at   = NOW() - INTERVAL '7 days';
 
 -- 4: Gerador de Relatórios — medium risk (approved, not yet official)
@@ -199,7 +202,7 @@ INSERT INTO assistants (
     25,
     '{"total_score":25,"level":"medium","computed_at":"2026-03-20T00:00:00Z","classification":{"score":10,"explanation":"Dados confidenciais processados pelo assistente (+10)"},"connectors":{"score":15,"explanation":"Conector read_write com repositório de relatórios (+15)"},"extra_connectors":{"score":0,"explanation":"Sem conectores adicionais"},"pii_blocker":{"score":0,"explanation":"PII blocker ativo — nenhuma penalidade aplicada"},"output_format":{"score":0,"explanation":"Saída estruturada JSON — totalmente auditável"}}'::jsonb,
     NOW() - INTERVAL '3 days',
-    ARRAY['relatórios','compliance','auditoria'],
+    ARRAY['Relatórios'],
     '00000000-0000-0000-0001-000000000003',
     'dev@orga.com'
 ) ON CONFLICT (id) DO UPDATE SET
@@ -210,6 +213,7 @@ INSERT INTO assistants (
     pii_blocker_enabled = true,
     output_format      = 'structured_json',
     risk_score         = 25,
+    capability_tags    = ARRAY['Relatórios'],
     risk_computed_at   = NOW() - INTERVAL '3 days';
 
 -- 5: Chatbot Atendimento — low risk (under_review)
@@ -228,7 +232,7 @@ INSERT INTO assistants (
     5,
     '{"total_score":5,"level":"low","computed_at":"2026-04-01T00:00:00Z","classification":{"score":0,"explanation":"Dados classificados como internos — risco base zero"},"connectors":{"score":0,"explanation":"Sem integrações externas ativas"},"extra_connectors":{"score":0,"explanation":"Nenhum conector adicional"},"pii_blocker":{"score":0,"explanation":"PII blocker ativo — nenhuma penalidade aplicada"},"output_format":{"score":5,"explanation":"Saída em texto livre — menos previsível (+5)"}}'::jsonb,
     NOW() - INTERVAL '1 day',
-    ARRAY['atendimento','suporte','cliente'],
+    ARRAY['Atendimento'],
     '00000000-0000-0000-0001-000000000003',
     'dev@orga.com'
 ) ON CONFLICT (id) DO UPDATE SET
@@ -239,6 +243,7 @@ INSERT INTO assistants (
     pii_blocker_enabled = true,
     output_format      = 'free_text',
     risk_score         = 5,
+    capability_tags    = ARRAY['Atendimento'],
     risk_computed_at   = NOW() - INTERVAL '1 day';
 
 -- 6: Assistente de Testes — draft (for lifecycle flow validation)
@@ -257,7 +262,7 @@ INSERT INTO assistants (
     0,
     '{"total_score":0,"level":"low","computed_at":"2026-04-08T00:00:00Z","classification":{"score":0,"explanation":"Dados internos"},"connectors":{"score":0,"explanation":"Sem integrações"},"extra_connectors":{"score":0,"explanation":""},"pii_blocker":{"score":0,"explanation":"PII blocker ativo"},"output_format":{"score":0,"explanation":"Saída estruturada JSON — totalmente auditável"}}'::jsonb,
     NOW(),
-    ARRAY['testes','validação','demo'],
+    ARRAY['Geral'],
     '55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab',
     'admin@orga.com'
 ) ON CONFLICT (id) DO UPDATE SET
@@ -268,14 +273,31 @@ INSERT INTO assistants (
     pii_blocker_enabled = true,
     output_format      = 'structured_json',
     risk_score         = 0,
-    capability_tags    = ARRAY['testes','validação','demo'],
+    capability_tags    = ARRAY['Geral'],
     owner_id           = '55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab',
     owner_email        = 'admin@orga.com',
     risk_computed_at   = NOW();
 
--- Update existing demo assistant with proper risk scoring fields
-UPDATE assistants
-SET
+-- Upsert demo assistant (INSERT ensures it exists in fresh DB; UPDATE keeps it current)
+INSERT INTO assistants (
+    id, org_id, name, status, lifecycle_state, description,
+    risk_level, data_classification, pii_blocker_enabled, output_format,
+    risk_score, risk_breakdown, risk_computed_at,
+    capability_tags, owner_id, owner_email
+) VALUES (
+    '00000000-0000-0000-0000-000000000002',
+    '00000000-0000-0000-0000-000000000001',
+    'Assistente Demo',
+    'published', 'official',
+    'Assistente de demonstração da plataforma GovAI com governança completa.',
+    'low', 'internal', true, 'free_text',
+    5,
+    '{"total_score":5,"level":"low","computed_at":"2026-01-01T00:00:00Z","classification":{"score":0,"explanation":"Dados internos"},"connectors":{"score":0,"explanation":"Sem integrações"},"extra_connectors":{"score":0,"explanation":""},"pii_blocker":{"score":0,"explanation":"PII blocker ativo"},"output_format":{"score":5,"explanation":"Saída texto livre (+5)"}}'::jsonb,
+    NOW() - INTERVAL '90 days',
+    ARRAY['Geral'],
+    '55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab',
+    'admin@orga.com'
+) ON CONFLICT (id) DO UPDATE SET
     lifecycle_state    = 'official',
     status             = 'published',
     data_classification = 'internal',
@@ -283,10 +305,9 @@ SET
     output_format      = 'free_text',
     risk_level         = 'low',
     risk_score         = 5,
-    risk_breakdown     = '{"total_score":5,"level":"low","computed_at":"2026-01-01T00:00:00Z","classification":{"score":0,"explanation":"Dados internos"},"connectors":{"score":0,"explanation":"Sem integrações"},"extra_connectors":{"score":0,"explanation":""},"pii_blocker":{"score":0,"explanation":"PII blocker ativo"},"output_format":{"score":5,"explanation":"Saída texto livre (+5)"}}'::jsonb,
+    capability_tags    = ARRAY['Geral'],
     risk_computed_at   = NOW() - INTERVAL '90 days',
-    description        = COALESCE(description, 'Assistente de demonstração da plataforma GovAI com governança completa.')
-WHERE id = '00000000-0000-0000-0000-000000000002';
+    description        = COALESCE(assistants.description, 'Assistente de demonstração da plataforma GovAI com governança completa.');
 
 -- ── 1.5 Assistant Versions (1 per assistant) ──────────────────────────────────
 
@@ -352,41 +373,41 @@ VALUES (
 
 -- ── 1.6 Publication Events (3 — for the 3 official assistants) ───────────────
 
--- Jurídico published 45 days ago
+-- Jurídico published 72 days ago (first assistant published)
 INSERT INTO assistant_publication_events (id, assistant_id, version_id, published_by, published_at, org_id, notes)
 VALUES (
     '00000000-0000-0000-0008-000000000001',
     '00000000-0000-0000-0002-000000000001',
     '00000000-0000-0000-0004-000000000001',
     '55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab',
-    NOW() - INTERVAL '45 days',
+    NOW() - INTERVAL '72 days',
     '00000000-0000-0000-0000-000000000001',
     'Publicação inicial após aprovação do comitê jurídico e revisão DPO.'
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET published_at = NOW() - INTERVAL '72 days';
 
--- FAQ RH published 30 days ago
+-- FAQ RH published 68 days ago
 INSERT INTO assistant_publication_events (id, assistant_id, version_id, published_by, published_at, org_id, notes)
 VALUES (
     '00000000-0000-0000-0008-000000000002',
     '00000000-0000-0000-0002-000000000002',
     '00000000-0000-0000-0004-000000000002',
     '55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab',
-    NOW() - INTERVAL '30 days',
+    NOW() - INTERVAL '68 days',
     '00000000-0000-0000-0000-000000000001',
     'Publicação aprovada pelo RH e DPO. Escopo limitado a dados internos.'
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET published_at = NOW() - INTERVAL '68 days';
 
--- Análise de Crédito published 15 days ago
+-- Análise de Crédito published 60 days ago (high-risk, required longer review)
 INSERT INTO assistant_publication_events (id, assistant_id, version_id, published_by, published_at, org_id, notes)
 VALUES (
     '00000000-0000-0000-0008-000000000003',
     '00000000-0000-0000-0002-000000000003',
     '00000000-0000-0000-0004-000000000003',
     '00000000-0000-0000-0001-000000000004',
-    NOW() - INTERVAL '15 days',
+    NOW() - INTERVAL '60 days',
     '00000000-0000-0000-0000-000000000001',
     'Publicação após homologação pelo CISO e diretoria financeira. Uso restrito a analistas autorizados.'
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET published_at = NOW() - INTERVAL '60 days';
 
 -- ── 1.7 Shield Tools (8) ─────────────────────────────────────────────────────
 
@@ -517,43 +538,64 @@ VALUES (
     198, 4
 ) ON CONFLICT (id) DO NOTHING;
 
--- ── 1.9 Shield Posture Snapshots (3 monthly) ─────────────────────────────────
+-- ── 1.9 Shield Posture Snapshots (3 — 90-day TechBank narrative) ─────────────
 
--- Snapshot 1: 60 days ago (baseline — low score)
-INSERT INTO shield_posture_snapshots (id, org_id, generated_at, posture, summary_score, open_findings, promoted_findings, accepted_risk, top_tools, recommendations)
+-- Snapshot 1: 85 days ago (baseline — critical posture, no governance)
+INSERT INTO shield_posture_snapshots (id, org_id, generated_at, posture, summary_score, open_findings, unresolved_critical, promoted_findings, accepted_risk, top_tools, recommendations)
 VALUES (
     '00000000-0000-0000-0007-000000000001',
     '00000000-0000-0000-0000-000000000001',
-    NOW() - INTERVAL '60 days',
+    NOW() - INTERVAL '85 days',
     '{"status":"critical","trend":"initial_assessment"}'::jsonb,
-    35, 10, 0, 0,
+    25, 10, 5, 0, 0,
     '[{"name":"ChatGPT","users":20},{"name":"Copilot (Personal)","users":15}]'::jsonb,
     '["Implementar política formal de uso de IA","Bloquear Copilot Personal na rede corporativa","Realizar inventário de ferramentas AI em uso"]'::jsonb
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET
+    generated_at        = NOW() - INTERVAL '85 days',
+    posture             = '{"status":"critical","trend":"initial_assessment"}'::jsonb,
+    summary_score       = 25,
+    open_findings       = 10,
+    unresolved_critical = 5,
+    promoted_findings   = 0,
+    accepted_risk       = 0;
 
--- Snapshot 2: 30 days ago (improving)
-INSERT INTO shield_posture_snapshots (id, org_id, generated_at, posture, summary_score, open_findings, promoted_findings, accepted_risk, top_tools, recommendations)
+-- Snapshot 2: 50 days ago (improving — governance deployed, some findings resolved)
+INSERT INTO shield_posture_snapshots (id, org_id, generated_at, posture, summary_score, open_findings, unresolved_critical, promoted_findings, accepted_risk, top_tools, recommendations)
 VALUES (
     '00000000-0000-0000-0007-000000000002',
     '00000000-0000-0000-0000-000000000001',
-    NOW() - INTERVAL '30 days',
+    NOW() - INTERVAL '50 days',
     '{"status":"medium","trend":"improving"}'::jsonb,
-    55, 8, 1, 1,
+    55, 8, 4, 1, 1,
     '[{"name":"ChatGPT","users":15},{"name":"Copilot (Personal)","users":12}]'::jsonb,
     '["Migrar Copilot para licença corporativa","Revisar uso do Claude.ai pelo departamento jurídico","Documentar exceções de uso aprovadas"]'::jsonb
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET
+    generated_at        = NOW() - INTERVAL '50 days',
+    posture             = '{"status":"medium","trend":"improving"}'::jsonb,
+    summary_score       = 55,
+    open_findings       = 8,
+    unresolved_critical = 4,
+    promoted_findings   = 1,
+    accepted_risk       = 1;
 
--- Snapshot 3: today (further improvement)
-INSERT INTO shield_posture_snapshots (id, org_id, generated_at, posture, summary_score, open_findings, promoted_findings, accepted_risk, top_tools, recommendations)
+-- Snapshot 3: 5 days ago (latest — steady improvement, 3 critical still open)
+INSERT INTO shield_posture_snapshots (id, org_id, generated_at, posture, summary_score, open_findings, unresolved_critical, promoted_findings, accepted_risk, top_tools, recommendations)
 VALUES (
     '00000000-0000-0000-0007-000000000003',
     '00000000-0000-0000-0000-000000000001',
-    NOW(),
+    NOW() - INTERVAL '5 days',
     '{"status":"medium","trend":"improving"}'::jsonb,
-    68, 6, 1, 2,
+    68, 6, 3, 1, 2,
     '[{"name":"ChatGPT","users":15},{"name":"Copilot (Personal)","users":12},{"name":"GPT Personalizado (RH)","users":1}]'::jsonb,
     '["Investigar GPT personalizado de RH — risco crítico de vazamento de dados pessoais","Definir política formal para DeepSeek (risco geopolítico BACEN)","Concluir migração Copilot para versão corporativa"]'::jsonb
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET
+    generated_at        = NOW() - INTERVAL '5 days',
+    posture             = '{"status":"medium","trend":"improving"}'::jsonb,
+    summary_score       = 68,
+    open_findings       = 6,
+    unresolved_critical = 3,
+    promoted_findings   = 1,
+    accepted_risk       = 2;
 
 -- ── 1.10 HITL Keywords ───────────────────────────────────────────────────────
 
@@ -579,9 +621,12 @@ VALUES (
     'HITL triggered: keyword "remover limite" detected in user input',
     'trace-hitl-demo-001',
     'pending',
-    NOW() - INTERVAL '2 hours',
-    NOW() + INTERVAL '46 hours'
-) ON CONFLICT (id) DO NOTHING;
+    NOW() - INTERVAL '36 hours',
+    NOW() + INTERVAL '12 hours'
+) ON CONFLICT (id) DO UPDATE SET
+    status     = 'pending',
+    created_at = NOW() - INTERVAL '36 hours',
+    expires_at = NOW() + INTERVAL '12 hours';
 
 -- HITL #2: Assistente Jurídico — "cláusula penal"
 INSERT INTO pending_approvals (id, org_id, assistant_id, message, policy_reason, trace_id, status, created_at, expires_at)
@@ -593,9 +638,12 @@ VALUES (
     'HITL triggered: keyword "cláusula penal" detected in user input',
     'trace-hitl-demo-002',
     'pending',
-    NOW() - INTERVAL '5 hours',
-    NOW() + INTERVAL '43 hours'
-) ON CONFLICT (id) DO NOTHING;
+    NOW() - INTERVAL '12 hours',
+    NOW() + INTERVAL '36 hours'
+) ON CONFLICT (id) DO UPDATE SET
+    status     = 'pending',
+    created_at = NOW() - INTERVAL '12 hours',
+    expires_at = NOW() + INTERVAL '36 hours';
 
 -- ── 1.12 Policy Exceptions (2) ───────────────────────────────────────────────
 
