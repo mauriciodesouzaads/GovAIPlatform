@@ -541,7 +541,18 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             }
 
             // Second LLM call with tool results
-            messages.push(firstChoice.message);
+            // Strip provider_specific_fields and non-standard LiteLLM fields (caller, index)
+            // that Anthropic rejects in the follow-up message.
+            const sanitizedToolCalls = (firstChoice.message.tool_calls ?? []).map((tc: any) => ({
+                id: tc.id,
+                type: tc.type,
+                function: tc.function,
+            }));
+            messages.push({
+                role: firstChoice.message.role,
+                content: firstChoice.message.content ?? null,
+                tool_calls: sanitizedToolCalls,
+            });
             for (const result of toolResults) {
                 messages.push({ role: 'tool', tool_call_id: result.tool_call_id, content: result.content });
             }
@@ -550,8 +561,8 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             try {
                 aiResponse = await axios.post(
                     `${process.env.LITELLM_URL}/chat/completions`,
-                    { model: aiModel, messages },
-                    { headers: { Authorization: `Bearer ${process.env.LITELLM_KEY}` }, timeout: 30000 }
+                    { model: aiModel, messages, ...(tools ? { tools, tool_choice: 'auto' } : {}) },
+                    { headers: { Authorization: `Bearer ${process.env.LITELLM_KEY}` }, timeout: 60000 }
                 );
                 spans.push({
                     name: 'llm-followup',
@@ -563,8 +574,26 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                     metadata: { model: aiModel, tokens: aiResponse.data.usage, is_followup: true },
                 });
             } catch (error: any) {
-                log.error(error, 'Error in LLM follow-up after tool calls');
-                return { statusCode: 502, body: { error: 'Falha na segunda chamada ao LLM', traceId } };
+                log.warn(error, 'LLM follow-up failed after tool calls — using first LLM response as fallback');
+                // Graceful fallback: return first LLM response with tool error context
+                // instead of a hard 502. The user still gets a useful answer.
+                const firstContent = firstChoice.message?.content;
+                if (firstContent) {
+                    const toolNames = (firstChoice.message.tool_calls ?? [])
+                        .map((tc: any) => tc.function?.name?.split('__')[1] ?? tc.function?.name)
+                        .join(', ');
+                    aiResponse.data.choices = [{
+                        finish_reason: 'stop',
+                        index: 0,
+                        message: {
+                            role: 'assistant',
+                            content: `${firstContent}\n\n*(Nota: a consulta às ferramentas externas (${toolNames}) não foi possível no momento. Resposta baseada no conhecimento interno.)*`,
+                        },
+                    }];
+                    aiResponse.data.usage = aiResponse.data.usage || {};
+                } else {
+                    return { statusCode: 502, body: { error: 'Falha na segunda chamada ao LLM', traceId } };
+                }
             }
         }
 

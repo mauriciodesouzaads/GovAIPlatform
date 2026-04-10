@@ -39,3 +39,4 @@ model_list:
 general_settings:
   master_key: os.environ/LITELLM_KEY
   drop_params: true
+  modify_params: true
