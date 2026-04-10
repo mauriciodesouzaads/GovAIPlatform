@@ -710,7 +710,9 @@ function ModelCardPanel({ assistantId }: { assistantId: string }) {
     const handleSave = async () => {
         setSaving(true);
         try {
-            const res = await api.put(ENDPOINTS.MODEL_CARD(assistantId), form);
+            // Map display form keys to actual DB column names
+            const payload: Record<string, any> = { ...form };
+            const res = await api.put(ENDPOINTS.MODEL_CARD(assistantId), payload);
             setCard(res.data);
             setEditing(false);
             toast('Ficha técnica salva', 'success');
@@ -739,13 +741,14 @@ function ModelCardPanel({ assistantId }: { assistantId: string }) {
         return (
             <div className="space-y-3 text-sm">
                 {[
-                    { key: 'provider', label: 'Provider' },
-                    { key: 'base_model', label: 'Modelo Base' },
+                    { key: 'model_provider', label: 'Provider' },
+                    { key: 'model_name', label: 'Modelo Base' },
+                    { key: 'model_version', label: 'Versão' },
                     { key: 'training_data_cutoff', label: 'Corte de Dados' },
-                    { key: 'intended_use', label: 'Uso Pretendido', multiline: true },
-                    { key: 'out_of_scope_use', label: 'Fora do Escopo', multiline: true },
+                    { key: 'out_of_scope_uses', label: 'Fora do Escopo', multiline: true },
                     { key: 'known_limitations', label: 'Limitações Conhecidas', multiline: true },
-                    { key: 'potential_biases', label: 'Potenciais Vieses', multiline: true },
+                    { key: 'known_biases', label: 'Vieses Conhecidos', multiline: true },
+                    { key: 'ethical_considerations', label: 'Considerações Éticas', multiline: true },
                 ].map(({ key, label, multiline }) => (
                     <div key={key}>
                         <label className="text-xs text-muted-foreground mb-1 block">{label}</label>
@@ -779,14 +782,13 @@ function ModelCardPanel({ assistantId }: { assistantId: string }) {
     return (
         <div className="space-y-3 text-sm">
             {[
-                { key: 'provider', label: 'Provider' },
-                { key: 'base_model', label: 'Modelo Base' },
+                { key: 'model_provider', label: 'Provider' },
+                { key: 'model_name', label: 'Modelo Base' },
+                { key: 'model_version', label: 'Versão' },
                 { key: 'training_data_cutoff', label: 'Corte de Dados' },
-                { key: 'eu_ai_act_risk_level', label: 'EU AI Act Risk' },
-                { key: 'data_residency', label: 'Residência de Dados' },
-                { key: 'intended_use', label: 'Uso Pretendido' },
                 { key: 'known_limitations', label: 'Limitações' },
-                { key: 'potential_biases', label: 'Vieses' },
+                { key: 'known_biases', label: 'Vieses' },
+                { key: 'out_of_scope_uses', label: 'Fora do Escopo' },
             ].map(({ key, label }) => c[key] && (
                 <div key={key}>
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>

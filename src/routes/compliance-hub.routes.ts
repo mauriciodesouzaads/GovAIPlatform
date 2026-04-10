@@ -102,7 +102,7 @@ export async function complianceHubRoutes(
     });
 
     // POST /v1/admin/compliance-hub/auto-assess/:frameworkId
-    app.post('/v1/admin/compliance-hub/auto-assess/:frameworkId', { preHandler: auth }, async (request, reply) => {
+    app.post('/v1/admin/compliance-hub/auto-assess/:frameworkId', { preHandler: auth, bodyLimit: 1 }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         const userId = (request.user as any)?.userId;
         const { frameworkId } = request.params as { frameworkId: string };

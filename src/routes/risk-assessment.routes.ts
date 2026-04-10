@@ -32,12 +32,32 @@ export async function riskAssessmentRoutes(
         }
     });
 
+    // POST /v1/admin/risk-assessments — body: { assistant_id, version_id? }
+    app.post('/v1/admin/risk-assessments', { preHandler: auth }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        const userId = (request.user as any)?.userId;
+        const { assistant_id, version_id } = request.body as { assistant_id: string; version_id?: string };
+        const client = await pgPool.connect();
+        try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+            const result = await client.query(`
+                INSERT INTO risk_assessments (org_id, assistant_id, version_id, status, answers, assessed_by)
+                VALUES ($1, $2, $3, 'in_progress', '{}', $4)
+                RETURNING *
+            `, [orgId, assistant_id, version_id || null, userId]);
+            return reply.status(201).send(result.rows[0]);
+        } finally {
+            client.release();
+        }
+    });
+
     // POST /v1/admin/risk-assessments/:assistantId
     app.post('/v1/admin/risk-assessments/:assistantId', { preHandler: auth }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         const userId = (request.user as any)?.userId;
         const { assistantId } = request.params as { assistantId: string };
-        const { version_id } = request.body as { version_id?: string };
+        const body = (request.body || {}) as { version_id?: string };
+        const version_id = body.version_id;
         const client = await pgPool.connect();
         try {
             await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
@@ -81,7 +101,7 @@ export async function riskAssessmentRoutes(
     });
 
     // POST /v1/admin/risk-assessments/:assessmentId/complete
-    app.post('/v1/admin/risk-assessments/:assessmentId/complete', { preHandler: auth }, async (request, reply) => {
+    app.post('/v1/admin/risk-assessments/:assessmentId/complete', { preHandler: auth, bodyLimit: 1 }, async (request, reply) => {
         const orgId = request.headers['x-org-id'] as string;
         const userId = (request.user as any)?.userId;
         const { assessmentId } = request.params as { assessmentId: string };

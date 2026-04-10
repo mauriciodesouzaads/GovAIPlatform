@@ -394,12 +394,12 @@ function ModelCardSummaryCard({ assistantId }: { assistantId: string }) {
             <h3 className="text-base font-semibold mb-4">Ficha Técnica (Model Card)</h3>
             <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
                 {[
-                    { key: 'provider', label: 'Provider' },
-                    { key: 'base_model', label: 'Modelo Base' },
+                    { key: 'model_provider', label: 'Provider' },
+                    { key: 'model_name', label: 'Modelo Base' },
+                    { key: 'model_version', label: 'Versão' },
                     { key: 'training_data_cutoff', label: 'Corte de Dados' },
-                    { key: 'eu_ai_act_risk_level', label: 'EU AI Act Risk' },
-                    { key: 'data_residency', label: 'Residência de Dados' },
-                    { key: 'lgpd_applies', label: 'LGPD Aplicável' },
+                    { key: 'business_owner_name', label: 'Responsável de Negócio' },
+                    { key: 'technical_owner_name', label: 'Responsável Técnico' },
                 ].filter(({ key }) => card[key] !== undefined && card[key] !== null).map(({ key, label }) => (
                     <div key={key}>
                         <dt className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">{label}</dt>
