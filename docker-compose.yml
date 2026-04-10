@@ -57,32 +57,21 @@ services:
 
     volumes:
       - ./litellm-config.yaml:/app/config.yaml
+    env_file:
+      - .env
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # ANTHROPIC_API_KEY vem apenas do env_file (.env) para evitar que
+      # variável vazia no shell do host sobrescreva o valor correto.
     networks:
       - govai-net
     healthcheck:
-      test: [ "CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:4000/health\")'" ]
+      test: [ "CMD-SHELL", "python3 -c 'import urllib.request; req=urllib.request.Request(\"http://localhost:4000/health\",headers={\"Authorization\":\"Bearer \"+__import__(\"os\").environ[\"LITELLM_KEY\"]}); urllib.request.urlopen(req)'" ]
       interval: 15s
       timeout: 10s
       retries: 5
       start_period: 40s
-
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "127.0.0.1:11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - govai-net
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 4g
 
   presidio:
     build:
@@ -182,7 +171,6 @@ services:
 volumes:
   pgdata:
   redisdata:
-  ollama_data:
 
 
 networks:
