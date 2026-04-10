@@ -28,7 +28,7 @@ VALUES (
     '55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab',
     '00000000-0000-0000-0000-000000000001',
     'admin@orga.com', 'Administrador', 'local', 'admin@orga.com',
-    '$2b$12$9f9w9fubYL8Zf04/CtjY5uJRyLm3My/vl69WmbygayoZj9pLsi2aO',
+    '$2b$12$VdUXuk5WPohL.NMRBfdRm.silId9k7Z7yuAmHu1Ssydc3yHDkyRGy',
     false, 'admin'
 ) ON CONFLICT (id) DO UPDATE SET
     name                     = 'Administrador',
@@ -41,7 +41,7 @@ VALUES (
     '00000000-0000-0000-0001-000000000002',
     '00000000-0000-0000-0000-000000000001',
     'compliance@orga.com', 'Maria Santos', 'local', 'compliance@orga.com',
-    '$2b$12$9f9w9fubYL8Zf04/CtjY5uJRyLm3My/vl69WmbygayoZj9pLsi2aO',
+    '$2b$12$VdUXuk5WPohL.NMRBfdRm.silId9k7Z7yuAmHu1Ssydc3yHDkyRGy',
     false, 'dpo'
 ) ON CONFLICT (id) DO UPDATE SET
     name                     = 'Maria Santos',
@@ -54,7 +54,7 @@ VALUES (
     '00000000-0000-0000-0001-000000000003',
     '00000000-0000-0000-0000-000000000001',
     'dev@orga.com', 'João Silva', 'local', 'dev@orga.com',
-    '$2b$12$9f9w9fubYL8Zf04/CtjY5uJRyLm3My/vl69WmbygayoZj9pLsi2aO',
+    '$2b$12$VdUXuk5WPohL.NMRBfdRm.silId9k7Z7yuAmHu1Ssydc3yHDkyRGy',
     false, 'operator'
 ) ON CONFLICT (id) DO UPDATE SET
     name                     = 'João Silva',
@@ -67,7 +67,7 @@ VALUES (
     '00000000-0000-0000-0001-000000000004',
     '00000000-0000-0000-0000-000000000001',
     'ciso@orga.com', 'Carlos Oliveira', 'local', 'ciso@orga.com',
-    '$2b$12$9f9w9fubYL8Zf04/CtjY5uJRyLm3My/vl69WmbygayoZj9pLsi2aO',
+    '$2b$12$VdUXuk5WPohL.NMRBfdRm.silId9k7Z7yuAmHu1Ssydc3yHDkyRGy',
     false, 'admin'
 ) ON CONFLICT (id) DO UPDATE SET
     name                     = 'Carlos Oliveira',
