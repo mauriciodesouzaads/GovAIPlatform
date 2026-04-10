@@ -146,7 +146,10 @@ export default function AuditLogsPage() {
                                                 <Badge
                                                     variant={
                                                         log.action === 'EXIT_GOVERNED_PERIMETER' ? 'warning' :
+                                                        log.action === 'TOOL_CALL_BLOCKED' ? 'error' :
+                                                        log.action === 'TOOL_CALL_FAILED' ? 'warning' :
                                                         log.action.includes('VIOLATION') ? 'error' :
+                                                        log.action.includes('FAILED') || log.action.includes('ERROR') ? 'error' :
                                                         log.action.includes('SUCCESS') ? 'success' : 'info'
                                                     }
                                                 >
@@ -162,7 +165,10 @@ export default function AuditLogsPage() {
                                                 <div className="flex items-center justify-center">
                                                     <div className={`w-2 h-2 rounded-full ${
                                                         log.action === 'EXIT_GOVERNED_PERIMETER' ? 'bg-amber-500' :
-                                                        log.action.includes('VIOLATION') ? 'bg-rose-500' : 'bg-emerald-500'
+                                                        log.action === 'TOOL_CALL_BLOCKED' ? 'bg-rose-500' :
+                                                        log.action === 'TOOL_CALL_FAILED' ? 'bg-amber-500' :
+                                                        log.action.includes('VIOLATION') || log.action.includes('FAILED') || log.action.includes('ERROR') ? 'bg-rose-500' :
+                                                        log.action.includes('SUCCESS') ? 'bg-emerald-500' : 'bg-blue-500'
                                                     }`} />
                                                 </div>
                                             </td>

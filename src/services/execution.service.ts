@@ -13,7 +13,9 @@
  *   6. DLP flag
  *   7. checkQuota (FinOps — only reached if request is allowed)
  *   8. RAG
- *   9. LLM dispatch
+ *   8.5 MCP tool resolution (connector_version_grants per published version)
+ *   9. LLM dispatch (with optional tools)
+ *   9.5 MCP tool execution + second LLM call (if tool_calls returned)
  */
 
 import { FastifyBaseLogger } from 'fastify';
@@ -45,6 +47,17 @@ export interface ExecutionParams {
 export interface ExecutionResult {
     statusCode: number;
     body: unknown;
+}
+
+// Span type for Langfuse trace hierarchy
+interface TelemetrySpan {
+    name: string;
+    type: 'span' | 'generation';
+    startTime: string;
+    endTime: string;
+    input?: unknown;
+    output?: unknown;
+    metadata?: Record<string, unknown>;
 }
 
 /**
@@ -94,6 +107,9 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
     // Single model resolution: request override > env default > built-in fallback
     const aiModel = modelOverride || process.env.AI_MODEL || 'govai-llm';
     const client = await pgPool.connect();
+
+    // Spans collected throughout pipeline for Langfuse trace hierarchy
+    const spans: TelemetrySpan[] = [];
 
     try {
         await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
@@ -156,6 +172,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
         const effectiveHitlTimeout: number = hitl_timeout_hours ?? 4;
 
         // ── 3. Governance evaluation (OPA + DLP + HITL keywords) ──────────────────
+        const govStart = Date.now();
         const policyContext = { orgId, rules: policyRules };
         const policyCheck = await opaEngine.evaluate({ message, orgId }, policyContext);
 
@@ -236,6 +253,18 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             }
         }
 
+        // Governance span (steps 3-6)
+        spans.push({
+            name: 'governance-pipeline',
+            type: 'span',
+            startTime: new Date(execStart).toISOString(),
+            endTime: new Date().toISOString(),
+            metadata: {
+                decision: policyCheck.action,
+                dlp_detections: policyCheck.dlpReport?.totalDetections || 0,
+            },
+        });
+
         // ── 7. FinOps quota enforcement (only reached if request is allowed) ──────
         const quota = await checkQuota(pgPool, orgId, assistantId);
         if (quota.exceeded) {
@@ -272,6 +301,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
         // ── 8. RAG context retrieval (token-aware) ────────────────────────────────
         let ragContext = '';
         let ragMeta = { chunksUsed: 0, estimatedTokens: 0, truncated: false };
+        const ragStart = new Date();
         try {
             const kbRes = await client.query(
                 'SELECT id FROM knowledge_bases WHERE assistant_id = $1 LIMIT 1',
@@ -295,14 +325,72 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                         tokenBudget: ragResult.tokenBudget,
                         truncated: ragResult.truncated,
                     }, 'RAG context injected (token-aware)');
+                    spans.push({
+                        name: 'rag-retrieval',
+                        type: 'span',
+                        startTime: ragStart.toISOString(),
+                        endTime: new Date().toISOString(),
+                        metadata: { chunks_used: ragResult.chunksUsed, estimated_tokens: ragResult.estimatedTokens, truncated: ragResult.truncated },
+                    });
                 }
             }
         } catch (ragError) {
             log.warn(ragError, 'RAG retrieval failed, proceeding without context');
         }
 
+        // ── 8.5 MCP Tool Resolution ───────────────────────────────────────────────
+        // Fetch connector_version_grants for the active assistant version.
+        // When no grants exist the mcpTools array is empty and tools are NOT passed
+        // to LiteLLM — the pipeline is 100% identical to the pre-MCP behaviour.
+        interface McpGrant {
+            mcp_server_id: string;
+            base_url: string;
+            server_name: string;
+            allowed_tools: string[];
+        }
+        let mcpTools: McpGrant[] = [];
+
+        if (versionId) {
+            try {
+                const grantsResult = await client.query(`
+                    SELECT cvg.mcp_server_id, cvg.allowed_tools_jsonb,
+                           ms.base_url, ms.name as server_name
+                    FROM connector_version_grants cvg
+                    JOIN mcp_servers ms ON cvg.mcp_server_id = ms.id
+                    WHERE cvg.assistant_version_id = $1
+                      AND cvg.org_id = $2
+                      AND ms.status = 'active'
+                `, [versionId, orgId]);
+
+                mcpTools = grantsResult.rows.map(r => ({
+                    mcp_server_id: r.mcp_server_id,
+                    base_url: r.base_url,
+                    server_name: r.server_name,
+                    allowed_tools: Array.isArray(r.allowed_tools_jsonb)
+                        ? r.allowed_tools_jsonb
+                        : JSON.parse(r.allowed_tools_jsonb || '[]'),
+                }));
+            } catch (err) {
+                log.warn(err, 'Failed to fetch MCP grants, proceeding without tools');
+            }
+        }
+
+        // Build tools array for LiteLLM (OpenAI function calling format)
+        const tools = mcpTools.length > 0
+            ? mcpTools.flatMap(grant =>
+                grant.allowed_tools.map(toolName => ({
+                    type: 'function' as const,
+                    function: {
+                        name: `${grant.server_name}__${toolName}`,
+                        description: `Tool ${toolName} from MCP server ${grant.server_name}`,
+                        parameters: { type: 'object', properties: {} },
+                    },
+                }))
+            )
+            : undefined;
+
         // ── 9. LiteLLM proxy call ─────────────────────────────────────────────────
-        const messages: { role: string; content: string }[] = [];
+        const messages: any[] = [];
         if (ragContext) {
             messages.push({
                 role: 'system',
@@ -311,11 +399,16 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
         }
         messages.push({ role: 'user', content: safeMessage });
 
+        const llmStart = new Date();
         let aiResponse: any;
         try {
             aiResponse = await axios.post(
                 `${process.env.LITELLM_URL}/chat/completions`,
-                { model: aiModel, messages },
+                {
+                    model: aiModel,
+                    messages,
+                    ...(tools ? { tools, tool_choice: 'auto' } : {}),
+                },
                 { headers: { Authorization: `Bearer ${process.env.LITELLM_KEY}` }, timeout: 30000 }
             );
         } catch (error: any) {
@@ -325,6 +418,166 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                 body: { error: 'Falha ao comunicar com o provedor de IA', details: error.message, traceId },
             };
         }
+
+        // ── 9.5 MCP tool execution (if LLM returned tool_calls) ──────────────────
+        const firstChoice = aiResponse.data.choices?.[0];
+        if (firstChoice?.finish_reason === 'tool_calls' && firstChoice.message?.tool_calls?.length > 0) {
+            const toolResults: Array<{ tool_call_id: string; content: string }> = [];
+
+            for (const toolCall of firstChoice.message.tool_calls) {
+                const funcName: string = toolCall.function?.name || '';
+                const separatorIdx = funcName.indexOf('__');
+                if (separatorIdx === -1) {
+                    toolResults.push({ tool_call_id: toolCall.id, content: JSON.stringify({ error: 'Invalid tool name format' }) });
+                    continue;
+                }
+                const serverName = funcName.slice(0, separatorIdx);
+                const toolName = funcName.slice(separatorIdx + 2);
+                const args = (() => { try { return JSON.parse(toolCall.function?.arguments || '{}'); } catch { return {}; } })();
+
+                const grant = mcpTools.find(g => g.server_name === serverName);
+                if (!grant) {
+                    log.warn({ serverName, toolName }, 'MCP server not found for tool call');
+                    toolResults.push({ tool_call_id: toolCall.id, content: JSON.stringify({ error: 'Server not found' }) });
+                    continue;
+                }
+
+                // Zero-trust: verify tool is in the allowed list
+                if (!grant.allowed_tools.includes(toolName)) {
+                    log.warn({ serverName, toolName, allowed: grant.allowed_tools }, 'Tool not in allowed list');
+                    await auditQueue.add('persist-log', {
+                        org_id: orgId, assistant_id: assistantId,
+                        action: 'TOOL_CALL_BLOCKED' satisfies ActionType,
+                        metadata: { traceId, serverName, toolName, reason: 'not_in_allowed_tools' },
+                        signature: IntegrityService.signPayload(
+                            { traceId, serverName, toolName, reason: 'not_in_allowed_tools' },
+                            process.env.SIGNING_SECRET!
+                        ),
+                        traceId,
+                    }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+                    toolResults.push({ tool_call_id: toolCall.id, content: JSON.stringify({ error: 'Tool not authorized' }) });
+                    continue;
+                }
+
+                // Invoke the MCP server
+                const toolStart = Date.now();
+                const toolSpanStart = new Date().toISOString();
+                try {
+                    const mcpResponse = await axios.post(
+                        `${grant.base_url}/tools/${toolName}`,
+                        args,
+                        { timeout: 15000, headers: { 'X-GovAI-Trace': traceId, 'X-GovAI-Org': orgId } }
+                    );
+                    const toolLatency = Date.now() - toolStart;
+
+                    spans.push({
+                        name: `tool-${serverName}-${toolName}`,
+                        type: 'span',
+                        startTime: toolSpanStart,
+                        endTime: new Date().toISOString(),
+                        metadata: {
+                            server_name: serverName,
+                            tool_name: toolName,
+                            mcp_server_id: grant.mcp_server_id,
+                            latency_ms: toolLatency,
+                            status: 'success',
+                        },
+                    });
+
+                    await auditQueue.add('persist-log', {
+                        org_id: orgId, assistant_id: assistantId,
+                        action: 'TOOL_CALL_SUCCESS' satisfies ActionType,
+                        metadata: {
+                            traceId, serverName, toolName,
+                            mcp_server_id: grant.mcp_server_id,
+                            latency_ms: toolLatency,
+                            args_keys: Object.keys(args),
+                            response_size: JSON.stringify(mcpResponse.data).length,
+                        },
+                        signature: IntegrityService.signPayload(
+                            { traceId, serverName, toolName, mcp_server_id: grant.mcp_server_id },
+                            process.env.SIGNING_SECRET!
+                        ),
+                        traceId,
+                    }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+
+                    toolResults.push({ tool_call_id: toolCall.id, content: JSON.stringify(mcpResponse.data) });
+                } catch (mcpError: any) {
+                    const toolLatency = Date.now() - toolStart;
+
+                    spans.push({
+                        name: `tool-${serverName}-${toolName}`,
+                        type: 'span',
+                        startTime: toolSpanStart,
+                        endTime: new Date().toISOString(),
+                        metadata: {
+                            server_name: serverName,
+                            tool_name: toolName,
+                            mcp_server_id: grant.mcp_server_id,
+                            latency_ms: toolLatency,
+                            status: 'failed',
+                            error: mcpError.message,
+                        },
+                    });
+
+                    await auditQueue.add('persist-log', {
+                        org_id: orgId, assistant_id: assistantId,
+                        action: 'TOOL_CALL_FAILED' satisfies ActionType,
+                        metadata: {
+                            traceId, serverName, toolName,
+                            mcp_server_id: grant.mcp_server_id,
+                            latency_ms: toolLatency,
+                            error: mcpError.message,
+                        },
+                        signature: IntegrityService.signPayload(
+                            { traceId, serverName, toolName, error: mcpError.message },
+                            process.env.SIGNING_SECRET!
+                        ),
+                        traceId,
+                    }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+
+                    toolResults.push({ tool_call_id: toolCall.id, content: JSON.stringify({ error: mcpError.message }) });
+                }
+            }
+
+            // Second LLM call with tool results
+            messages.push(firstChoice.message);
+            for (const result of toolResults) {
+                messages.push({ role: 'tool', tool_call_id: result.tool_call_id, content: result.content });
+            }
+
+            const llm2Start = new Date();
+            try {
+                aiResponse = await axios.post(
+                    `${process.env.LITELLM_URL}/chat/completions`,
+                    { model: aiModel, messages },
+                    { headers: { Authorization: `Bearer ${process.env.LITELLM_KEY}` }, timeout: 30000 }
+                );
+                spans.push({
+                    name: 'llm-followup',
+                    type: 'generation',
+                    startTime: llm2Start.toISOString(),
+                    endTime: new Date().toISOString(),
+                    input: '[tool_results]',
+                    output: telemetry_pii_strip ? '[PII_STRIPPED]' : aiResponse.data.choices?.[0]?.message?.content,
+                    metadata: { model: aiModel, tokens: aiResponse.data.usage, is_followup: true },
+                });
+            } catch (error: any) {
+                log.error(error, 'Error in LLM follow-up after tool calls');
+                return { statusCode: 502, body: { error: 'Falha na segunda chamada ao LLM', traceId } };
+            }
+        }
+
+        // LLM generation span (first call)
+        spans.push({
+            name: 'llm-generation',
+            type: 'generation',
+            startTime: llmStart.toISOString(),
+            endTime: new Date().toISOString(),
+            input: telemetry_pii_strip ? '[PII_STRIPPED]' : safeMessage,
+            output: telemetry_pii_strip ? '[PII_STRIPPED]' : aiResponse.data.choices?.[0]?.message?.content,
+            metadata: { model: aiModel, tokens: aiResponse.data.usage, tools_count: tools?.length || 0 },
+        });
 
         // DLP-sanitize the full audit payload before signing (input + AI output)
         const rawLogContent = {
@@ -359,22 +612,25 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             .catch((e: Error) => log.error(e, 'Failed to update FinOps ledger'));
 
         if (telemetry_consent) {
-            await telemetryQueue.add('export-metrics', {
+            await telemetryQueue.add('export-trace', {
                 org_id: orgId,
                 assistant_id: assistantId,
                 traceId,
+                traceName: `execution-${assistantId}`,
+                spans,
+                totalLatency: latencyMs,
+                model: aiModel,
+                pii_stripped: telemetry_pii_strip,
+                // Legacy fields for backward compat
                 tokens: aiResponse.data.usage,
                 cost: costUsd,
                 latency_ms: latencyMs,
-                model: aiModel,
-                // prompt e completion são omitidos se pii_strip estiver ativo
                 prompt: telemetry_pii_strip ? null : safeMessage,
-                completion: telemetry_pii_strip ? null : aiResponse.data.choices[0].message?.content,
-                pii_stripped: telemetry_pii_strip,
+                completion: telemetry_pii_strip ? null : aiResponse.data.choices[0]?.message?.content,
             }, { removeOnComplete: true });
         }
 
-        log.info({ orgId, assistantId, tokens: aiResponse.data.usage?.total_tokens }, 'Execution Success');
+        log.info({ orgId, assistantId, tokens: aiResponse.data.usage?.total_tokens, mcp_tools: mcpTools.length }, 'Execution Success');
         recordRequest('success', latencyMs);
         // Per-assistant latency histogram (P95/P99 drill-down in Grafana)
         assistantLatencyHistogram.observe({ assistant_id: assistantId }, latencyMs);

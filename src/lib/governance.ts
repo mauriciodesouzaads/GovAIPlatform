@@ -14,6 +14,9 @@ export const ActionType = z.enum([
     'TELEMETRY_CONSENT_GRANTED',
     'TELEMETRY_CONSENT_REVOKED',
     'EXIT_GOVERNED_PERIMETER',
+    'TOOL_CALL_SUCCESS',
+    'TOOL_CALL_BLOCKED',
+    'TOOL_CALL_FAILED',
 ]);
 export type ActionType = z.infer<typeof ActionType>;
 

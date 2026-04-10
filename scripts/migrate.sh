@@ -116,6 +116,8 @@ MIGRATIONS=(
     "062_catalog_favorites.sql"
     "063_review_tracks_customizable.sql"
     "064_retention_config_and_archive.sql"
+    "065_mcp_tool_call_actions.sql"
+    "066_drop_old_audit_action_check.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

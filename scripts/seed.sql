@@ -842,4 +842,28 @@ INSERT INTO org_retention_config (org_id, audit_log_retention_days, archive_enab
 VALUES ('00000000-0000-0000-0000-000000000001', 365, false)
 ON CONFLICT (org_id) DO NOTHING;
 
+-- ── MCP Servers + Connector Version Grants (Fase 3a demo) ─────────────────
+-- Demonstra integração MCP para Assistente Jurídico.
+-- O servidor demo não estará rodando no Docker — execuções gerarão TOOL_CALL_FAILED
+-- nos audit logs, provando que o pipeline de auditoria MCP funciona corretamente.
+
+INSERT INTO mcp_servers (id, org_id, name, base_url, status)
+VALUES (
+    '00000000-0000-0000-0010-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    'juridico-tools',
+    'http://mcp-juridico:8080',
+    'active'
+) ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO connector_version_grants (id, org_id, assistant_version_id, mcp_server_id, allowed_tools_jsonb)
+VALUES (
+    '00000000-0000-0000-0010-000000000002',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0004-000000000001',   -- Assistente Jurídico v1
+    '00000000-0000-0000-0010-000000000001',   -- juridico-tools server
+    '["buscar_jurisprudencia", "validar_cnpj", "consultar_processo"]'::jsonb
+) ON CONFLICT (assistant_version_id, mcp_server_id) DO UPDATE SET
+    allowed_tools_jsonb = EXCLUDED.allowed_tools_jsonb;
+
 COMMIT;
