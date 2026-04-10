@@ -159,6 +159,12 @@ export const ENDPOINTS = {
     RISK_ASSESSMENT_ANSWERS:          (assessmentId: string) => `/v1/admin/risk-assessments/${assessmentId}/answers`,
     RISK_ASSESSMENT_COMPLETE:         (assessmentId: string) => `/v1/admin/risk-assessments/${assessmentId}/complete`,
     RISK_ASSESSMENT_EXPORT:           (assessmentId: string) => `/v1/admin/risk-assessments/${assessmentId}/export`,
+
+    // Monitoring
+    MONITORING_REALTIME:              '/v1/admin/monitoring/realtime',
+    MONITORING_TRENDS:                (days?: number) => `/v1/admin/monitoring/trends${days ? `?days=${days}` : ''}`,
+    MONITORING_ALERTS:                '/v1/admin/monitoring/alerts',
+    MONITORING_THRESHOLDS:            '/v1/admin/monitoring/thresholds',
 };
 
 export default api;

@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import api, { ENDPOINTS } from '@/lib/api';
+import { useAuth } from '@/components/AuthProvider';
 import { PageHeader } from '@/components/PageHeader';
 import {
     Settings, Plus, X, Loader2, Save, Check, AlertTriangle,
-    ChevronUp, ChevronDown, Trash2, Edit2, ToggleLeft, ToggleRight,
+    ChevronUp, ChevronDown, Trash2, Edit2, ToggleLeft, ToggleRight, Bell,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -34,6 +35,12 @@ interface RetentionConfig {
     archive_enabled: boolean;
     last_archive_run_at?: string | null;
     last_archive_count?: number;
+}
+
+interface AlertThresholds {
+    latency_p95_ms: number;
+    violation_rate_pct: number;
+    daily_cost_usd: number;
 }
 
 // ── Section wrapper ────────────────────────────────────────────────────────
@@ -201,6 +208,9 @@ function TrackModal({ initial, onClose, onSaved }: {
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+    const { role } = useAuth();
+    const isAdmin = role === 'admin';
+
     // Org settings
     const [org, setOrg]                         = useState<OrgSettings | null>(null);
     const [hitlHours, setHitlHours]             = useState(4);
@@ -220,6 +230,10 @@ export default function SettingsPage() {
     const [previewCount, setPreviewCount]       = useState<number | null>(null);
     const [savingRetention, setSavingRetention] = useState(false);
     const [previewLoading, setPreviewLoading]   = useState(false);
+
+    // Alert thresholds (admin only)
+    const [thresholds, setThresholds]           = useState<AlertThresholds>({ latency_p95_ms: 5000, violation_rate_pct: 10, daily_cost_usd: 50 });
+    const [savingThresholds, setSavingThresholds] = useState(false);
 
     const { toast, toastEl } = useToast();
 
@@ -253,11 +267,20 @@ export default function SettingsPage() {
         } catch { /* silent */ }
     }, []);
 
+    const loadThresholds = useCallback(async () => {
+        if (!isAdmin) return;
+        try {
+            const res = await api.get(ENDPOINTS.MONITORING_THRESHOLDS);
+            setThresholds(res.data as AlertThresholds);
+        } catch { /* silent */ }
+    }, [isAdmin]);
+
     useEffect(() => {
         loadOrg();
         loadTracks();
         loadRetention();
-    }, [loadOrg, loadTracks, loadRetention]);
+        loadThresholds();
+    }, [loadOrg, loadTracks, loadRetention, loadThresholds]);
 
     // ── Preview retention ─────────────────────────────────────────────────
     const loadPreview = useCallback(async (days: number) => {
@@ -317,6 +340,29 @@ export default function SettingsPage() {
             await api.post(ENDPOINTS.SETTINGS_TRACKS_REORDER, { track_ids: newTracks.map(t => t.id) });
         } catch { /* silently revert */ loadTracks(); }
         finally { setReordering(false); }
+    };
+
+    // ── Save thresholds ───────────────────────────────────────────────────
+    const saveThresholds = async () => {
+        if (thresholds.latency_p95_ms < 100 || thresholds.latency_p95_ms > 60000) {
+            toast('Latência P95 deve ser entre 100 e 60000 ms.', 'error'); return;
+        }
+        if (thresholds.violation_rate_pct < 0 || thresholds.violation_rate_pct > 100) {
+            toast('Taxa de violação deve ser entre 0 e 100%.', 'error'); return;
+        }
+        if (thresholds.daily_cost_usd < 0 || thresholds.daily_cost_usd > 100000) {
+            toast('Custo diário deve ser entre 0 e 100000 USD.', 'error'); return;
+        }
+        setSavingThresholds(true);
+        try {
+            await api.put(ENDPOINTS.MONITORING_THRESHOLDS, thresholds);
+            toast('Thresholds de alerta salvos!');
+            loadThresholds();
+        } catch (e: any) {
+            toast(e.response?.data?.error ?? 'Erro ao salvar thresholds.', 'error');
+        } finally {
+            setSavingThresholds(false);
+        }
     };
 
     // ── Save retention ────────────────────────────────────────────────────
@@ -599,6 +645,90 @@ export default function SettingsPage() {
                         </button>
                     </div>
                 </Section>
+
+                {/* ── SEÇÃO 4: Thresholds de Alerta (admin only) ─────── */}
+                {isAdmin && (
+                    <Section
+                        title="Thresholds de Alerta"
+                        action={
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <Bell className="w-3.5 h-3.5" />
+                                Dispara alertas no dashboard
+                            </div>
+                        }
+                    >
+                        <div className="space-y-5">
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                Defina os limites que disparam alertas no painel de monitoramento.
+                                Quando um KPI exceder o threshold, um alerta aparece no topo do dashboard.
+                            </p>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                {/* Latency P95 */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium block">
+                                        Latência P95
+                                        <span className="ml-1 text-xs text-muted-foreground font-normal">(ms)</span>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min={100}
+                                        max={60000}
+                                        value={thresholds.latency_p95_ms}
+                                        onChange={e => setThresholds(t => ({ ...t, latency_p95_ms: Number(e.target.value) }))}
+                                        className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                    />
+                                    <p className="text-xs text-muted-foreground">Alerta quando P95 exceder este valor em ms</p>
+                                </div>
+
+                                {/* Violation Rate */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium block">
+                                        Taxa de Violações
+                                        <span className="ml-1 text-xs text-muted-foreground font-normal">(%)</span>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        step={0.1}
+                                        value={thresholds.violation_rate_pct}
+                                        onChange={e => setThresholds(t => ({ ...t, violation_rate_pct: Number(e.target.value) }))}
+                                        className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                    />
+                                    <p className="text-xs text-muted-foreground">% de violações sobre total de execuções</p>
+                                </div>
+
+                                {/* Daily Cost */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium block">
+                                        Custo Diário
+                                        <span className="ml-1 text-xs text-muted-foreground font-normal">(USD)</span>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={100000}
+                                        step={1}
+                                        value={thresholds.daily_cost_usd}
+                                        onChange={e => setThresholds(t => ({ ...t, daily_cost_usd: Number(e.target.value) }))}
+                                        className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                    />
+                                    <p className="text-xs text-muted-foreground">Custo diário estimado em USD</p>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={saveThresholds}
+                                disabled={savingThresholds}
+                                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                            >
+                                {savingThresholds ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                Salvar Thresholds
+                            </button>
+                        </div>
+                    </Section>
+                )}
 
             </div>
 

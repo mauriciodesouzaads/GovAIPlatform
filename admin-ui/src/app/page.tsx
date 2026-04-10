@@ -1,20 +1,23 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
 import {
-  Activity, ShieldCheck, Coins, ArrowUpRight, ShieldAlert, CreditCard, Bot, Info,
+  Activity, ShieldCheck, Coins, ArrowUpRight, ShieldAlert, Bot, Info,
   Database, Server, Zap, AlertTriangle, LayoutDashboard, Clock, FileWarning,
+  TrendingUp, Bell,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   RadialBarChart, RadialBar, PolarAngleAxis, PieChart, Pie, Cell, Legend,
+  LineChart, Line,
 } from 'recharts';
 import api, { ENDPOINTS } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import { PageHeader } from '@/components/PageHeader';
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface RiskDistItem { risk_level: string; count: string; }
 interface ShadowFinding { id: string; assistant_name: string; finding_type: string; severity: string; created_at: string; }
@@ -34,6 +37,45 @@ interface DashboardStats {
   expiring_exceptions?: number;
 }
 
+interface TopAssistant {
+  assistant_id: string;
+  assistant_name: string;
+  exec_count: number;
+  violation_count: number;
+  avg_latency_ms: number;
+  total_cost_usd: number;
+}
+
+interface RealtimeData {
+  executions_last_hour: number;
+  violations_last_hour: number;
+  latency_p95_ms: number;
+  daily_cost_usd: number;
+  top_assistants: TopAssistant[];
+}
+
+interface AlertItem {
+  type: string;
+  message: string;
+  value: number;
+  threshold: number;
+  severity: 'warning' | 'critical';
+}
+
+interface TrendDay {
+  day: string;
+  count?: number;
+  p95_ms?: number;
+}
+
+interface TrendsData {
+  executions: TrendDay[];
+  violations: TrendDay[];
+  latency: TrendDay[];
+}
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
 const RISK_COLORS: Record<string, string> = {
   critical: '#f43f5e',
   high: '#fb923c',
@@ -48,6 +90,17 @@ const SEVERITY_COLORS: Record<string, string> = {
   medium: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
   low: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
 };
+
+const TOOLTIP_STYLE = {
+  backgroundColor: 'hsl(var(--card))',
+  borderColor: 'hsl(var(--border))',
+  borderRadius: '8px',
+  color: 'hsl(var(--foreground))',
+  padding: '10px 14px',
+  boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+};
+
+// ── Sub-components ───────────────────────────────────────────────────────────
 
 function SummaryCard({
   icon, label, value, sub, color, href, tooltip,
@@ -83,22 +136,46 @@ function SummaryCard({
   );
 }
 
-const GOVERNANCE_ROLES = ['dpo', 'auditor', 'compliance'];
+function KpiCard({ icon, label, value, sub, color, alert }: {
+  icon: React.ReactNode; label: string; value: string | number; sub: string;
+  color: string; alert?: boolean;
+}) {
+  return (
+    <div className={`bg-card border ${alert ? 'border-rose-500/40' : color} rounded-xl p-4 flex flex-col gap-2`}>
+      <div className="flex items-center justify-between">
+        <span className={alert ? 'text-rose-400' : 'text-muted-foreground'}>{icon}</span>
+        {alert && <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />}
+      </div>
+      <div>
+        <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">{label}</p>
+        <div className={`text-xl font-bold mt-0.5 ${alert ? 'text-rose-400' : 'text-foreground'}`}>
+          {typeof value === 'number' ? value.toLocaleString() : value}
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { role, isLoading: authLoading } = useAuth();
-  const router = useRouter();
+  const { role } = useAuth();
+
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Governance roles land on Shield, not Dashboard
-  useEffect(() => {
-    if (!authLoading && GOVERNANCE_ROLES.includes(role ?? '')) {
-      router.replace('/shield');
-    }
-  }, [role, authLoading, router]);
+  // Monitoring state
+  const [realtime, setRealtime] = useState<RealtimeData | null>(null);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [trends, setTrends] = useState<TrendsData | null>(null);
+  const [realtimeLoading, setRealtimeLoading] = useState(true);
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const isAdmin = role === 'admin';
+
+  // ── Fetch stats ──────────────────────────────────────────────────────────
   const fetchStats = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -112,13 +189,33 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // ── Fetch monitoring ─────────────────────────────────────────────────────
+  const fetchMonitoring = useCallback(async () => {
+    try {
+      const [rtRes, alertsRes, trendsRes] = await Promise.all([
+        api.get(ENDPOINTS.MONITORING_REALTIME),
+        api.get(ENDPOINTS.MONITORING_ALERTS),
+        api.get(ENDPOINTS.MONITORING_TRENDS(30)),
+      ]);
+      setRealtime(rtRes.data);
+      setAlerts(alertsRes.data);
+      setTrends(trendsRes.data);
+    } catch {
+      // silently fail — monitoring is supplemental
+    } finally {
+      setRealtimeLoading(false);
+    }
+  }, []);
+
   useEffect(() => { fetchStats(); }, [fetchStats]);
 
-  // Don't render dashboard while redirecting governance roles
-  if (!authLoading && GOVERNANCE_ROLES.includes(role ?? '')) {
-    return <div className="min-h-screen bg-background" />;
-  }
+  useEffect(() => {
+    fetchMonitoring();
+    autoRefreshRef.current = setInterval(fetchMonitoring, 60_000);
+    return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current); };
+  }, [fetchMonitoring]);
 
+  // ── Derived data ─────────────────────────────────────────────────────────
   const interceptionRate = stats && (stats.total_executions + stats.total_violations) > 0
     ? Math.min(100, Math.round((stats.total_violations / (stats.total_executions + stats.total_violations)) * 100))
     : 0;
@@ -136,13 +233,40 @@ export default function DashboardPage() {
 
   const totalRisk = pieData.reduce((s, d) => s + d.value, 0);
 
+  // Merge exec + violations trends by day
+  const execViolTrendData = (() => {
+    if (!trends) return [];
+    const map = new Map<string, { day: string; executions: number; violations: number }>();
+    trends.executions.forEach(d => {
+      const label = new Date(d.day).toLocaleDateString('pt-BR', { month: 'short', day: 'numeric' });
+      map.set(d.day, { day: label, executions: d.count ?? 0, violations: 0 });
+    });
+    trends.violations.forEach(d => {
+      const label = new Date(d.day).toLocaleDateString('pt-BR', { month: 'short', day: 'numeric' });
+      const existing = map.get(d.day);
+      if (existing) existing.violations = d.count ?? 0;
+    });
+    return Array.from(map.values());
+  })();
+
+  const latencyTrendData = trends?.latency.map(d => ({
+    day: new Date(d.day).toLocaleDateString('pt-BR', { month: 'short', day: 'numeric' }),
+    p95_ms: d.p95_ms ?? 0,
+  })) ?? [];
+
+  const hasAlerts = alerts.length > 0;
+  const criticalAlerts = alerts.filter(a => a.severity === 'critical');
+  const isLatencyAlert = alerts.some(a => a.type === 'latency_p95');
+  const isCostAlert = alerts.some(a => a.type === 'daily_cost');
+  const isViolationAlert = alerts.some(a => a.type === 'violation_rate');
+
   return (
     <div className="flex-1 overflow-auto">
       <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
 
         <PageHeader
           title="Dashboard"
-          subtitle="Visão geral da plataforma"
+          subtitle="Monitoramento contínuo da plataforma"
           icon={<LayoutDashboard className="w-5 h-5" />}
           actions={
             <div className="flex items-center gap-3">
@@ -167,6 +291,211 @@ export default function DashboardPage() {
         <div className="flex flex-wrap gap-4 p-4 bg-card border border-border rounded-xl items-center">
           <HealthStatus />
         </div>
+
+        {/* ── SECTION 1 — Realtime KPI Cards ── */}
+        <div className={`grid gap-4 ${isAdmin ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2'}`}>
+          <KpiCard
+            icon={<Activity className="w-5 h-5" />}
+            label="Execuções (60 min)"
+            value={realtimeLoading ? '...' : (realtime?.executions_last_hour ?? 0)}
+            sub="Prompts processados"
+            color="border-emerald-500/20"
+          />
+          <KpiCard
+            icon={<ShieldAlert className="w-5 h-5" />}
+            label="Violações (60 min)"
+            value={realtimeLoading ? '...' : (realtime?.violations_last_hour ?? 0)}
+            sub="Bloqueios OPA"
+            color="border-rose-500/20"
+            alert={isViolationAlert}
+          />
+          {isAdmin && (
+            <>
+              <KpiCard
+                icon={<Zap className="w-5 h-5" />}
+                label="Latência P95"
+                value={realtimeLoading ? '...' : `${realtime?.latency_p95_ms ?? 0} ms`}
+                sub="Percentil 95 (60 min)"
+                color="border-blue-500/20"
+                alert={isLatencyAlert}
+              />
+              <KpiCard
+                icon={<Coins className="w-5 h-5" />}
+                label="Custo Diário"
+                value={realtimeLoading ? '...' : `$${(realtime?.daily_cost_usd ?? 0).toFixed(2)}`}
+                sub="Estimativa de hoje"
+                color="border-violet-500/20"
+                alert={isCostAlert}
+              />
+            </>
+          )}
+        </div>
+
+        {/* ── SECTION 2 — Alerts Banner ── */}
+        {hasAlerts && (
+          <div className={`rounded-xl border p-4 space-y-2 ${
+            criticalAlerts.length > 0
+              ? 'bg-rose-500/5 border-rose-500/30'
+              : 'bg-amber-500/5 border-amber-500/30'
+          }`}>
+            <div className="flex items-center gap-2 mb-1">
+              <Bell className={`w-4 h-4 ${criticalAlerts.length > 0 ? 'text-rose-400' : 'text-amber-400'}`} />
+              <span className="text-sm font-semibold text-foreground">
+                {criticalAlerts.length > 0 ? 'Alertas Críticos' : 'Alertas de Atenção'}
+              </span>
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                criticalAlerts.length > 0 ? 'bg-rose-500/20 text-rose-400' : 'bg-amber-500/20 text-amber-400'
+              }`}>
+                {alerts.length}
+              </span>
+            </div>
+            <div className="space-y-1">
+              {alerts.map((a, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.severity === 'critical' ? 'bg-rose-500' : 'bg-amber-500'}`} />
+                  <span>{a.message}</span>
+                  <span className={`ml-auto font-semibold ${a.severity === 'critical' ? 'text-rose-400' : 'text-amber-400'}`}>
+                    {a.severity === 'critical' ? 'CRÍTICO' : 'AVISO'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── SECTION 3 — Trends Charts ── */}
+        <div className={`grid gap-4 ${isAdmin ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+
+          {/* Executions + Violations AreaChart */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-emerald-400" />
+                  Tendência (30 dias)
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Execuções e violações por dia</p>
+              </div>
+              <div className="flex gap-3">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+                  <span className="w-2 h-2 rounded bg-emerald-500" /> Exec.
+                </div>
+                <div className="flex items-center gap-1.5 text-xs font-medium text-rose-400">
+                  <span className="w-2 h-2 rounded bg-rose-500" /> Viol.
+                </div>
+              </div>
+            </div>
+            {execViolTrendData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={execViolTrendData} margin={{ top: 5, right: 0, bottom: 0, left: -25 }}>
+                  <defs>
+                    <linearGradient id="gExec" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="gViol" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} opacity={0.5} />
+                  <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} dy={8} interval="preserveStartEnd" />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeWidth: 1, strokeDasharray: '4 4' }} />
+                  <Area type="monotone" name="Execuções" dataKey="executions" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#gExec)" activeDot={{ r: 4, strokeWidth: 0 }} />
+                  <Area type="monotone" name="Violações" dataKey="violations" stroke="#f43f5e" strokeWidth={2} fillOpacity={1} fill="url(#gViol)" activeDot={{ r: 4, strokeWidth: 0 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[200px] text-xs text-muted-foreground">
+                Sem dados de tendência disponíveis
+              </div>
+            )}
+          </div>
+
+          {/* Latency LineChart — admin only */}
+          {isAdmin && (
+            <div className="bg-card border border-border rounded-xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-blue-400" />
+                    Latência P95 (30 dias)
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Percentil 95 por dia (ms)</p>
+                </div>
+              </div>
+              {latencyTrendData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={latencyTrendData} margin={{ top: 5, right: 0, bottom: 0, left: -25 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} opacity={0.5} />
+                    <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} dy={8} interval="preserveStartEnd" />
+                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [`${v} ms`, 'P95']} cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeWidth: 1, strokeDasharray: '4 4' }} />
+                    <Line type="monotone" name="P95 ms" dataKey="p95_ms" stroke="#60a5fa" strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-[200px] text-xs text-muted-foreground">
+                  Sem dados de latência disponíveis
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── SECTION 4 — Top Assistants ── */}
+        {realtime?.top_assistants && realtime.top_assistants.length > 0 && (
+          <div className="bg-card border border-border rounded-xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <Bot className="w-4 h-4 text-blue-400" />
+                  Top Assistants (60 min)
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Maior volume na última hora</p>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left text-muted-foreground font-semibold uppercase tracking-wider pb-2 pr-4">Assistente</th>
+                    <th className="text-right text-muted-foreground font-semibold uppercase tracking-wider pb-2 pr-4">Execuções</th>
+                    <th className="text-right text-muted-foreground font-semibold uppercase tracking-wider pb-2 pr-4">Violações</th>
+                    {isAdmin && <th className="text-right text-muted-foreground font-semibold uppercase tracking-wider pb-2 pr-4">Latência P95</th>}
+                    {isAdmin && <th className="text-right text-muted-foreground font-semibold uppercase tracking-wider pb-2">Custo</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/50">
+                  {realtime.top_assistants.map(a => (
+                    <tr key={a.assistant_id} className="hover:bg-secondary/20 transition-colors">
+                      <td className="py-2.5 pr-4 font-medium text-foreground truncate max-w-[200px]">{a.assistant_name}</td>
+                      <td className="py-2.5 pr-4 text-right text-foreground">{a.exec_count.toLocaleString()}</td>
+                      <td className="py-2.5 pr-4 text-right">
+                        <span className={a.violation_count > 0 ? 'text-rose-400 font-semibold' : 'text-muted-foreground'}>
+                          {a.violation_count.toLocaleString()}
+                        </span>
+                      </td>
+                      {isAdmin && (
+                        <td className="py-2.5 pr-4 text-right text-muted-foreground">
+                          {a.avg_latency_ms ? `${Math.round(a.avg_latency_ms)} ms` : '—'}
+                        </td>
+                      )}
+                      {isAdmin && (
+                        <td className="py-2.5 text-right text-muted-foreground">
+                          ${(a.total_cost_usd ?? 0).toFixed(3)}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── LEGACY SECTIONS ── */}
 
         {error ? (
           <div className="flex flex-col items-center justify-center gap-4 py-20">
@@ -194,7 +523,7 @@ export default function DashboardPage() {
         ) : (
           <div className="space-y-4">
 
-            {/* ── SECTION 1 — Summary Cards ── */}
+            {/* ── SECTION 5 — Summary Cards ── */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               <SummaryCard
                 icon={<Activity className="h-5 w-5 text-emerald-400" />}
@@ -249,10 +578,9 @@ export default function DashboardPage() {
               />
             </div>
 
-            {/* ── SECTION 2 — Risk Posture ── */}
+            {/* ── SECTION 6 — Risk Posture ── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-              {/* Posture Score AreaChart */}
               <div className="lg:col-span-2 bg-card border border-border rounded-xl p-5 hover:border-primary/20 transition-colors flex flex-col min-h-[280px]">
                 <div className="flex items-center justify-between mb-4">
                   <div>
@@ -276,18 +604,7 @@ export default function DashboardPage() {
                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} opacity={0.5} />
                         <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} dy={10} />
                         <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} domain={[0, 100]} />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: 'hsl(var(--card))',
-                            borderColor: 'hsl(var(--border))',
-                            borderRadius: '8px',
-                            color: 'hsl(var(--foreground))',
-                            padding: '10px 14px',
-                            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-                          }}
-                          formatter={(v: number) => [`${v}`, 'Score']}
-                          cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeWidth: 1, strokeDasharray: '4 4' }}
-                        />
+                        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [`${v}`, 'Score']} cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeWidth: 1, strokeDasharray: '4 4' }} />
                         <Area type="monotone" name="Posture Score" dataKey="score" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorPosture)" activeDot={{ r: 5, strokeWidth: 0, fill: '#10b981' }} />
                       </AreaChart>
                     </ResponsiveContainer>
@@ -299,7 +616,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Risk Distribution Donut */}
               <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/20 transition-colors flex flex-col min-h-[280px]">
                 <div className="mb-4">
                   <h3 className="text-sm font-semibold text-foreground">Distribuição de Risco</h3>
@@ -310,27 +626,12 @@ export default function DashboardPage() {
                     <div className="relative w-full h-[200px]">
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
-                          <Pie
-                            data={pieData}
-                            cx="50%" cy="50%"
-                            innerRadius={55} outerRadius={80}
-                            paddingAngle={2}
-                            dataKey="value"
-                          >
+                          <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={2} dataKey="value">
                             {pieData.map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={entry.color} />
                             ))}
                           </Pie>
-                          <Tooltip
-                            contentStyle={{
-                              backgroundColor: 'hsl(var(--card))',
-                              borderColor: 'hsl(var(--border))',
-                              borderRadius: '8px',
-                              color: 'hsl(var(--foreground))',
-                              fontSize: '12px',
-                            }}
-                            formatter={(v: number, name: string) => [v, name]}
-                          />
+                          <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px', color: 'hsl(var(--foreground))', fontSize: '12px' }} formatter={(v: number, name: string) => [v, name]} />
                           <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px' }} />
                         </PieChart>
                       </ResponsiveContainer>
@@ -346,7 +647,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* ── SECTION 3 — Shadow AI Threats ── */}
+            {/* ── SECTION 7 — Shadow AI Threats ── */}
             {stats?.top_shadow_ai && stats.top_shadow_ai.length > 0 && (
               <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/20 transition-colors">
                 <div className="flex items-center justify-between mb-4">
@@ -392,10 +693,9 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* ── SECTION 4 — Gateway Telemetry + Protection Rate ── */}
+            {/* ── SECTION 8 — Gateway Telemetry + Protection Rate ── */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
 
-              {/* Gateway Traffic Chart */}
               <div className="lg:col-span-3 bg-card border border-border rounded-xl p-5 hover:border-primary/20 transition-colors flex flex-col min-h-[360px]">
                 <div className="flex items-center justify-between mb-5">
                   <div>
@@ -428,18 +728,7 @@ export default function DashboardPage() {
                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} opacity={0.5} />
                         <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} dy={10} />
                         <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: 'hsl(var(--card))',
-                            borderColor: 'hsl(var(--border))',
-                            borderRadius: '8px',
-                            color: 'hsl(var(--foreground))',
-                            padding: '10px 14px',
-                            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-                          }}
-                          itemStyle={{ fontWeight: 600 }}
-                          cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeWidth: 1, strokeDasharray: '4 4' }}
-                        />
+                        <Tooltip contentStyle={TOOLTIP_STYLE} itemStyle={{ fontWeight: 600 }} cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeWidth: 1, strokeDasharray: '4 4' }} />
                         <Area type="monotone" name="Clean Executions" dataKey="requests" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorRequests)" activeDot={{ r: 5, strokeWidth: 0, fill: '#10b981' }} />
                         <Area type="monotone" name="Policy Blocks" dataKey="violations" stroke="#f43f5e" strokeWidth={2} fillOpacity={1} fill="url(#colorViolations)" activeDot={{ r: 5, strokeWidth: 0, fill: '#f43f5e' }} />
                       </AreaChart>
@@ -450,7 +739,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Protection Gauge */}
               <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/20 transition-colors flex flex-col min-h-[360px]">
                 <div className="mb-4">
                   <h3 className="text-sm font-semibold text-foreground flex items-center justify-between">
@@ -464,7 +752,6 @@ export default function DashboardPage() {
                   </h3>
                   <p className="text-xs text-muted-foreground mt-1">Impacto do motor OPA + DLP em tempo real</p>
                 </div>
-
                 <div className="flex-1 w-full flex flex-col items-center justify-center">
                   {stats ? (
                     <div className="relative w-44 h-44 flex items-center justify-center">
@@ -490,7 +777,6 @@ export default function DashboardPage() {
                   ) : (
                     <div className="w-40 h-40 rounded-full border-8 border-secondary animate-pulse" />
                   )}
-
                   {stats && (
                     <div className="mt-6 text-center bg-secondary/30 border border-border/50 rounded-xl p-4 w-full">
                       <p className="text-sm text-muted-foreground leading-relaxed">
