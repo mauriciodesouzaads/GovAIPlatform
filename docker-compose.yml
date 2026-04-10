@@ -70,6 +70,20 @@ services:
       retries: 5
       start_period: 40s
 
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - govai-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+
   presidio:
     build:
       context: ./presidio
@@ -168,6 +182,7 @@ services:
 volumes:
   pgdata:
   redisdata:
+  ollama_data:
 
 
 networks:

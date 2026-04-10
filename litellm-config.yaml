@@ -1,11 +1,11 @@
 model_list:
-  # Provider principal: Groq (rápido, generoso no free tier)
+  # Provider Groq — para demo com cliente (AI_MODEL=groq/llama-3.3-70b-versatile)
   - model_name: groq/llama-3.3-70b-versatile
     litellm_params:
       model: groq/llama-3.3-70b-versatile
       api_key: os.environ/GROQ_API_KEY
-  # Alias govai-llm → Groq (compatibilidade com código existente)
-  - model_name: govai-llm
+  # Alias Groq explícito — útil para forçar Groq sem mudar o nome do modelo
+  - model_name: govai-llm-groq
     litellm_params:
       model: groq/llama-3.3-70b-versatile
       api_key: os.environ/GROQ_API_KEY
@@ -24,6 +24,18 @@ model_list:
     litellm_params:
       model: gemini/gemini-2.5-flash
       api_key: os.environ/GEMINI_API_KEY
+  # DEV: Ollama local — sem quota, sem dependência de API key externa
+  # Requer: docker compose exec ollama ollama pull llama3.2
+  - model_name: govai-llm-local
+    litellm_params:
+      model: ollama/llama3.2
+      api_base: http://ollama:11434
+  # Alias govai-llm → Ollama local em dev (sem quota Groq)
+  # Para usar Groq em demo/prod, altere AI_MODEL=groq/llama-3.3-70b-versatile no .env
+  - model_name: govai-llm
+    litellm_params:
+      model: ollama/llama3.2
+      api_base: http://ollama:11434
 general_settings:
   master_key: os.environ/LITELLM_KEY
   drop_params: true
