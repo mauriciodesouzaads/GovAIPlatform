@@ -50,24 +50,20 @@ services:
   litellm:
     # DEV: Usa tag flutuante para facilitar updates locais.
     # PRODUÇÃO: docker-compose.prod.yml usa digest imutável sha256:690bcb7a...
-    image: ghcr.io/berriai/litellm:main-stable
-    command: --config /app/config.yaml
+    image: ghcr.io/berriai/litellm:main-latest
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
     ports:
       - "4000:4000"
-
     volumes:
       - ./litellm-config.yaml:/app/config.yaml
     env_file:
       - .env
-    environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      # ANTHROPIC_API_KEY vem apenas do env_file (.env) para evitar que
-      # variável vazia no shell do host sobrescreva o valor correto.
+    # NÃO liste API keys em environment: — o shell do host pode sobrescrever com
+    # variável vazia, quebrando a autenticação. env_file é a fonte de verdade.
     networks:
       - govai-net
     healthcheck:
-      test: [ "CMD-SHELL", "python3 -c 'import urllib.request; req=urllib.request.Request(\"http://localhost:4000/health\",headers={\"Authorization\":\"Bearer \"+__import__(\"os\").environ[\"LITELLM_KEY\"]}); urllib.request.urlopen(req)'" ]
+      test: [ "CMD-SHELL", "python3 -c 'import urllib.request,os; req=urllib.request.Request(\"http://localhost:4000/health\",headers={\"Authorization\":\"Bearer \"+os.environ[\"LITELLM_KEY\"]}); urllib.request.urlopen(req)'" ]
       interval: 15s
       timeout: 10s
       retries: 5

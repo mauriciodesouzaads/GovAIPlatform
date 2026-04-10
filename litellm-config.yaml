@@ -1,35 +1,44 @@
 model_list:
-  # Provider Groq — para demo com cliente (AI_MODEL=groq/llama-3.3-70b-versatile)
-  - model_name: groq/llama-3.3-70b-versatile
+  # Provider principal — Groq (rápido, tier free 1000 RPD)
+  - model_name: govai-llm
     litellm_params:
       model: groq/llama-3.3-70b-versatile
       api_key: os.environ/GROQ_API_KEY
-  # Alias Groq explícito — útil para forçar Groq sem mudar o nome do modelo
-  - model_name: govai-llm-groq
-    litellm_params:
-      model: groq/llama-3.3-70b-versatile
-      api_key: os.environ/GROQ_API_KEY
-  # Alias de retrocompatibilidade: nome antigo → Groq
-  - model_name: gemini/gemini-1.5-flash
-    litellm_params:
-      model: groq/llama-3.3-70b-versatile
-      api_key: os.environ/GROQ_API_KEY
-  # Architect Document Generation — Claude Sonnet via Anthropic
-  - model_name: claude-sonnet-4-6
-    litellm_params:
-      model: anthropic/claude-sonnet-4-6
-      api_key: os.environ/ANTHROPIC_API_KEY
-  # Fallback: Gemini (quando disponível)
-  - model_name: gemini/gemini-2.5-flash
-    litellm_params:
-      model: gemini/gemini-2.5-flash
-      api_key: os.environ/GEMINI_API_KEY
-  # DEV: govai-llm → Claude Sonnet (Groq RPD esgotado, Gemini key expirada, Ollama sem disco)
-  # Para trocar provider: altere model e api_key abaixo + reinicie litellm
+
+  # Fallback — Anthropic Claude Sonnet (pago, sem limite rígido de RPD)
   - model_name: govai-llm
     litellm_params:
       model: anthropic/claude-sonnet-4-6
       api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Aliases explícitos para override por request
+  - model_name: govai-llm-groq
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: govai-llm-anthropic
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: govai-llm-gemini
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: govai-llm-openai
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+
+router_settings:
+  routing_strategy: "simple-shuffle"
+  num_retries: 2
+  retry_after: 5
+  fallbacks:
+    - govai-llm: ["govai-llm"]
+
 general_settings:
   master_key: os.environ/LITELLM_KEY
   drop_params: true
