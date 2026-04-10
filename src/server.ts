@@ -531,6 +531,9 @@ import { architectRoutes } from './routes/architect.routes';
 import { webhookRoutes } from './routes/webhook.routes';
 import { policiesRoutes } from './routes/policies.routes';
 import { settingsRoutes } from './routes/settings.routes';
+import { complianceHubRoutes } from './routes/compliance-hub.routes';
+import { modelCardRoutes } from './routes/model-card.routes';
+import { riskAssessmentRoutes } from './routes/risk-assessment.routes';
 import { runRetentionArchiving } from './jobs/retention-archive.job';
 
 fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, requireRole: requireTenantRole, requirePlatformAdmin });
@@ -542,6 +545,9 @@ fastify.register(architectRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(webhookRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(policiesRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(settingsRoutes, { pgPool, requireRole: requireTenantRole });
+fastify.register(complianceHubRoutes, { pgPool, requireRole: requireTenantRole });
+fastify.register(modelCardRoutes, { pgPool, requireRole: requireTenantRole });
+fastify.register(riskAssessmentRoutes, { pgPool, requireRole: requireTenantRole });
 
 // ---------------------------------------------------------------------------
 // Global error handler — captures unhandled 500s to Sentry

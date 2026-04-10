@@ -373,6 +373,50 @@ function EvidenceSkeleton() {
     );
 }
 
+// ── Model Card Summary ────────────────────────────────────────────────────
+
+function ModelCardSummaryCard({ assistantId }: { assistantId: string }) {
+    const [card, setCard] = useState<Record<string, any> | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        api.get(ENDPOINTS.MODEL_CARD(assistantId))
+            .then(res => setCard(res.data))
+            .catch(() => setCard(null))
+            .finally(() => setLoading(false));
+    }, [assistantId]);
+
+    if (loading) return null;
+    if (!card) return null;
+
+    return (
+        <Card>
+            <h3 className="text-base font-semibold mb-4">Ficha Técnica (Model Card)</h3>
+            <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
+                {[
+                    { key: 'provider', label: 'Provider' },
+                    { key: 'base_model', label: 'Modelo Base' },
+                    { key: 'training_data_cutoff', label: 'Corte de Dados' },
+                    { key: 'eu_ai_act_risk_level', label: 'EU AI Act Risk' },
+                    { key: 'data_residency', label: 'Residência de Dados' },
+                    { key: 'lgpd_applies', label: 'LGPD Aplicável' },
+                ].filter(({ key }) => card[key] !== undefined && card[key] !== null).map(({ key, label }) => (
+                    <div key={key}>
+                        <dt className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">{label}</dt>
+                        <dd className="font-medium">{typeof card[key] === 'boolean' ? (card[key] ? 'Sim' : 'Não') : String(card[key])}</dd>
+                    </div>
+                ))}
+            </dl>
+            {card.known_limitations && (
+                <div className="mt-4 border-t border-border pt-4">
+                    <dt className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Limitações Conhecidas</dt>
+                    <dd className="text-sm text-muted-foreground">{card.known_limitations}</dd>
+                </div>
+            )}
+        </Card>
+    );
+}
+
 // ── Retention config type ──────────────────────────────────────────────────
 
 interface RetentionConfig {
@@ -628,6 +672,9 @@ export default function EvidencePage({ params }: { params: { assistantId: string
                                     />
                                 )}
                             </Card>
+
+                            {/* Model Card Summary */}
+                            <ModelCardSummaryCard assistantId={assistantId} />
 
                             {/* Version History & Diff */}
                             <Card>

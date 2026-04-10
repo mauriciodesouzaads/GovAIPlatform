@@ -155,7 +155,7 @@ function ActionModal({
 
 // ── Side Drawer ────────────────────────────────────────────────────────────
 
-type DrawerTab = 'details' | 'lifecycle' | 'chat';
+type DrawerTab = 'details' | 'lifecycle' | 'chat' | 'model-card';
 
 interface DrawerProps {
     assistant: Assistant;
@@ -235,6 +235,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
     const tabs: { key: DrawerTab; label: string }[] = [
         { key: 'details', label: 'Detalhes' },
         ...(isAdmin ? [{ key: 'lifecycle' as DrawerTab, label: 'Lifecycle' }] : []),
+        { key: 'model-card', label: 'Ficha Técnica' },
         { key: 'chat', label: 'Chat' },
     ];
 
@@ -597,6 +598,23 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                             </div>
                         </div>
                     )}
+
+                    {/* Tab: Ficha Técnica (Model Card) */}
+                    {tab === 'model-card' && (
+                        <div className="space-y-4">
+                            <ModelCardPanel assistantId={assistant.id} />
+                            <div className="border-t border-border/50 pt-4">
+                                <p className="text-xs text-muted-foreground mb-3">Avaliação de risco do assistente com scoring ponderado em 5 dimensões.</p>
+                                <Link
+                                    href={`/risk-assessment/${assistant.id}`}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium text-sm transition-colors"
+                                >
+                                    <ShieldCheck className="w-4 h-4" />
+                                    Iniciar Avaliação de Risco
+                                </Link>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </aside>
 
@@ -673,6 +691,117 @@ const TAG_ICONS: Record<string, string> = {
     compliance: '📋', auditoria: '🔍', lgpd: '🔐',
     demo: '🎯', geral: '🤖',
 };
+
+// ── Model Card Panel ───────────────────────────────────────────────────────
+
+function ModelCardPanel({ assistantId }: { assistantId: string }) {
+    const [card, setCard] = useState<Record<string, any> | null>(null);
+    const [editing, setEditing] = useState(false);
+    const [form, setForm] = useState<Record<string, any>>({});
+    const [saving, setSaving] = useState(false);
+    const { toast } = useToast();
+
+    useEffect(() => {
+        api.get(ENDPOINTS.MODEL_CARD(assistantId))
+            .then(res => { setCard(res.data); setForm(res.data); })
+            .catch(() => { setCard(null); setForm({}); });
+    }, [assistantId]);
+
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            const res = await api.put(ENDPOINTS.MODEL_CARD(assistantId), form);
+            setCard(res.data);
+            setEditing(false);
+            toast('Ficha técnica salva', 'success');
+        } catch {
+            toast('Erro ao salvar', 'error');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    if (!editing && !card) {
+        return (
+            <div className="text-center py-6 space-y-3">
+                <p className="text-sm text-muted-foreground">Nenhuma ficha técnica preenchida.</p>
+                <button
+                    onClick={() => setEditing(true)}
+                    className="px-4 py-2 text-sm bg-violet-600 hover:bg-violet-500 text-white rounded-xl transition-colors"
+                >
+                    Criar Ficha Técnica
+                </button>
+            </div>
+        );
+    }
+
+    if (editing) {
+        return (
+            <div className="space-y-3 text-sm">
+                {[
+                    { key: 'provider', label: 'Provider' },
+                    { key: 'base_model', label: 'Modelo Base' },
+                    { key: 'training_data_cutoff', label: 'Corte de Dados' },
+                    { key: 'intended_use', label: 'Uso Pretendido', multiline: true },
+                    { key: 'out_of_scope_use', label: 'Fora do Escopo', multiline: true },
+                    { key: 'known_limitations', label: 'Limitações Conhecidas', multiline: true },
+                    { key: 'potential_biases', label: 'Potenciais Vieses', multiline: true },
+                ].map(({ key, label, multiline }) => (
+                    <div key={key}>
+                        <label className="text-xs text-muted-foreground mb-1 block">{label}</label>
+                        {multiline ? (
+                            <textarea
+                                value={form[key] || ''}
+                                onChange={e => setForm((f: any) => ({ ...f, [key]: e.target.value }))}
+                                className="w-full bg-card/50 border border-border rounded-lg px-3 py-2 text-sm text-foreground resize-none"
+                                rows={3}
+                            />
+                        ) : (
+                            <input
+                                value={form[key] || ''}
+                                onChange={e => setForm((f: any) => ({ ...f, [key]: e.target.value }))}
+                                className="w-full bg-card/50 border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                            />
+                        )}
+                    </div>
+                ))}
+                <div className="flex gap-2 justify-end">
+                    <button onClick={() => setEditing(false)} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded-lg">Cancelar</button>
+                    <button onClick={handleSave} disabled={saving} className="px-3 py-1.5 text-xs bg-violet-600 hover:bg-violet-500 text-white rounded-lg disabled:opacity-50">
+                        {saving ? 'Salvando...' : 'Salvar'}
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    const c = card!;
+    return (
+        <div className="space-y-3 text-sm">
+            {[
+                { key: 'provider', label: 'Provider' },
+                { key: 'base_model', label: 'Modelo Base' },
+                { key: 'training_data_cutoff', label: 'Corte de Dados' },
+                { key: 'eu_ai_act_risk_level', label: 'EU AI Act Risk' },
+                { key: 'data_residency', label: 'Residência de Dados' },
+                { key: 'intended_use', label: 'Uso Pretendido' },
+                { key: 'known_limitations', label: 'Limitações' },
+                { key: 'potential_biases', label: 'Vieses' },
+            ].map(({ key, label }) => c[key] && (
+                <div key={key}>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>
+                    <p className="text-sm text-foreground/80 mt-0.5">{c[key]}</p>
+                </div>
+            ))}
+            <button
+                onClick={() => { setForm(c); setEditing(true); }}
+                className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+            >
+                Editar Ficha Técnica →
+            </button>
+        </div>
+    );
+}
 
 function getAssistantIcon(tags?: string[]): string {
     if (!tags || tags.length === 0) return '🤖';

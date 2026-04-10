@@ -142,6 +142,23 @@ export const ENDPOINTS = {
     ARCHITECT_WORK_ITEM_DISPATCH:     (id: string) => `/v1/admin/architect/work-items/${id}/dispatch`,
     ARCHITECT_WORKFLOW_DISPATCH_ALL:  (id: string) => `/v1/admin/architect/cases/${id}/workflow/dispatch-all`,
     ARCHITECT_CASE_SUMMARY:           (id: string) => `/v1/admin/architect/cases/${id}/summary`,
+
+    // Compliance Hub
+    COMPLIANCE_HUB_FRAMEWORKS:        '/v1/admin/compliance-hub/frameworks',
+    COMPLIANCE_HUB_CONTROLS:          (frameworkId: string) => `/v1/admin/compliance-hub/frameworks/${frameworkId}/controls`,
+    COMPLIANCE_HUB_ASSESSMENT:        (controlId: string) => `/v1/admin/compliance-hub/assessments/${controlId}`,
+    COMPLIANCE_HUB_AUTO_ASSESS:       (frameworkId: string) => `/v1/admin/compliance-hub/auto-assess/${frameworkId}`,
+    COMPLIANCE_HUB_SUMMARY:           '/v1/admin/compliance-hub/summary',
+
+    // Model Cards
+    MODEL_CARD:                       (assistantId: string) => `/v1/admin/assistants/${assistantId}/model-card`,
+
+    // Risk Assessments
+    RISK_ASSESSMENTS:                 (assistantId: string) => `/v1/admin/risk-assessments/${assistantId}`,
+    RISK_ASSESSMENT_CREATE:           (assistantId: string) => `/v1/admin/risk-assessments/${assistantId}`,
+    RISK_ASSESSMENT_ANSWERS:          (assessmentId: string) => `/v1/admin/risk-assessments/${assessmentId}/answers`,
+    RISK_ASSESSMENT_COMPLETE:         (assessmentId: string) => `/v1/admin/risk-assessments/${assessmentId}/complete`,
+    RISK_ASSESSMENT_EXPORT:           (assessmentId: string) => `/v1/admin/risk-assessments/${assessmentId}/export`,
 };
 
 export default api;

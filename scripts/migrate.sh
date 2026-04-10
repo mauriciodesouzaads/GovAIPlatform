@@ -118,6 +118,9 @@ MIGRATIONS=(
     "064_retention_config_and_archive.sql"
     "065_mcp_tool_call_actions.sql"
     "066_drop_old_audit_action_check.sql"
+    "067_compliance_frameworks.sql"
+    "068_model_cards.sql"
+    "069_risk_assessments.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

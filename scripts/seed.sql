@@ -866,4 +866,115 @@ VALUES (
 ) ON CONFLICT (assistant_version_id, mcp_server_id) DO UPDATE SET
     allowed_tools_jsonb = EXCLUDED.allowed_tools_jsonb;
 
+-- ── Compliance Frameworks (Fase 3c) ───────────────────────────────────────
+
+INSERT INTO compliance_frameworks (id, code, name, description, version, region)
+VALUES ('00000000-0000-0000-0020-000000000001', 'eu_ai_act', 'EU AI Act',
+        'Regulamento Europeu de Inteligência Artificial', '2024', 'EU')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO compliance_controls (framework_id, code, title, category, severity, govai_feature, auto_assessment, sort_order) VALUES
+('00000000-0000-0000-0020-000000000001', 'AIA-9',  'Sistema de gestão de riscos',            'risk_management',  'required', 'risk_scoring',  'auto_pass', 1),
+('00000000-0000-0000-0020-000000000001', 'AIA-10', 'Dados e governança de dados',            'data_protection',  'required', 'dlp',           'auto_pass', 2),
+('00000000-0000-0000-0020-000000000001', 'AIA-11', 'Documentação técnica',                   'transparency',     'required', null,            'manual',    3),
+('00000000-0000-0000-0020-000000000001', 'AIA-12', 'Manutenção de registros',                'audit',            'required', 'audit_trail',   'auto_pass', 4),
+('00000000-0000-0000-0020-000000000001', 'AIA-13', 'Transparência e informação aos utilizadores', 'transparency', 'required', 'evidence',      'auto_pass', 5),
+('00000000-0000-0000-0020-000000000001', 'AIA-14', 'Supervisão humana',                      'human_oversight',  'required', 'hitl',          'auto_pass', 6),
+('00000000-0000-0000-0020-000000000001', 'AIA-15', 'Acurácia, robustez e cibersegurança',   'risk_management',  'required', null,            'manual',    7),
+('00000000-0000-0000-0020-000000000001', 'AIA-17', 'Sistema de gestão de qualidade',        'risk_management',  'required', 'lifecycle',     'auto_pass', 8)
+ON CONFLICT (framework_id, code) DO NOTHING;
+
+INSERT INTO compliance_frameworks (id, code, name, description, version, region)
+VALUES ('00000000-0000-0000-0020-000000000002', 'lgpd', 'LGPD',
+        'Lei Geral de Proteção de Dados Pessoais', '2018', 'BR')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO compliance_controls (framework_id, code, title, category, severity, govai_feature, auto_assessment, sort_order) VALUES
+('00000000-0000-0000-0020-000000000002', 'LGPD-7',  'Tratamento de dados pessoais com base legal',   'data_protection', 'required', null,           'manual',    1),
+('00000000-0000-0000-0020-000000000002', 'LGPD-18', 'Direitos do titular (acesso, correção, exclusão)', 'data_protection', 'required', null,         'manual',    2),
+('00000000-0000-0000-0020-000000000002', 'LGPD-20', 'Revisão de decisões automatizadas',             'human_oversight', 'required', 'hitl',         'auto_pass', 3),
+('00000000-0000-0000-0020-000000000002', 'LGPD-37', 'Relatório de impacto à proteção de dados',      'risk_management', 'required', 'evidence',     'auto_pass', 4),
+('00000000-0000-0000-0020-000000000002', 'LGPD-46', 'Registro das operações de tratamento',          'audit',           'required', 'audit_trail',  'auto_pass', 5),
+('00000000-0000-0000-0020-000000000002', 'LGPD-48', 'Notificação de incidente de segurança',         'risk_management', 'required', 'shield',       'auto_pass', 6),
+('00000000-0000-0000-0020-000000000002', 'LGPD-50', 'Boas práticas e governança',                    'risk_management', 'recommended', 'policy_engine', 'auto_pass', 7)
+ON CONFLICT (framework_id, code) DO NOTHING;
+
+INSERT INTO compliance_frameworks (id, code, name, description, version, region)
+VALUES ('00000000-0000-0000-0020-000000000003', 'bacen_4557', 'BACEN Res. 4.557',
+        'Estrutura de gerenciamento de riscos para IFs', '2023', 'BR')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO compliance_controls (framework_id, code, title, category, severity, govai_feature, auto_assessment, sort_order) VALUES
+('00000000-0000-0000-0020-000000000003', 'BCB-3.1', 'Rastreabilidade de decisões de crédito com IA', 'audit',           'required', 'audit_trail', 'auto_pass', 1),
+('00000000-0000-0000-0020-000000000003', 'BCB-3.2', 'Governança de modelos de IA',                   'risk_management', 'required', 'lifecycle',   'auto_pass', 2),
+('00000000-0000-0000-0020-000000000003', 'BCB-3.3', 'Validação independente de modelos',             'risk_management', 'required', null,          'manual',    3),
+('00000000-0000-0000-0020-000000000003', 'BCB-4.1', 'Controle de acesso a dados sensíveis',         'data_protection', 'required', 'dlp',         'auto_pass', 4),
+('00000000-0000-0000-0020-000000000003', 'BCB-4.2', 'Retenção e archiving de logs de auditoria',    'audit',           'required', 'retention',   'auto_pass', 5),
+('00000000-0000-0000-0020-000000000003', 'BCB-5.1', 'Detecção de uso não autorizado de ferramentas','risk_management', 'required', 'shield',      'auto_pass', 6)
+ON CONFLICT (framework_id, code) DO NOTHING;
+
+INSERT INTO compliance_frameworks (id, code, name, description, version, region)
+VALUES ('00000000-0000-0000-0020-000000000004', 'iso_42001', 'ISO/IEC 42001',
+        'Sistemas de gestão de inteligência artificial', '2023', 'International')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO compliance_controls (framework_id, code, title, category, severity, govai_feature, auto_assessment, sort_order) VALUES
+('00000000-0000-0000-0020-000000000004', 'ISO-6.1', 'Ações para abordar riscos e oportunidades', 'risk_management', 'required', 'risk_scoring', 'auto_pass', 1),
+('00000000-0000-0000-0020-000000000004', 'ISO-6.2', 'Objetivos de IA e planejamento',            'risk_management', 'required', 'lifecycle',    'auto_pass', 2),
+('00000000-0000-0000-0020-000000000004', 'ISO-8.2', 'Avaliação de impacto de IA',                'risk_management', 'required', 'evidence',     'auto_pass', 3),
+('00000000-0000-0000-0020-000000000004', 'ISO-8.4', 'Documentação do sistema de IA',             'transparency',    'required', null,           'manual',    4),
+('00000000-0000-0000-0020-000000000004', 'ISO-9.1', 'Monitoramento, medição, análise e avaliação','audit',          'required', 'audit_trail',  'auto_pass', 5),
+('00000000-0000-0000-0020-000000000004', 'ISO-9.2', 'Auditoria interna',                         'audit',           'required', null,           'manual',    6)
+ON CONFLICT (framework_id, code) DO NOTHING;
+
+INSERT INTO compliance_frameworks (id, code, name, description, version, region)
+VALUES ('00000000-0000-0000-0020-000000000005', 'cnj_615', 'CNJ Res. 615',
+        'Governança de IA no Poder Judiciário', '2025', 'BR')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO compliance_controls (framework_id, code, title, category, severity, govai_feature, auto_assessment, sort_order) VALUES
+('00000000-0000-0000-0020-000000000005', 'CNJ-9',  'Categorização de riscos de IA',              'risk_management', 'required', 'risk_scoring',  'auto_pass', 1),
+('00000000-0000-0000-0020-000000000005', 'CNJ-12', 'Medidas de governança e transparência',      'transparency',    'required', 'policy_engine', 'auto_pass', 2),
+('00000000-0000-0000-0020-000000000005', 'CNJ-13', 'Dados de treinamento representativos',       'data_protection', 'required', null,            'manual',    3),
+('00000000-0000-0000-0020-000000000005', 'CNJ-14', 'Avaliação de impacto algorítmico',           'risk_management', 'required', 'evidence',      'auto_pass', 4),
+('00000000-0000-0000-0020-000000000005', 'CNJ-21', 'Indicação de modelos de IA em uso',          'transparency',    'required', 'lifecycle',     'auto_pass', 5),
+('00000000-0000-0000-0020-000000000005', 'CNJ-24', 'Cadastro no Sinapses',                       'audit',           'required', null,            'manual',    6)
+ON CONFLICT (framework_id, code) DO NOTHING;
+
+-- ── Model Cards (Fase 3c) ──────────────────────────────────────────────────
+-- Requer set_config pois model_cards tem RLS.
+SELECT set_config('app.current_org_id', '00000000-0000-0000-0000-000000000001', false);
+
+INSERT INTO model_cards (org_id, assistant_id, model_provider, model_name, model_version,
+  training_data_description, training_data_cutoff, known_limitations, known_biases,
+  out_of_scope_uses, ethical_considerations,
+  business_owner_id, technical_owner_id, dpo_reviewer_id,
+  last_review_date, next_review_date)
+VALUES
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0002-000000000001',
+   'Groq', 'llama-3.3-70b-versatile', 'v3.3',
+   'Modelo base treinado pela Meta em dados públicos multilíngues. Fine-tuning via few-shot no prompt com exemplos de contratos e pareceres jurídicos brasileiros.',
+   '2024-03-01',
+   'Pode gerar informações desatualizadas (corte em março 2024). Não substitui parecer jurídico formal. Tendência a respostas longas em contextos jurídicos.',
+   'Viés para jurisprudência STJ/STF — sub-representação de tribunais regionais e justiça do trabalho.',
+   'Decisões judiciais automatizadas sem revisão humana. Análise de dados pessoais sem anonimização prévia.',
+   'Uso em contexto jurídico requer supervisão humana obrigatória conforme LGPD Art. 20 e CNJ Res. 615.',
+   '00000000-0000-0000-0001-000000000002',
+   '00000000-0000-0000-0001-000000000003',
+   '00000000-0000-0000-0001-000000000004',
+   CURRENT_DATE - INTERVAL '25 days', CURRENT_DATE + INTERVAL '65 days'),
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0002-000000000002',
+   'Groq', 'llama-3.3-70b-versatile', 'v3.3',
+   'Modelo base. Contexto de RH injetado via RAG com base de conhecimento da política interna da organização.',
+   '2024-03-01',
+   'Respostas baseadas apenas na base de conhecimento carregada via RAG. Pode não cobrir políticas recentes não indexadas.',
+   'Nenhum viés significativo identificado para FAQ genérico. Possível viés de linguagem formal excessiva.',
+   'Cálculo de folha de pagamento. Decisões de RH individuais (demissão, promoção). Aconselhamento médico.',
+   'FAQ informativo sem impacto direto em direitos do trabalhador. Risco baixo.',
+   '00000000-0000-0000-0001-000000000002',
+   '00000000-0000-0000-0001-000000000003',
+   '00000000-0000-0000-0001-000000000004',
+   CURRENT_DATE - INTERVAL '20 days', CURRENT_DATE + INTERVAL '70 days')
+ON CONFLICT (org_id, assistant_id) DO NOTHING;
+
 COMMIT;
