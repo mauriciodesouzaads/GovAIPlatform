@@ -131,7 +131,12 @@ services:
       # Prefer unix socket via shared volume; falls back to TCP if not present.
       OPENCLAUDE_SOCKET_PATH: /var/run/govai/openclaude.sock
       OPENCLAUDE_GRPC_HOST: openclaude-runner:50051
-      OPENCLAUDE_TIMEOUT_MS: ${OPENCLAUDE_TIMEOUT_MS:-300000}
+      # 600000 = 10 min. The 5 min default was tight for tool-using
+      # delegations on slower fallback models — Cerebras qwen-3-235b
+      # can take 30-60s per turn, and a chained Bash → analyse →
+      # respond loop with auto_all easily exceeds 5 min on the bigger
+      # model variants. .env can still override either direction.
+      OPENCLAUDE_TIMEOUT_MS: ${OPENCLAUDE_TIMEOUT_MS:-600000}
       GOVAI_WORKSPACE_BASE: /tmp/govai-workspaces
       GOVAI_WORKSPACE_MAX_AGE_HOURS: ${GOVAI_WORKSPACE_MAX_AGE_HOURS:-24}
       # --- Chat wrapper (FASE 6) ---
