@@ -1,31 +1,51 @@
 model_list:
-  # Provider principal — Groq (rápido, tier free 1000 RPD)
+  # ── govai-llm: primary chain (auto-failover) ────────────────────────────
+  # Only includes providers whose credentials are currently healthy.
+  # Adding a broken provider here (expired key, depleted credits) would
+  # cause LiteLLM's `simple-shuffle` routing to hit it randomly and return
+  # hard errors to the client before the next entry is tried. To add a
+  # new failover tier, first validate the key with the direct alias below
+  # (govai-llm-<provider>), then add an extra entry here.
+  #
+  # Current state:
+  #   ✅ Groq (llama-3.1-8b-instant) — free tier 30 RPM / 14.400 RPD
+  #      (70b-versatile has only 1000 RPD which we exhausted during QA)
+  #   ⚠️ Gemini 2.0 Flash — key expired (see govai-llm-gemini alias)
+  #   ⚠️ Anthropic Sonnet — credits depleted (see govai-llm-anthropic alias)
+
   - model_name: govai-llm
     litellm_params:
-      model: groq/llama-3.3-70b-versatile
+      model: groq/llama-3.1-8b-instant
       api_key: os.environ/GROQ_API_KEY
 
-  # Fallback — Anthropic Claude Sonnet (pago, sem limite rígido de RPD)
-  - model_name: govai-llm
-    litellm_params:
-      model: anthropic/claude-sonnet-4-6
-      api_key: os.environ/ANTHROPIC_API_KEY
+  # ── Direct provider aliases (exposed to the model selector in /chat) ────
+  # The UI lets the user pick a specific backend; these entries keep the
+  # option open. A call that hits an expired/depleted entry surfaces the
+  # upstream error to the user without affecting the main govai-llm chain.
 
-  # Aliases explícitos para override por request
   - model_name: govai-llm-groq
     litellm_params:
-      model: groq/llama-3.3-70b-versatile
+      model: groq/llama-3.1-8b-instant
       api_key: os.environ/GROQ_API_KEY
 
-  - model_name: govai-llm-anthropic
+  # Bigger Groq model for prompts that exceed 8b-instant's 6K TPM free
+  # tier (e.g. OpenClaude delegation, which sends ~18K tokens per turn
+  # with its full system prompt + tool definitions). 70b-versatile has
+  # 12K TPM / 1000 RPD on free tier and higher on Dev Tier.
+  - model_name: govai-llm-groq-70b
     litellm_params:
-      model: anthropic/claude-sonnet-4-6
-      api_key: os.environ/ANTHROPIC_API_KEY
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
 
   - model_name: govai-llm-gemini
     litellm_params:
-      model: gemini/gemini-2.5-flash
+      model: gemini/gemini-2.0-flash
       api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: govai-llm-anthropic
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
 
   - model_name: govai-llm-openai
     litellm_params:
@@ -33,11 +53,13 @@ model_list:
       api_key: os.environ/OPENAI_API_KEY
 
 router_settings:
-  routing_strategy: "simple-shuffle"
-  num_retries: 2
+  # simple-shuffle picks a random entry under the same model_name. With
+  # only one entry for govai-llm today (Groq), every call deterministically
+  # goes there. num_retries covers transient Groq errors (429, network).
+  routing_strategy: simple-shuffle
+  num_retries: 3
   retry_after: 5
-  fallbacks:
-    - govai-llm: ["govai-llm"]
+  allowed_fails: 2
 
 general_settings:
   master_key: os.environ/LITELLM_KEY
