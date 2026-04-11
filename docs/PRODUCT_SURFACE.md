@@ -1,6 +1,6 @@
 # GovAI GRC Platform — Superfície do Produto
 
-> Gerado automaticamente em 2026-04-11 03:30 UTC
+> Gerado automaticamente em 2026-04-11 15:25 UTC
 
 ## Produtos
 

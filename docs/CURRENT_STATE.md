@@ -1,23 +1,23 @@
 # GovAI GRC Platform — Estado Atual
 
-> Gerado automaticamente em 2026-04-11 03:30 UTC por `scripts/generate-docs.sh`
+> Gerado automaticamente em 2026-04-11 15:25 UTC por `scripts/generate-docs.sh`
 
 ## Métricas do Projeto
 
 | Métrica | Valor |
 |---------|-------|
-| Migrations | 62 |
-| Arquivos de rota | 20 |
-| Endpoints HTTP | ~122 |
-| Páginas UI | 24 |
-| Workers BullMQ | 5 |
+| Migrations | 67 |
+| Arquivos de rota | 23 |
+| Endpoints HTTP | ~124 |
+| Páginas UI | 25 |
+| Workers BullMQ | 6 |
 | Services | 1 |
-| Libs compartilhadas | 39 |
+| Libs compartilhadas | 42 |
 | Componentes React | 15 |
-| Testes automatizados | 70 |
-| Containers Docker | 6 |
-| Tabelas (migrations) | 64 |
-| INSERTs no seed | 65 |
+| Testes automatizados | 158 |
+| Containers Docker | 7 |
+| Tabelas (migrations) | 68 |
+| INSERTs no seed | 75 |
 
 ## Páginas da UI
 
@@ -45,6 +45,7 @@
 /settings/dlp
 /settings/notifications
 /shield
+/skills
 /webhooks
 ```
 
@@ -55,6 +56,7 @@ admin.routes
 approvals.routes
 architect.routes
 assistants.routes
+chat.routes
 compliance-hub.routes
 consultant.routes
 dlp.routes
@@ -70,17 +72,14 @@ settings.routes
 shield-admin.routes
 shield-consultant.routes
 shield.routes
+skills.routes
 webhook.routes
+workflow-templates.routes
 ```
 
 ## Migrations (últimas 15)
 
 ```
-058_rls_nullif_remediation.sql
-059_exit_perimeter_tracking.sql
-060_risk_scoring_and_evidence.sql
-061_review_tracks_and_semver.sql
-062_catalog_favorites.sql
 063_review_tracks_customizable.sql
 064_retention_config_and_archive.sql
 065_mcp_tool_call_actions.sql
@@ -91,6 +90,11 @@ webhook.routes
 070_alert_thresholds.sql
 071_dlp_rules.sql
 072_notification_channels.sql
+073_architect_openclaude.sql
+074_catalog_skills_and_templates.sql
+075_delegation_config.sql
+076_architect_runtime_tracking.sql
+077_architect_work_item_events.sql
 ```
 
 ## Containers Docker
@@ -102,13 +106,14 @@ webhook.routes
   presidio
   api
   admin-ui
+  openclaude-runner
   pgdata
   redisdata
-  govai-net
+  openclaude_workspaces
 ```
 
 ## Versão
 
-- Tag: v1.0.0-rc1
-- Commit: 9512f5a
+- Tag: v1.0.0-rc1-7-gfdc4107
+- Commit: fdc4107
 - Branch: main

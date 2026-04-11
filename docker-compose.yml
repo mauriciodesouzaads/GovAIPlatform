@@ -175,7 +175,10 @@ services:
     networks:
       - govai-net
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/"]
+      # Use 127.0.0.1 explicitly — inside the container `localhost` resolves
+      # to ::1 (IPv6) but Next.js binds IPv4-only, so wget http://localhost
+      # fails with "Connection refused" even when the server is healthy.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3001/"]
       interval: 10s
       timeout: 5s
       retries: 30
