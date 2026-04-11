@@ -170,6 +170,13 @@ export const ENDPOINTS = {
     DLP_RULES:                        '/v1/admin/dlp/rules',
     DLP_RULE:                         (id: string) => `/v1/admin/dlp/rules/${id}`,
     DLP_TEST:                         '/v1/admin/dlp/test',
+
+    // Notification Channels (FASE 4c)
+    NOTIFICATION_CHANNELS:            '/v1/admin/notification-channels',
+    NOTIFICATION_CHANNEL:             (id: string) => `/v1/admin/notification-channels/${id}`,
+    NOTIFICATION_CHANNELS_TEST:       '/v1/admin/notification-channels/test',
+    NOTIFICATION_CHANNELS_PREVIEW:    '/v1/admin/notification-channels/preview',
+    NOTIFICATION_CHANNELS_EVENTS:     '/v1/admin/notification-channels/events',
 };
 
 export default api;

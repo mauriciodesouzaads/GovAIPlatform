@@ -1,5 +1,6 @@
 services:
   database:
+    profiles: ["dev", "prod"]
     image: pgvector/pgvector:pg15
     environment:
       POSTGRES_DB: govai_platform
@@ -26,6 +27,7 @@ services:
       start_period: 30s
 
   redis:
+    profiles: ["dev", "prod"]
     image: redis:7-alpine
     command: >
       redis-server
@@ -46,14 +48,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   litellm:
+    profiles: ["dev", "prod"]
     # DEV: Usa tag flutuante para facilitar updates locais.
     # PRODUÇÃO: docker-compose.prod.yml usa digest imutável sha256:690bcb7a...
     image: ghcr.io/berriai/litellm:main-latest
     command: ["--config", "/app/config.yaml", "--port", "4000"]
-    ports:
-      - "4000:4000"
+    # ports: moved to docker-compose.override.yml (dev only — 127.0.0.1:4000:4000)
     volumes:
       - ./litellm-config.yaml:/app/config.yaml
     env_file:
@@ -70,6 +73,7 @@ services:
       start_period: 40s
 
   presidio:
+    profiles: ["dev", "prod"]
     build:
       context: ./presidio
     deploy:
@@ -90,6 +94,7 @@ services:
       start_period: 60s
 
   api:
+    profiles: ["dev", "prod"]
     build: .
     command: ["/bin/bash", "/app/scripts/entrypoint.sh"]
     environment:
@@ -130,10 +135,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      litellm:
-        condition: service_healthy
-      presidio:
-        condition: service_healthy
+      # litellm and presidio removed from hard deps — api connects lazily at runtime.
+      # This speeds up startup by ~60-90s. If LiteLLM is unavailable, /v1/execute
+      # returns 502; all governance/audit/DLP logic still runs normally.
     networks:
       - govai-net
     healthcheck:
@@ -144,6 +148,7 @@ services:
       start_period: 30s
 
   admin-ui:
+    profiles: ["dev", "prod"]
     build:
       context: ./admin-ui
       dockerfile: Dockerfile.admin

@@ -1,0 +1,22 @@
+# docker-compose.override.yml — Development overrides
+# ============================================================================
+# Automatically loaded by `docker compose up` when present.
+# Contains dev-only settings that should NOT be present in production:
+#   • LiteLLM port exposed on loopback (for local testing / Postman)
+#   • NODE_ENV=development on the API service
+#   • Hot-reload friendly settings
+#
+# Usage:
+#   Dev:  ./scripts/start.sh dev       (loads this file automatically)
+#   Prod: ./scripts/start.sh prod      (skips this file via -f flag)
+# ============================================================================
+
+services:
+  litellm:
+    ports:
+      - "127.0.0.1:4000:4000"   # expose LiteLLM locally only — not in prod
+
+  api:
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug

@@ -1032,4 +1032,23 @@ ON CONFLICT (id) DO UPDATE SET
     applies_to  = EXCLUDED.applies_to,
     updated_at  = NOW();
 
+-- ── Notification Channels (FASE 4c) ─────────────────────────────────────────
+-- 2 demo channels: Slack (compliance alerts) + Teams (technical notifications).
+
+INSERT INTO notification_channels (id, org_id, name, provider, config, events, is_active)
+VALUES
+  ('00000000-0000-0000-0040-000000000001',
+   '00000000-0000-0000-0000-000000000001',
+   'Alertas de Compliance', 'slack',
+   '{"webhook_url": "https://hooks.slack.com/services/DEMO/DEMO/DEMO"}'::jsonb,
+   ARRAY['policy.violation', 'dlp.block', 'exception.expiring', 'alert.high_violation'],
+   true),
+  ('00000000-0000-0000-0040-000000000002',
+   '00000000-0000-0000-0000-000000000001',
+   'Notificações Técnicas', 'teams',
+   '{"webhook_url": "https://outlook.office.com/webhook/DEMO"}'::jsonb,
+   ARRAY['execution.error', 'alert.high_latency', 'alert.high_cost', 'assistant.published'],
+   true)
+ON CONFLICT (org_id, name) DO NOTHING;
+
 COMMIT;

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
     LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck,
     ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2, X, Bell,
-    ScrollText, AlertTriangle, Settings, ClipboardCheck, ShieldEllipsis,
+    ScrollText, AlertTriangle, Settings, ClipboardCheck, ShieldEllipsis, BellRing,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
@@ -196,8 +196,11 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 {(isAdmin || isPlatformAdmin || showAll) && (
                     <>
                         <SectionLabel label="Platform" />
-                        <NavItem href="/organizations" label="Organizações"  Icon={Building2} isActive={pathname === '/organizations'} accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
-                        <NavItem href="/settings"      label="Configurações" Icon={Settings}  isActive={pathname === '/settings'}      accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
+                        <NavItem href="/organizations"          label="Organizações"      Icon={Building2} isActive={pathname === '/organizations'}          accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
+                        <NavItem href="/settings"               label="Configurações"     Icon={Settings}  isActive={pathname === '/settings'}               accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
+                        {isAdmin && (
+                            <NavItem href="/settings/notifications" label="Notificações"  Icon={BellRing}  isActive={pathname === '/settings/notifications'} accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
+                        )}
                     </>
                 )}
             </div>

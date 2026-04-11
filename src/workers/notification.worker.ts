@@ -3,6 +3,7 @@ import IORedis from 'ioredis';
 import axios from 'axios';
 import crypto from 'crypto';
 import { Pool } from 'pg';
+import { buildSlackPayload, buildTeamsPayload, EventPayload } from '../lib/notification-templates';
 
 /**
  * Notification Worker — Dispatches HITL alerts + governance events.
@@ -16,11 +17,15 @@ export interface NotificationPayload {
     event: 'PENDING_APPROVAL' | 'APPROVAL_EXPIRED' | 'APPROVAL_GRANTED' | 'APPROVAL_REJECTED'
         | 'execution.success' | 'execution.violation' | 'approval.pending' | 'approval.granted'
         | 'approval.rejected' | 'exit.perimeter' | 'shield.critical_finding'
-        | 'assistant.published' | 'review.completed' | 'exception.expiring';
+        | 'assistant.published' | 'review.completed' | 'exception.expiring'
+        // FASE 4c — configurable notification channel events
+        | 'policy.violation' | 'dlp.block' | 'execution.error' | 'exception.created'
+        | 'alert.high_latency' | 'alert.high_violation' | 'alert.high_cost'
+        | 'risk.assessment_completed';
     orgId: string;
     assistantId?: string;
-    approvalId: string;
-    reason: string;
+    approvalId?: string;
+    reason?: string;
     traceId?: string;
     expiresAt?: string;
     timestamp: string;
@@ -123,6 +128,55 @@ export function initNotificationWorker(pgPool?: Pool) {
                          attempts, nextRetryAt]
                     );
                 }
+                // ── 1.5 Notification channels (Slack / Teams / Email) ─────────────────
+                const channelsRes = await client.query(
+                    `SELECT id, name, provider, config FROM notification_channels
+                     WHERE org_id = $1 AND is_active = true AND $2 = ANY(events)`,
+                    [payload.orgId, eventNorm]
+                );
+
+                for (const channel of channelsRes.rows) {
+                    try {
+                        const baseUrl = process.env.ADMIN_UI_ORIGIN || 'http://localhost:3001';
+                        const orgRes  = await client.query(
+                            'SELECT name FROM organizations WHERE id = $1 LIMIT 1',
+                            [payload.orgId]
+                        );
+                        const orgName = orgRes.rows[0]?.name ?? payload.orgId;
+
+                        const eventPayload: EventPayload = {
+                            event:          eventNorm as EventPayload['event'],
+                            org_name:       orgName,
+                            assistant_name: undefined,
+                            assistant_id:   payload.assistantId,
+                            user_email:     undefined,
+                            details:        payload.reason,
+                            timestamp:      payload.timestamp,
+                            trace_id:       payload.traceId,
+                            base_url:       baseUrl,
+                        };
+
+                        if (channel.provider === 'slack' || channel.provider === 'teams') {
+                            const webhookUrl = channel.config?.webhook_url as string;
+                            if (!webhookUrl) continue;
+
+                            const notifPayload = channel.provider === 'slack'
+                                ? buildSlackPayload(eventPayload)
+                                : buildTeamsPayload(eventPayload);
+
+                            await axios.post(webhookUrl, notifPayload, {
+                                headers: { 'Content-Type': 'application/json' },
+                                timeout: 8000,
+                            });
+                            sent = true;
+                            log.info({ channelId: channel.id, provider: channel.provider, event: eventNorm }, 'Notification channel delivered');
+                        }
+                        // Email provider: SMTP not wired — skip silently
+                    } catch (chErr: any) {
+                        log.warn({ channelId: channel.id, error: chErr.message }, 'Notification channel dispatch failed');
+                    }
+                }
+
             } catch (err: any) {
                 log.warn({ error: err.message }, 'NotificationWorker: DB webhook dispatch failed');
             } finally {

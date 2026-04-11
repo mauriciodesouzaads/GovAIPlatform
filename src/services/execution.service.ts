@@ -237,6 +237,11 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             });
 
             log.warn({ orgId, assistantId, reason: policyCheck.reason }, 'Policy Violation');
+            notificationQueue.add('send-notification', {
+                event: 'policy.violation', orgId, assistantId,
+                reason: policyCheck.reason || 'Violação de política detectada',
+                traceId, timestamp: new Date().toISOString(),
+            }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } }).catch(() => {});
             return { statusCode: 403, body: { error: policyCheck.reason, traceId } };
         }
 
@@ -277,6 +282,12 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                 metadata: { traceId, reason: violationPayload.reason, snapshotId },
             });
             log.warn({ orgId, assistantId, reason: violationPayload.reason }, 'DLP Rule Block');
+            notificationQueue.add('send-notification', {
+                event: 'dlp.block', orgId, assistantId,
+                reason: violationPayload.reason || 'DLP bloqueou a requisição',
+                traceId, timestamp: new Date().toISOString(),
+                metadata: { detections: dlpRulesResult.detections },
+            }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } }).catch(() => {});
             return { statusCode: 403, body: { error: violationPayload.reason, traceId } };
         }
         if (dlpRulesResult.detections.length > 0) {
@@ -448,6 +459,11 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             );
         } catch (error: any) {
             log.error(error, 'Error communicating with LiteLLM');
+            notificationQueue.add('send-notification', {
+                event: 'execution.error', orgId, assistantId,
+                reason: `Erro ao comunicar com LiteLLM: ${String(error.message).slice(0, 200)}`,
+                traceId, timestamp: new Date().toISOString(),
+            }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } }).catch(() => {});
             return {
                 statusCode: 502,
                 body: { error: 'Falha ao comunicar com o provedor de IA', details: error.message, traceId },

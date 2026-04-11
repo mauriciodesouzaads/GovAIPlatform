@@ -123,6 +123,7 @@ MIGRATIONS=(
     "069_risk_assessments.sql"
     "070_alert_thresholds.sql"
     "071_dlp_rules.sql"
+    "072_notification_channels.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
