@@ -59,7 +59,9 @@ export async function chatRoutes(
 
         // Loopback: call ourselves on 127.0.0.1 — this exercises the real
         // middleware stack (API key auth, DLP, policy, FinOps, RAG, LiteLLM).
+        const client = await pgPool.connect();
         try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
             const result = await axios.post(
                 `http://127.0.0.1:3000/v1/execute/${body.assistant_id}`,
                 {
@@ -77,6 +79,24 @@ export async function chatRoutes(
                     validateStatus: () => true,
                 }
             );
+
+            // FASE 6b multi-agent: annotate the response with the assistant
+            // that handled it so the UI can render distinct avatars/names
+            // when the user switches assistants mid-conversation.
+            if (result.data && typeof result.data === 'object') {
+                if (!result.data._govai) result.data._govai = {};
+                result.data._govai.assistantId = body.assistant_id;
+                try {
+                    const nameRes = await client.query(
+                        `SELECT name FROM assistants WHERE id = $1 AND org_id = $2`,
+                        [body.assistant_id, orgId]
+                    );
+                    result.data._govai.assistantName = nameRes.rows[0]?.name ?? 'Assistente';
+                } catch {
+                    result.data._govai.assistantName = 'Assistente';
+                }
+            }
+
             return reply.status(result.status).send(result.data);
         } catch (err: any) {
             fastify.log.error(err, 'Chat wrapper upstream error');
@@ -84,6 +104,179 @@ export async function chatRoutes(
                 error: 'Falha ao comunicar com o pipeline de execução.',
                 detail: err?.message || String(err),
             });
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+    // ── POST /v1/admin/chat/send/stream ───────────────────────────────────────
+    // FASE 6b — Server-Sent Events variant of /chat/send. The governance
+    // pipeline (OPA, DLP, FinOps, RAG) still runs synchronously via the
+    // loopback call, but the LLM completion is emitted to the client as a
+    // series of progressive chunks for a streaming UX.
+    //
+    // Frames:
+    //   data: {"chunk":"..."}           — progressive text, repeated
+    //   data: {"done":true,"usage":...} — terminal; stream closed after
+    //   data: {"delegated":true,...}    — delegation path (no chunks)
+    //   data: {"error":true,"status":N,"data":{...}} — error path
+    //
+    // force_delegate=true short-circuits to the non-stream behavior
+    // (JSON response, not SSE) because delegation has no streamable text.
+    fastify.post('/v1/admin/chat/send/stream', { preHandler: writeAuth }, async (request: any, reply) => {
+        const { orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+
+        const body = (request.body ?? {}) as SendBody;
+        if (!body.assistant_id || !body.message) {
+            return reply.status(400).send({ error: 'assistant_id e message são obrigatórios.' });
+        }
+
+        const apiKey = process.env.GOVAI_DEMO_API_KEY || 'sk-govai-demo00000000000000000000';
+
+        // ── Short-circuit: force_delegate → plain JSON (no SSE) ──────────────
+        // Delegation spawns a background run; there's nothing to stream.
+        if (body.force_delegate) {
+            const client = await pgPool.connect();
+            try {
+                await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                const result = await axios.post(
+                    `http://127.0.0.1:3000/v1/execute/${body.assistant_id}`,
+                    {
+                        message: `[OPENCLAUDE] ${body.message}`,
+                        ...(body.session_id ? { sessionId: body.session_id } : {}),
+                        ...(body.model ? { model: body.model } : {}),
+                    },
+                    {
+                        headers: {
+                            Authorization: `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json',
+                            'x-govai-chat-proxy': 'true',
+                        },
+                        timeout: 120_000,
+                        validateStatus: () => true,
+                    }
+                );
+                if (result.data && typeof result.data === 'object') {
+                    if (!result.data._govai) result.data._govai = {};
+                    result.data._govai.assistantId = body.assistant_id;
+                    const nameRes = await client.query(
+                        `SELECT name FROM assistants WHERE id = $1 AND org_id = $2`,
+                        [body.assistant_id, orgId]
+                    );
+                    result.data._govai.assistantName = nameRes.rows[0]?.name ?? 'Assistente';
+                }
+                return reply.status(result.status).send(result.data);
+            } finally {
+                await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+                client.release();
+            }
+        }
+
+        // ── Normal path: loopback + chunked emission ─────────────────────────
+        const client = await pgPool.connect();
+        try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+
+            // Assume control of the response before writing headers — Fastify
+            // will otherwise intercept and JSON-encode.
+            reply.hijack();
+            reply.raw.writeHead(200, {
+                'Content-Type': 'text/event-stream; charset=utf-8',
+                'Cache-Control': 'no-cache, no-transform',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no',
+            });
+
+            const sendFrame = (payload: Record<string, unknown>) => {
+                reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
+            };
+
+            // Run the full governance pipeline via loopback. Streaming is
+            // simulated client-side (chunks after completion) for v1 — the
+            // UX already matches a real stream once the pipeline latency
+            // is covered by the typing indicator.
+            const result = await axios.post(
+                `http://127.0.0.1:3000/v1/execute/${body.assistant_id}`,
+                {
+                    message: body.message,
+                    ...(body.session_id ? { sessionId: body.session_id } : {}),
+                    ...(body.model ? { model: body.model } : {}),
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json',
+                        'x-govai-chat-proxy': 'true',
+                    },
+                    timeout: 120_000,
+                    validateStatus: () => true,
+                }
+            );
+
+            // Resolve assistant name once — used for every terminal frame
+            const nameRes = await client.query(
+                `SELECT name FROM assistants WHERE id = $1 AND org_id = $2`,
+                [body.assistant_id, orgId]
+            );
+            const assistantName = nameRes.rows[0]?.name ?? 'Assistente';
+
+            // ── Error path ───────────────────────────────────────────────────
+            if (result.status >= 400) {
+                sendFrame({ error: true, status: result.status, data: result.data });
+                reply.raw.end();
+                return;
+            }
+
+            // ── Delegation path ──────────────────────────────────────────────
+            if (result.data?._govai?.delegated === true) {
+                if (!result.data._govai) result.data._govai = {};
+                result.data._govai.assistantId = body.assistant_id;
+                result.data._govai.assistantName = assistantName;
+                sendFrame({ delegated: true, ...result.data });
+                reply.raw.end();
+                return;
+            }
+
+            // ── Normal streaming path ────────────────────────────────────────
+            const fullContent: string =
+                result.data?.choices?.[0]?.message?.content ?? '(sem resposta)';
+
+            // Split preserving whitespace, emit 3-token chunks with micro-delay
+            const tokens = fullContent.split(/(\s+)/).filter(t => t.length > 0);
+            const CHUNK_SIZE = 3;
+            for (let i = 0; i < tokens.length; i += CHUNK_SIZE) {
+                const chunk = tokens.slice(i, i + CHUNK_SIZE).join('');
+                if (chunk) sendFrame({ chunk });
+                // 15ms between chunks = smooth type-in without blocking too long
+                await new Promise(r => setTimeout(r, 15));
+                // Client abort → stop emitting
+                if (reply.raw.destroyed) break;
+            }
+
+            sendFrame({
+                done: true,
+                usage: result.data?.usage ?? {},
+                traceId: result.data?._govai?.traceId ?? null,
+                signature: result.data?._govai?.signature ?? null,
+                assistantId: body.assistant_id,
+                assistantName,
+            });
+            reply.raw.end();
+        } catch (err: any) {
+            fastify.log.error(err, 'Chat stream wrapper upstream error');
+            try {
+                reply.raw.write(`data: ${JSON.stringify({
+                    error: true,
+                    status: 502,
+                    data: { error: err?.message ?? 'stream_upstream_error' },
+                })}\n\n`);
+                reply.raw.end();
+            } catch { /* already closed */ }
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
         }
     });
 

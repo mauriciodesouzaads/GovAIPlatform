@@ -198,6 +198,7 @@ export const ENDPOINTS = {
 
     // Chat wrapper (FASE 6)
     CHAT_SEND:                        '/v1/admin/chat/send',
+    CHAT_SEND_STREAM:                 '/v1/admin/chat/send/stream',
     CHAT_SESSIONS:                    '/v1/admin/chat/sessions',
     CHAT_SESSION_MESSAGES:            (id: string) => `/v1/admin/chat/sessions/${id}/messages`,
     ASSISTANTS_AVAILABLE:             '/v1/admin/assistants/available',

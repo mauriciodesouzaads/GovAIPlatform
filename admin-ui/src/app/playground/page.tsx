@@ -17,7 +17,8 @@ import {
     useState, useEffect, useCallback, useRef, useMemo,
 } from 'react';
 import { marked } from 'marked';
-import api, { ENDPOINTS } from '@/lib/api';
+import api, { ENDPOINTS, API_BASE } from '@/lib/api';
+import { getAuthToken } from '@/lib/auth-storage';
 import { useAuth } from '@/components/AuthProvider';
 import {
     MessageSquareText, Bot, Send, Shield, ShieldCheck, ShieldAlert,
@@ -105,6 +106,11 @@ interface ChatMessage {
     role: MessageRole;
     content?: string;
     timestamp: number;
+    // FASE 6b multi-agent: which assistant handled this turn
+    assistantId?: string;
+    assistantName?: string;
+    // FASE 6b streaming: true while SSE chunks are still arriving
+    streaming?: boolean;
     // Assistant response metadata
     traceId?: string;
     tokens?: { prompt?: number; completion?: number } | null;
@@ -215,6 +221,44 @@ function getSuggestions(name: string): string[] {
     ];
 }
 
+// ── FASE 6b: multi-agent avatar (deterministic color per assistant ID) ──────
+function assistantColor(id: string | undefined | null): string {
+    if (!id) return 'hsl(160, 45%, 55%)';
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+        hash = id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const hue = Math.abs(hash) % 360;
+    return `hsl(${hue}, 45%, 58%)`;
+}
+
+function AssistantAvatar({
+    name, id, size = 28,
+}: {
+    name: string | undefined | null;
+    id: string | undefined | null;
+    size?: number;
+}) {
+    const color = assistantColor(id);
+    const initial = (name ?? 'A').trim().charAt(0).toUpperCase();
+    return (
+        <div
+            className="rounded-full flex items-center justify-center font-semibold shrink-0 border"
+            style={{
+                width: size,
+                height: size,
+                backgroundColor: `${color}22`,
+                color,
+                borderColor: `${color}44`,
+                fontSize: Math.round(size * 0.42),
+            }}
+            title={name ?? 'Assistente'}
+        >
+            {initial}
+        </div>
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Small presentational components
 // ═══════════════════════════════════════════════════════════════════════════
@@ -222,9 +266,13 @@ function getSuggestions(name: string): string[] {
 function TypingIndicator() {
     return (
         <div className="flex items-center gap-1.5 px-1 py-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[bounce_1.2s_ease-in-out_infinite]" style={{ animationDelay: '0ms' }} />
-            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[bounce_1.2s_ease-in-out_infinite]" style={{ animationDelay: '150ms' }} />
-            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[bounce_1.2s_ease-in-out_infinite]" style={{ animationDelay: '300ms' }} />
+            {[0, 1, 2].map(i => (
+                <span
+                    key={i}
+                    className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60"
+                    style={{ animation: `typing-bounce 1.4s ease-in-out ${i * 0.16}s infinite` }}
+                />
+            ))}
         </div>
     );
 }
@@ -378,7 +426,14 @@ export default function GovAIChatPage() {
 
     // ── Refs ─────────────────────────────────────────────────────────────────
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messagesContainerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+
+    // ── FASE 6b: smart scroll ───────────────────────────────────────────────
+    // Only auto-scroll to bottom when the user is already near the bottom.
+    // When they scroll up to review, respect that position and show a
+    // "Nova mensagem" badge that jumps back.
+    const [isScrolledUp, setIsScrolledUp] = useState(false);
 
     const selectedAssistant = useMemo(
         () => assistants.find(a => a.id === selectedAssistantId) ?? null,
@@ -431,10 +486,19 @@ export default function GovAIChatPage() {
         }
     }, [input, selectedAssistantId]);
 
-    // ── Auto-scroll to bottom on new messages ────────────────────────────────
+    // ── Smart auto-scroll: only if already near bottom ───────────────────────
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }, [messages, delegationStates]);
+        if (!isScrolledUp) {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+    }, [messages, delegationStates, isScrolledUp]);
+
+    const handleMessagesScroll = useCallback(() => {
+        const el = messagesContainerRef.current;
+        if (!el) return;
+        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+        setIsScrolledUp(dist > 120);
+    }, []);
 
     // ── Auto-resize textarea ─────────────────────────────────────────────────
     useEffect(() => {
@@ -443,6 +507,22 @@ export default function GovAIChatPage() {
         el.style.height = 'auto';
         el.style.height = Math.min(el.scrollHeight, 220) + 'px';
     }, [input]);
+
+    // ── Keyboard shortcuts: Ctrl/Cmd+K focus input, Escape clears input ────
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                inputRef.current?.focus();
+                return;
+            }
+            if (e.key === 'Escape' && document.activeElement === inputRef.current) {
+                setInput('');
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
 
     // ── Cleanup polling on unmount ───────────────────────────────────────────
     useEffect(() => {
@@ -520,11 +600,78 @@ export default function GovAIChatPage() {
         pollingTimers.current[workItemId] = setInterval(() => pollWorkItem(workItemId), 2_000);
     }, [pollWorkItem]);
 
-    // ── Send handler ─────────────────────────────────────────────────────────
+    // ── Helpers used by both stream and fallback code paths ─────────────────
+    const appendAssistantResponse = useCallback((data: any, assistantSnap: Assistant | null) => {
+        const content = data?.choices?.[0]?.message?.content ?? '(sem resposta)';
+        const tokens = data?.usage
+            ? { prompt: data.usage.prompt_tokens, completion: data.usage.completion_tokens }
+            : null;
+        const traceId = data?._govai?.traceId ?? data?.trace_id;
+        const aid = data?._govai?.assistantId ?? assistantSnap?.id;
+        const aname = data?._govai?.assistantName ?? assistantSnap?.name ?? 'Assistente';
+        setMessages(prev => [...prev, {
+            id: genId(),
+            role: 'assistant',
+            content,
+            tokens,
+            traceId,
+            assistantId: aid,
+            assistantName: aname,
+            timestamp: Date.now(),
+        }]);
+    }, []);
+
+    const appendDelegationMessage = useCallback((data: any, assistantSnap: Assistant | null) => {
+        const workItemId: string | undefined = data?._govai?.workItemId;
+        if (!workItemId) return;
+        const aid = data?._govai?.assistantId ?? assistantSnap?.id;
+        const aname = data?._govai?.assistantName ?? assistantSnap?.name ?? 'Assistente';
+        setMessages(prev => [...prev, {
+            id: genId(),
+            role: 'delegation',
+            workItemId,
+            matchedPattern: data._govai?.matchedPattern,
+            traceId: data._govai?.traceId,
+            assistantId: aid,
+            assistantName: aname,
+            timestamp: Date.now(),
+        }]);
+        setDelegationStates(prev => ({
+            ...prev,
+            [workItemId]: {
+                work_item_id: workItemId,
+                status: 'pending',
+                events: [],
+                pendingApproval: null,
+                fullText: null,
+                tokens: null,
+                toolCount: 0,
+            },
+        }));
+        startPolling(workItemId);
+    }, [startPolling]);
+
+    const appendErrorFromPayload = useCallback((status: number, data: any) => {
+        const { kind, reason, retryAfterSec } = classifyError({ response: { status, data } });
+        setMessages(prev => [...prev, {
+            id: genId(),
+            role: 'error',
+            errorKind: kind,
+            errorReason: reason,
+            retryAfterSec,
+            timestamp: Date.now(),
+        }]);
+    }, []);
+
+    // ── Send handler (FASE 6b: fetch+SSE streaming with axios fallback) ─────
     const handleSend = useCallback(async () => {
         if (!selectedAssistantId) return;
         const trimmed = input.trim();
         if (!trimmed || sending) return;
+
+        // Snapshot the assistant at send time — the user can switch mid-flight
+        // and we still want the resulting message attributed correctly.
+        const assistantSnap = assistants.find(a => a.id === selectedAssistantId) ?? null;
 
         const userMsg: ChatMessage = {
             id: genId(),
@@ -537,79 +684,202 @@ export default function GovAIChatPage() {
         sessionStorage.removeItem(`govai-draft-${selectedAssistantId}`);
         setSending(true);
 
+        const body = {
+            assistant_id: selectedAssistantId,
+            message: trimmed,
+            session_id: sessionId,
+            model: selectedModelId ?? undefined,
+            force_delegate: forceDelegate,
+        };
+
+        const token = getAuthToken();
+
+        // ── Primary path: SSE streaming ──────────────────────────────────────
+        let streamFinished = false;
+        let streamingMsgId: string | null = null;
         try {
-            const res = await api.post(ENDPOINTS.CHAT_SEND, {
-                assistant_id: selectedAssistantId,
-                message: trimmed,
-                session_id: sessionId,
-                model: selectedModelId ?? undefined,
-                force_delegate: forceDelegate,
+            const response = await fetch(`${API_BASE}${ENDPOINTS.CHAT_SEND_STREAM}`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': token ? `Bearer ${token}` : '',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
             });
 
-            const data = res.data;
-            if (res.status === 202 && data.status === 'PENDING_APPROVAL') {
+            if (!response.ok) {
+                // Non-2xx → read the body and surface as typed error
+                let errData: any = null;
+                try { errData = await response.json(); } catch { /* ignore */ }
+                appendErrorFromPayload(response.status, errData ?? {});
+                streamFinished = true;
+                return;
+            }
+
+            const contentType = response.headers.get('content-type') ?? '';
+
+            // Non-SSE JSON means the backend took the force_delegate shortcut
+            if (!contentType.includes('text/event-stream')) {
+                const data = await response.json();
+                if (response.status === 202 && data?.status === 'PENDING_APPROVAL') {
+                    setMessages(prev => [...prev, {
+                        id: genId(),
+                        role: 'error',
+                        errorKind: 'hitl_pending',
+                        errorReason: data.reason ?? 'Ação de alto risco detectada.',
+                        timestamp: Date.now(),
+                    }]);
+                } else if (data?._govai?.delegated === true && data._govai.workItemId) {
+                    appendDelegationMessage(data, assistantSnap);
+                } else {
+                    appendAssistantResponse(data, assistantSnap);
+                }
+                streamFinished = true;
+                return;
+            }
+
+            // ── True SSE path ────────────────────────────────────────────────
+            if (!response.body) throw new Error('No response body for SSE stream');
+
+            // Insert an empty streaming message that we will progressively fill
+            streamingMsgId = genId();
+            setMessages(prev => [...prev, {
+                id: streamingMsgId!,
+                role: 'assistant',
+                content: '',
+                streaming: true,
+                assistantId: assistantSnap?.id,
+                assistantName: assistantSnap?.name ?? 'Assistente',
+                timestamp: Date.now(),
+            }]);
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let accumulated = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                let idx: number;
+                while ((idx = buffer.indexOf('\n\n')) !== -1) {
+                    const frame = buffer.slice(0, idx);
+                    buffer = buffer.slice(idx + 2);
+                    if (!frame.startsWith('data: ')) continue;
+                    const raw = frame.slice(6).trim();
+                    if (!raw) continue;
+
+                    let evt: any;
+                    try { evt = JSON.parse(raw); } catch { continue; }
+
+                    if (evt.error) {
+                        // Remove the empty streaming bubble; render a typed error instead
+                        setMessages(prev => prev.filter(m => m.id !== streamingMsgId));
+                        streamingMsgId = null;
+                        appendErrorFromPayload(evt.status ?? 500, evt.data ?? {});
+                        streamFinished = true;
+                        try { reader.cancel(); } catch { /* ignore */ }
+                        return;
+                    }
+
+                    if (evt.delegated) {
+                        // Remove the empty streaming bubble; render the delegation card
+                        setMessages(prev => prev.filter(m => m.id !== streamingMsgId));
+                        streamingMsgId = null;
+                        appendDelegationMessage(evt, assistantSnap);
+                        streamFinished = true;
+                        try { reader.cancel(); } catch { /* ignore */ }
+                        return;
+                    }
+
+                    if (typeof evt.chunk === 'string') {
+                        accumulated += evt.chunk;
+                        setMessages(prev => prev.map(m =>
+                            m.id === streamingMsgId ? { ...m, content: accumulated } : m
+                        ));
+                        continue;
+                    }
+
+                    if (evt.done) {
+                        const tokens = evt.usage
+                            ? { prompt: evt.usage.prompt_tokens, completion: evt.usage.completion_tokens }
+                            : null;
+                        setMessages(prev => prev.map(m =>
+                            m.id === streamingMsgId
+                                ? {
+                                    ...m,
+                                    content: accumulated,
+                                    streaming: false,
+                                    tokens,
+                                    traceId: evt.traceId ?? m.traceId,
+                                    assistantId: evt.assistantId ?? m.assistantId,
+                                    assistantName: evt.assistantName ?? m.assistantName,
+                                }
+                                : m
+                        ));
+                        streamFinished = true;
+                        try { reader.cancel(); } catch { /* ignore */ }
+                        return;
+                    }
+                }
+            }
+
+            // Stream ended without explicit done: clean up streaming flag
+            if (streamingMsgId) {
+                setMessages(prev => prev.map(m =>
+                    m.id === streamingMsgId ? { ...m, content: accumulated, streaming: false } : m
+                ));
+            }
+            streamFinished = true;
+        } catch (streamErr) {
+            // Remove the empty streaming bubble if it exists before the fallback
+            if (streamingMsgId) {
+                setMessages(prev => prev.filter(m => m.id !== streamingMsgId));
+                streamingMsgId = null;
+            }
+            // ── Fallback path: non-stream /chat/send via axios ───────────────
+            try {
+                const res = await api.post(ENDPOINTS.CHAT_SEND, body);
+                const data = res.data;
+                if (res.status === 202 && data?.status === 'PENDING_APPROVAL') {
+                    setMessages(prev => [...prev, {
+                        id: genId(),
+                        role: 'error',
+                        errorKind: 'hitl_pending',
+                        errorReason: data.reason ?? 'Ação de alto risco detectada.',
+                        timestamp: Date.now(),
+                    }]);
+                } else if (data?._govai?.delegated === true && data._govai.workItemId) {
+                    appendDelegationMessage(data, assistantSnap);
+                } else {
+                    appendAssistantResponse(data, assistantSnap);
+                }
+                streamFinished = true;
+            } catch (fallbackErr: any) {
+                const { kind, reason, retryAfterSec } = classifyError(fallbackErr);
                 setMessages(prev => [...prev, {
                     id: genId(),
                     role: 'error',
-                    errorKind: 'hitl_pending',
-                    errorReason: data.reason || 'Ação de alto risco detectada.',
+                    errorKind: kind,
+                    errorReason: reason,
+                    retryAfterSec,
                     timestamp: Date.now(),
                 }]);
-                return;
+                streamFinished = true;
             }
-            if (data?._govai?.delegated === true && data._govai.workItemId) {
-                const workItemId: string = data._govai.workItemId;
-                setMessages(prev => [...prev, {
-                    id: genId(),
-                    role: 'delegation',
-                    workItemId,
-                    matchedPattern: data._govai.matchedPattern,
-                    traceId: data._govai.traceId,
-                    timestamp: Date.now(),
-                }]);
-                setDelegationStates(prev => ({
-                    ...prev,
-                    [workItemId]: {
-                        work_item_id: workItemId,
-                        status: 'pending',
-                        events: [],
-                        pendingApproval: null,
-                        fullText: null,
-                        tokens: null,
-                        toolCount: 0,
-                    },
-                }));
-                startPolling(workItemId);
-                return;
-            }
-            const content = data?.choices?.[0]?.message?.content ?? '(sem resposta)';
-            const tokens = data?.usage
-                ? { prompt: data.usage.prompt_tokens, completion: data.usage.completion_tokens }
-                : null;
-            const traceId = data?._govai?.traceId ?? data?.trace_id;
-            setMessages(prev => [...prev, {
-                id: genId(),
-                role: 'assistant',
-                content,
-                tokens,
-                traceId,
-                timestamp: Date.now(),
-            }]);
-        } catch (err: any) {
-            const { kind, reason, retryAfterSec } = classifyError(err);
-            setMessages(prev => [...prev, {
-                id: genId(),
-                role: 'error',
-                errorKind: kind,
-                errorReason: reason,
-                retryAfterSec,
-                timestamp: Date.now(),
-            }]);
+            // Suppress unused variable lint
+            void streamErr;
         } finally {
+            void streamFinished;
             setSending(false);
             inputRef.current?.focus();
         }
-    }, [input, sending, selectedAssistantId, sessionId, selectedModelId, forceDelegate, startPolling]);
+    }, [
+        input, sending, selectedAssistantId, sessionId, selectedModelId, forceDelegate,
+        assistants, appendAssistantResponse, appendDelegationMessage, appendErrorFromPayload,
+    ]);
 
     // ── Approval handler ─────────────────────────────────────────────────────
     const handleApproval = useCallback(async (workItemId: string, promptId: string, approved: boolean) => {
@@ -836,8 +1106,40 @@ export default function GovAIChatPage() {
                     )}
                 </header>
 
+                {/* Multi-agent summary bar — only when >1 assistant answered in this session */}
+                {(() => {
+                    const pairs = messages
+                        .filter(m => (m.role === 'assistant' || m.role === 'delegation' || m.role === 'delegation_result') && m.assistantId)
+                        .map(m => [m.assistantId!, m.assistantName ?? 'Assistente'] as const);
+                    const seen = new Map<string, string>();
+                    for (const [id, name] of pairs) if (!seen.has(id)) seen.set(id, name);
+                    if (seen.size <= 1) return null;
+                    return (
+                        <div className="shrink-0 border-b border-border/40 bg-card/20 px-4 lg:px-8 py-2 flex items-center gap-2 overflow-x-auto">
+                            <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold shrink-0">
+                                {seen.size} especialistas
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                                {Array.from(seen.entries()).map(([id, name]) => (
+                                    <span
+                                        key={id}
+                                        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted/40 border border-border/60 text-[11px] text-foreground/80"
+                                    >
+                                        <AssistantAvatar name={name} id={id} size={16} />
+                                        {name}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })()}
+
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto min-h-0">
+                <div
+                    ref={messagesContainerRef}
+                    onScroll={handleMessagesScroll}
+                    className="flex-1 overflow-y-auto min-h-0 relative"
+                >
                     <div className="max-w-3xl mx-auto px-4 lg:px-8 py-8">
                         {messages.length === 0 ? (
                             <EmptyState
@@ -849,18 +1151,45 @@ export default function GovAIChatPage() {
                             />
                         ) : (
                             <div className="space-y-8">
-                                {messages.map(msg => (
-                                    <MessageRow
-                                        key={msg.id}
-                                        msg={msg}
-                                        delegationState={msg.workItemId ? delegationStates[msg.workItemId] : undefined}
-                                        onApprove={handleApproval}
-                                    />
-                                ))}
-                                {sending && (
+                                {messages.map((msg, idx) => {
+                                    // FASE 6b multi-agent divider — draw when the assistant
+                                    // author of this message is different from the previous
+                                    // non-user, non-error one.
+                                    let prevAuthor: string | undefined;
+                                    for (let j = idx - 1; j >= 0; j--) {
+                                        const p = messages[j];
+                                        if (p.role === 'user' || p.role === 'error') continue;
+                                        if (p.assistantId) { prevAuthor = p.assistantId; break; }
+                                    }
+                                    const showDivider =
+                                        (msg.role === 'assistant' || msg.role === 'delegation' || msg.role === 'delegation_result')
+                                        && !!msg.assistantId
+                                        && !!prevAuthor
+                                        && prevAuthor !== msg.assistantId;
+
+                                    return (
+                                        <div key={msg.id}>
+                                            {showDivider && (
+                                                <div className="flex items-center gap-3 -mt-2 mb-4">
+                                                    <div className="flex-1 border-t border-border/40" />
+                                                    <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground whitespace-nowrap font-semibold">
+                                                        {msg.assistantName ?? 'Assistente'} entrou
+                                                    </span>
+                                                    <div className="flex-1 border-t border-border/40" />
+                                                </div>
+                                            )}
+                                            <MessageRow
+                                                msg={msg}
+                                                delegationState={msg.workItemId ? delegationStates[msg.workItemId] : undefined}
+                                                onApprove={handleApproval}
+                                            />
+                                        </div>
+                                    );
+                                })}
+                                {sending && !messages.some(m => m.streaming) && (
                                     <div className="pt-1">
                                         <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-2 font-semibold">
-                                            Assistente
+                                            {selectedAssistant?.name ?? 'Assistente'}
                                         </div>
                                         <TypingIndicator />
                                     </div>
@@ -869,6 +1198,20 @@ export default function GovAIChatPage() {
                             </div>
                         )}
                     </div>
+
+                    {/* Smart-scroll badge */}
+                    {isScrolledUp && messages.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                                setIsScrolledUp(false);
+                            }}
+                            className="absolute bottom-4 right-4 lg:right-8 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-[11px] font-semibold shadow-lg hover:bg-primary/90 transition-colors"
+                        >
+                            ↓ Nova mensagem
+                        </button>
+                    )}
                 </div>
 
                 {/* Input bar */}
@@ -1071,16 +1414,25 @@ function MessageRow({
     if (msg.role === 'assistant') {
         return (
             <div className="group">
-                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-2 font-semibold">
-                    Assistente
+                <div className="flex items-center gap-2 mb-2">
+                    <AssistantAvatar name={msg.assistantName ?? 'Assistente'} id={msg.assistantId ?? ''} size={22} />
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
+                        {msg.assistantName ?? 'Assistente'}
+                    </div>
                 </div>
-                <div className="relative">
+                <div className="relative pl-8">
                     <Markdown content={msg.content ?? ''} />
+                    {msg.streaming && (
+                        <span
+                            className="inline-block align-baseline w-[2px] h-4 bg-foreground/70 ml-0.5 -mb-0.5"
+                            style={{ animation: 'typing-bounce 1.1s ease-in-out infinite' }}
+                        />
+                    )}
                     <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity">
                         <CopyButton text={msg.content ?? ''} />
                     </div>
                 </div>
-                <GovernanceFooter tokens={msg.tokens} traceId={msg.traceId} />
+                {!msg.streaming && <GovernanceFooter tokens={msg.tokens} traceId={msg.traceId} />}
             </div>
         );
     }
@@ -1098,14 +1450,20 @@ function MessageRow({
     if (msg.role === 'delegation_result') {
         return (
             <div>
-                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-2 font-semibold flex items-center gap-2">
-                    <Zap className="w-3 h-3 text-primary" /> Resultado da execução
+                <div className="flex items-center gap-2 mb-2">
+                    {msg.assistantId && (
+                        <AssistantAvatar name={msg.assistantName ?? 'Assistente'} id={msg.assistantId} size={22} />
+                    )}
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold flex items-center gap-2">
+                        <Zap className="w-3 h-3 text-primary" />
+                        Resultado da execução
+                    </div>
                 </div>
-                <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+                <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 ml-8">
                     <Markdown content={msg.content ?? ''} />
                 </div>
                 {msg.tokens && (
-                    <div className="mt-2 flex gap-3 text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
+                    <div className="ml-8 mt-2 flex gap-3 text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
                         {msg.tokens.prompt !== undefined && <span>in {msg.tokens.prompt}</span>}
                         {msg.tokens.completion !== undefined && <span>out {msg.tokens.completion}</span>}
                     </div>
@@ -1138,9 +1496,15 @@ function DelegationCard({
 
     return (
         <div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-2 font-semibold flex items-center gap-2">
-                <Zap className="w-3 h-3 text-primary" />
-                Delegação autônoma
+            <div className="flex items-center gap-2 mb-2">
+                {msg.assistantId && (
+                    <AssistantAvatar name={msg.assistantName ?? 'Assistente'} id={msg.assistantId} size={22} />
+                )}
+                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold flex items-center gap-2">
+                    <Zap className="w-3 h-3 text-primary" />
+                    Delegação autônoma
+                    {msg.assistantName && <span className="text-muted-foreground/70">· {msg.assistantName}</span>}
+                </div>
             </div>
             <div className="rounded-xl border border-border bg-card">
                 <div className="px-4 py-3 border-b border-border/60 flex items-center gap-3">

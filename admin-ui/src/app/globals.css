@@ -100,6 +100,16 @@ a,
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
+   Chat typing indicator (FASE 6b)
+   Three-dot loader used while the chat pipeline runs before the first SSE
+   chunk arrives. Restrained, not bouncy — 1.4s cycle with 0.16s stagger.
+   ────────────────────────────────────────────────────────────────────────── */
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: scale(0.5); opacity: 0.35; }
+  40%           { transform: scale(1);   opacity: 1;    }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
    Chat markdown styles (FASE 6) — tokens only, no prose-invert
    Applied to the `.chat-md` wrapper produced by marked() in playground/page.tsx
    ────────────────────────────────────────────────────────────────────────── */

@@ -1211,4 +1211,18 @@ UPDATE assistants SET delegation_config = '{
 }'::jsonb
 WHERE id = '00000000-0000-0000-0002-000000000001';
 
+-- Idempotent guarantee (FASE 6b): every delegation-enabled assistant in the
+-- demo org must carry the \[OPENCLAUDE\] escape pattern. Re-runs are safe:
+-- the UPDATE only fires for rows whose current pattern list does not yet
+-- contain the string "OPENCLAUDE".
+UPDATE assistants SET delegation_config = jsonb_set(
+    delegation_config,
+    '{auto_delegate_patterns}',
+    COALESCE(delegation_config->'auto_delegate_patterns', '[]'::jsonb)
+        || '"\\[OPENCLAUDE\\]"'::jsonb
+)
+WHERE delegation_config->>'enabled' = 'true'
+  AND org_id = '00000000-0000-0000-0000-000000000001'
+  AND NOT COALESCE(delegation_config->'auto_delegate_patterns', '[]'::jsonb)::text LIKE '%OPENCLAUDE%';
+
 COMMIT;
