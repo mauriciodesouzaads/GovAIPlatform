@@ -202,10 +202,14 @@ services:
       # fails with "Not logged in · Please run /login" — because the key we
       # have is the LiteLLM proxy key, not a real Anthropic key.
       CLAUDE_CODE_USE_OPENAI: "1"
-      # Uses GovAI's LiteLLM as OpenAI-compatible LLM proxy
+      # Uses GovAI's LiteLLM as OpenAI-compatible LLM proxy.
+      # Pin to govai-llm-gemini specifically — OpenClaude sends ~18.6K
+      # tokens per turn (huge system prompt + tool definitions), which
+      # blows past Groq free tier's 6K TPM. Gemini 2.0 Flash has 1M TPM
+      # on free tier, so the same prompt fits comfortably.
       OPENAI_API_KEY: ${LITELLM_KEY}
       OPENAI_BASE_URL: http://litellm:4000/v1
-      OPENAI_MODEL: govai-llm
+      OPENAI_MODEL: govai-llm-gemini
       # Security: disable web tools in regulated environment
       OPENCLAUDE_DISABLE_WEB_SEARCH: "true"
       OPENCLAUDE_DISABLE_WEB_FETCH: "true"

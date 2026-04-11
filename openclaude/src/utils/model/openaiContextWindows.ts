@@ -94,6 +94,14 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'gemini-2.0-flash':       1_048_576,
   'gemini-2.5-pro':         1_048_576,
   'gemini-2.5-flash':       1_048_576,
+  'gemini-2.5-flash-lite':  1_048_576,
+
+  // GovAI custom LiteLLM aliases (resolve to underlying Gemini models —
+  // see litellm-config.yaml). Without these, OpenClaude falls back to its
+  // 8k conservative default and triggers auto-compact on every turn,
+  // because the system prompt + tool definitions alone are ~18.6K tokens.
+  'govai-llm-gemini':       1_048_576,
+  'govai-llm-gemini-flash': 1_048_576,
 
   // Ollama local models
   // Llama 3.1+ models support 128k context natively (Meta official specs).
@@ -199,6 +207,11 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'gemini-2.0-flash':          8_192,
   'gemini-2.5-pro':           65_536,
   'gemini-2.5-flash':         65_536,
+  'gemini-2.5-flash-lite':    65_536,
+
+  // GovAI custom LiteLLM aliases (Gemini-backed) — same caps as gemini-2.5-flash.
+  'govai-llm-gemini':         65_536,
+  'govai-llm-gemini-flash':   65_536,
 
   // Ollama local models (conservative safe defaults)
   'llama3.3:70b':               4_096,

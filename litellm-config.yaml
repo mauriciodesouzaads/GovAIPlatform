@@ -1,17 +1,20 @@
 model_list:
-  # ── govai-llm: primary chain (auto-failover) ────────────────────────────
-  # Only includes providers whose credentials are currently healthy.
-  # Adding a broken provider here (expired key, depleted credits) would
-  # cause LiteLLM's `simple-shuffle` routing to hit it randomly and return
-  # hard errors to the client before the next entry is tried. To add a
-  # new failover tier, first validate the key with the direct alias below
-  # (govai-llm-<provider>), then add an extra entry here.
+  # ── govai-llm: primary for short-prompt chat traffic ────────────────────
+  # Deterministically routes to Groq llama-3.1-8b-instant (fast + free
+  # tier 14.400 RPD, 30 RPM). Good for direct chat where messages fit
+  # inside the 6K TPM limit. router_settings.fallbacks below routes to
+  # govai-llm-gemini on 429/rate-limit so a transient Groq spike doesn't
+  # surface to the user.
   #
   # Current state:
-  #   ✅ Groq (llama-3.1-8b-instant) — free tier 30 RPM / 14.400 RPD
-  #      (70b-versatile has only 1000 RPD which we exhausted during QA)
-  #   ⚠️ Gemini 2.0 Flash — key expired (see govai-llm-gemini alias)
-  #   ⚠️ Anthropic Sonnet — credits depleted (see govai-llm-anthropic alias)
+  #   ✅ Groq llama-3.1-8b-instant  — 6K TPM / 14.400 RPD
+  #   ✅ Gemini 2.5 Flash Lite      — 1M-token input, PRIMARY for OpenClaude
+  #                                   (1000 RPD / 15 RPM free tier — fits the
+  #                                    18.6K token OpenClaude prompts easily)
+  #   ✅ Gemini 2.5 Flash           — fallback for govai-llm-gemini (only 20
+  #                                    RPD on free tier, so reserved for
+  #                                    when flash-lite is rate-limited)
+  #   ⚠️ Anthropic Sonnet            — credits depleted (alias kept for later)
 
   - model_name: govai-llm
     litellm_params:
@@ -19,27 +22,40 @@ model_list:
       api_key: os.environ/GROQ_API_KEY
 
   # ── Direct provider aliases (exposed to the model selector in /chat) ────
-  # The UI lets the user pick a specific backend; these entries keep the
-  # option open. A call that hits an expired/depleted entry surfaces the
-  # upstream error to the user without affecting the main govai-llm chain.
 
   - model_name: govai-llm-groq
     litellm_params:
       model: groq/llama-3.1-8b-instant
       api_key: os.environ/GROQ_API_KEY
 
-  # Bigger Groq model for prompts that exceed 8b-instant's 6K TPM free
-  # tier (e.g. OpenClaude delegation, which sends ~18K tokens per turn
-  # with its full system prompt + tool definitions). 70b-versatile has
-  # 12K TPM / 1000 RPD on free tier and higher on Dev Tier.
+  # Bigger Groq model for prompts beyond 8b-instant's 6K TPM limit on
+  # Dev Tier accounts. Free tier has 12K TPM / 1000 RPD.
   - model_name: govai-llm-groq-70b
     litellm_params:
       model: groq/llama-3.3-70b-versatile
       api_key: os.environ/GROQ_API_KEY
 
+  # Primary target for OpenClaude delegation — its system prompt plus
+  # tool definitions is ~18.6K tokens per turn, well within Gemini free
+  # tier's 1M TPM. openclaude-runner is pinned to this alias via
+  # OPENAI_MODEL in docker-compose so it never accidentally lands on
+  # Groq's 6K TPM limit.
+  #
+  # Flash-LITE specifically: gemini-2.5-flash on free tier is capped at
+  # 20 RPD (exhausted in a single dev session), but flash-LITE has
+  # 1000 RPD / 15 RPM with the same 1M context window. Function calling
+  # works the same way (verified manually with the get_weather tool).
   - model_name: govai-llm-gemini
     litellm_params:
-      model: gemini/gemini-2.0-flash
+      model: gemini/gemini-2.5-flash-lite
+      api_key: os.environ/GEMINI_API_KEY
+
+  # Backup Gemini alias — same provider, bigger model, way smaller quota.
+  # Used as a fallback target when flash-lite is itself rate-limited or
+  # if a turn needs the larger context window (still 1M but smarter).
+  - model_name: govai-llm-gemini-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
       api_key: os.environ/GEMINI_API_KEY
 
   - model_name: govai-llm-anthropic
@@ -53,13 +69,20 @@ model_list:
       api_key: os.environ/OPENAI_API_KEY
 
 router_settings:
-  # simple-shuffle picks a random entry under the same model_name. With
-  # only one entry for govai-llm today (Groq), every call deterministically
-  # goes there. num_retries covers transient Groq errors (429, network).
+  # Not using simple-shuffle across different providers — Groq would get
+  # random large prompts and 429. Instead, govai-llm has exactly one entry
+  # (Groq) and we use the fallbacks map to route elsewhere on failure.
   routing_strategy: simple-shuffle
   num_retries: 3
   retry_after: 5
   allowed_fails: 2
+  # On any failure of `govai-llm` (rate limit, context overflow, provider
+  # outage) → try `govai-llm-gemini` (flash-lite, 1000 RPD), then the
+  # bigger flash variant as a last resort. Same direction applies to
+  # `govai-llm-gemini` itself: if flash-lite hits its quota, hop to flash.
+  fallbacks:
+    - govai-llm: ["govai-llm-gemini", "govai-llm-gemini-flash"]
+    - govai-llm-gemini: ["govai-llm-gemini-flash"]
 
 general_settings:
   master_key: os.environ/LITELLM_KEY
