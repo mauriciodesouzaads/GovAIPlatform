@@ -6,15 +6,22 @@ model_list:
   # govai-llm-gemini on 429/rate-limit so a transient Groq spike doesn't
   # surface to the user.
   #
-  # Current state:
-  #   ✅ Groq llama-3.1-8b-instant  — 6K TPM / 14.400 RPD
-  #   ✅ Gemini 2.5 Flash Lite      — 1M-token input, PRIMARY for OpenClaude
-  #                                   (1000 RPD / 15 RPM free tier — fits the
-  #                                    18.6K token OpenClaude prompts easily)
-  #   ✅ Gemini 2.5 Flash           — fallback for govai-llm-gemini (only 20
-  #                                    RPD on free tier, so reserved for
-  #                                    when flash-lite is rate-limited)
-  #   ⚠️ Anthropic Sonnet            — credits depleted (alias kept for later)
+  # Current state (April 2026):
+  #   ✅ Groq llama-3.1-8b-instant   — 6K TPM / 14.400 RPD (primary chat)
+  #   ✅ Cerebras qwen-3-235b        — ~1300 tok/s, structured tool_calls,
+  #                                    17K+ context confirmed via empirical
+  #                                    probe; fallback for govai-llm AND
+  #                                    OpenClaude when Gemini is exhausted
+  #   ✅ Cerebras llama3.1-8b        — fast, plain chat only (tool calling
+  #                                    returns text-blob, NOT structured —
+  #                                    do NOT route OpenClaude here)
+  #   ✅ Gemini 2.5 Flash Lite       — 1M context, primary for OpenClaude
+  #                                    (1000 RPD / 15 RPM free tier)
+  #   ✅ Gemini 2.5 Flash            — backup gemini alias (only 20 RPD
+  #                                    on free tier, reserved as last hop)
+  #   ✅ Ollama qwen2.5:3b           — local on host (zero quota, zero
+  #                                    internet, runs on Apple M2 5GB GPU)
+  #   ⚠️ Anthropic Sonnet             — credits depleted (alias kept)
 
   - model_name: govai-llm
     litellm_params:
@@ -34,6 +41,23 @@ model_list:
     litellm_params:
       model: groq/llama-3.3-70b-versatile
       api_key: os.environ/GROQ_API_KEY
+
+  # ── Cerebras (free tier, ultra-fast inference) ──────────────────────────
+  # The Cerebras free tier on this account exposes 4 model IDs but only
+  # qwen-3-235b-a22b-instruct-2507 returns proper structured tool_calls
+  # (verified manually with the get_weather function-calling test).
+  # llama3.1-8b returns the tool call as a text blob inside .content,
+  # which would break OpenClaude's tool execution loop — so we keep it
+  # as a chat-only alias and never route the OpenClaude target there.
+  - model_name: govai-llm-cerebras
+    litellm_params:
+      model: cerebras/qwen-3-235b-a22b-instruct-2507
+      api_key: os.environ/CEREBRAS_API_KEY
+
+  - model_name: govai-llm-cerebras-fast
+    litellm_params:
+      model: cerebras/llama3.1-8b
+      api_key: os.environ/CEREBRAS_API_KEY
 
   # Primary target for OpenClaude delegation — its system prompt plus
   # tool definitions is ~18.6K tokens per turn, well within Gemini free
@@ -58,6 +82,19 @@ model_list:
       model: gemini/gemini-2.5-flash
       api_key: os.environ/GEMINI_API_KEY
 
+  # ── Ollama local (zero quota, zero cost, zero internet) ────────────────
+  # Runs on the developer's host (Apple M2, ~5 GiB Metal). The LiteLLM
+  # container reaches the host via host.docker.internal, which Docker
+  # Desktop maps automatically on macOS — verified manually before
+  # registering this entry. The model is qwen2.5:3b (Q4_K_M, 1.9 GB),
+  # which has tool calling support and a 32K context. This is the
+  # bottom of the fallback chain — when EVERY cloud provider is dead,
+  # the platform still serves chat from this entry.
+  - model_name: govai-llm-ollama
+    litellm_params:
+      model: ollama_chat/qwen2.5:3b
+      api_base: http://host.docker.internal:11434
+
   - model_name: govai-llm-anthropic
     litellm_params:
       model: anthropic/claude-sonnet-4-20250514
@@ -76,13 +113,33 @@ router_settings:
   num_retries: 3
   retry_after: 5
   allowed_fails: 2
-  # On any failure of `govai-llm` (rate limit, context overflow, provider
-  # outage) → try `govai-llm-gemini` (flash-lite, 1000 RPD), then the
-  # bigger flash variant as a last resort. Same direction applies to
-  # `govai-llm-gemini` itself: if flash-lite hits its quota, hop to flash.
+  # Fallback chains. The platform must NEVER fail open with a quota error
+  # while ANY provider in the chain has headroom.
+  #
+  # govai-llm  (chat normal): Groq is fast and free but only has 6K TPM,
+  #   so for any oversized prompt we hop to Cerebras (qwen-3-235b, ~1300
+  #   tok/s), then Gemini Flash Lite, then Gemini Flash, and finally
+  #   Ollama on the host (no quota at all).
+  #
+  # govai-llm-gemini  (OpenClaude target): Gemini Flash Lite is the
+  #   primary because of its 1M context. When its 20 RPD per project
+  #   daily quota runs out (which happens fast in dev), we hop to
+  #   Cerebras qwen-3-235b — ONLY this Cerebras model returns properly
+  #   structured tool_calls for OpenClaude — and finally to Ollama on
+  #   the host as the absolute floor.
+  #
+  # IMPORTANT: LiteLLM's mid-stream fallback chain follows the
+  # CURRENTLY-failing model_group, not the original request. When
+  # govai-llm-gemini falls through to govai-llm-gemini-flash and that
+  # also 429s, LiteLLM looks for a fallback for govai-llm-gemini-flash,
+  # not for govai-llm-gemini. So EVERY entry in the chain needs its
+  # own next-hop entry — otherwise the fallback dies mid-stream.
   fallbacks:
-    - govai-llm: ["govai-llm-gemini", "govai-llm-gemini-flash"]
-    - govai-llm-gemini: ["govai-llm-gemini-flash"]
+    - govai-llm: ["govai-llm-cerebras", "govai-llm-gemini", "govai-llm-gemini-flash", "govai-llm-ollama"]
+    - govai-llm-gemini: ["govai-llm-gemini-flash", "govai-llm-cerebras", "govai-llm-ollama"]
+    - govai-llm-gemini-flash: ["govai-llm-cerebras", "govai-llm-ollama"]
+    - govai-llm-cerebras: ["govai-llm-gemini", "govai-llm-ollama"]
+    - govai-llm-cerebras-fast: ["govai-llm-cerebras", "govai-llm-ollama"]
 
 general_settings:
   master_key: os.environ/LITELLM_KEY

@@ -96,12 +96,26 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'gemini-2.5-flash':       1_048_576,
   'gemini-2.5-flash-lite':  1_048_576,
 
-  // GovAI custom LiteLLM aliases (resolve to underlying Gemini models —
-  // see litellm-config.yaml). Without these, OpenClaude falls back to its
-  // 8k conservative default and triggers auto-compact on every turn,
-  // because the system prompt + tool definitions alone are ~18.6K tokens.
-  'govai-llm-gemini':       1_048_576,
-  'govai-llm-gemini-flash': 1_048_576,
+  // Cerebras (free tier; only the 235B MoE returns structured tool_calls
+  // and is therefore safe as an OpenClaude target — see litellm-config.yaml
+  // for the rationale). We empirically confirmed it accepts a 17K-token
+  // prompt directly, and Cerebras's published spec gives qwen-3 a 64K
+  // context window — register conservatively at 64K so OpenClaude's
+  // 18.6K-token system prompt has comfortable headroom without flirting
+  // with an undocumented upper limit.
+  'qwen-3-235b-a22b-instruct-2507':  64_000,
+  'llama3.1-8b':                     128_000,
+
+  // GovAI custom LiteLLM aliases (resolve to underlying Gemini / Cerebras
+  // / Ollama models — see litellm-config.yaml). Without these, OpenClaude
+  // falls back to its 8k conservative default and triggers auto-compact
+  // on every turn, because the system prompt + tool definitions alone
+  // are ~18.6K tokens.
+  'govai-llm-gemini':         1_048_576,
+  'govai-llm-gemini-flash':   1_048_576,
+  'govai-llm-cerebras':          64_000,  // qwen-3-235b-a22b-instruct-2507
+  'govai-llm-cerebras-fast':    128_000,  // llama3.1-8b
+  'govai-llm-ollama':            32_768,  // qwen2.5:3b on host
 
   // Ollama local models
   // Llama 3.1+ models support 128k context natively (Meta official specs).
@@ -209,9 +223,16 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'gemini-2.5-flash':         65_536,
   'gemini-2.5-flash-lite':    65_536,
 
-  // GovAI custom LiteLLM aliases (Gemini-backed) — same caps as gemini-2.5-flash.
+  // Cerebras free tier — capped output sizes per their docs.
+  'qwen-3-235b-a22b-instruct-2507':  8_192,
+  'llama3.1-8b':                     8_192,
+
+  // GovAI custom LiteLLM aliases.
   'govai-llm-gemini':         65_536,
   'govai-llm-gemini-flash':   65_536,
+  'govai-llm-cerebras':        8_192,
+  'govai-llm-cerebras-fast':   8_192,
+  'govai-llm-ollama':          4_096,
 
   // Ollama local models (conservative safe defaults)
   'llama3.3:70b':               4_096,
