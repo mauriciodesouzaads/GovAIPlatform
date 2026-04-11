@@ -34,6 +34,89 @@ export interface DispatchResult {
     error?: string;
 }
 
+// ── Delegation Decision (FASE 5d) ─────────────────────────────────────────────
+
+export interface DelegationConfig {
+    enabled: boolean;
+    auto_delegate_patterns: string[];
+    max_duration_seconds: number;
+}
+
+export interface DelegationDecision {
+    shouldDelegate: boolean;
+    reason?: string;
+    matchedPattern?: string;
+}
+
+/**
+ * Pure function: decides whether a message should be delegated to the Architect.
+ *
+ * Rules (in order):
+ *   1. delegationConfig null or disabled → no delegation
+ *   2. no patterns configured → no delegation
+ *   3. first pattern that matches (case-insensitive regex) → delegate
+ *   4. invalid regex → silently skipped (continue to next pattern)
+ */
+export function shouldDelegate(
+    message: string,
+    delegationConfig: DelegationConfig | null | undefined
+): DelegationDecision {
+    if (!delegationConfig || !delegationConfig.enabled) {
+        return { shouldDelegate: false, reason: 'delegation_disabled' };
+    }
+
+    if (!Array.isArray(delegationConfig.auto_delegate_patterns)
+        || delegationConfig.auto_delegate_patterns.length === 0) {
+        return { shouldDelegate: false, reason: 'no_patterns' };
+    }
+
+    for (const pattern of delegationConfig.auto_delegate_patterns) {
+        try {
+            const regex = new RegExp(pattern, 'i');
+            if (regex.test(message)) {
+                return { shouldDelegate: true, matchedPattern: pattern };
+            }
+        } catch {
+            // Invalid regex — skip silently
+            continue;
+        }
+    }
+
+    return { shouldDelegate: false, reason: 'no_pattern_match' };
+}
+
+/**
+ * Returns the singleton "auto-delegation" workflow_graph_id for an org.
+ * Required because architect_work_items.workflow_graph_id is NOT NULL.
+ *
+ * The seed creates this workflow_graph at id 00000000-0000-0000-00B4-...001
+ * with marker = "auto_delegation" in graph_json. This helper looks it up
+ * by marker (not by hardcoded ID) so it works for any org that has been
+ * properly seeded.
+ *
+ * Returns null if no marker found — caller must handle gracefully.
+ */
+export async function getAutoDelegationWorkflowGraphId(
+    pool: Pool,
+    orgId: string
+): Promise<string | null> {
+    const client = await pool.connect();
+    try {
+        await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+        const res = await client.query(
+            `SELECT id FROM workflow_graphs
+             WHERE org_id = $1
+               AND graph_json->>'marker' = 'auto_delegation'
+             ORDER BY created_at ASC LIMIT 1`,
+            [orgId]
+        );
+        return res.rows.length > 0 ? (res.rows[0].id as string) : null;
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
 // ── Adapter: internal_rag ─────────────────────────────────────────────────────
 
 export async function runInternalRagAdapter(

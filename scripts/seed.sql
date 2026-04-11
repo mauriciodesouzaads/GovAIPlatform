@@ -1107,4 +1107,105 @@ VALUES (
     'pending'
 ) ON CONFLICT (id) DO NOTHING;
 
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║  FASE 5c — Skills Catalogáveis + Workflow Templates                        ║
+-- ║  (requer migration 074_catalog_skills_and_templates.sql)                   ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- ── Skill 1: Análise Jurídica ────────────────────────────────────────────────
+INSERT INTO catalog_skills (id, org_id, name, description, category, instructions, tags, is_system, created_by) VALUES
+('00000000-0000-0000-0060-000000000001', '00000000-0000-0000-0000-000000000001',
+ 'Análise Jurídica', 'Análise de contratos, cláusulas e pareceres jurídicos brasileiros',
+ 'analysis',
+ E'## Análise Jurídica\n\nVocê é um especialista em direito brasileiro. Ao analisar documentos jurídicos:\n\n1. Identifique o tipo de documento (contrato, parecer, petição, procuração)\n2. Liste as partes envolvidas\n3. Identifique cláusulas críticas (penais, de rescisão, de confidencialidade)\n4. Verifique conformidade com:\n   - Código Civil (Arts. 421-480)\n   - CDC (se relação de consumo)\n   - LGPD (se dados pessoais)\n   - CLT (se relação trabalhista)\n5. Emita parecer com nível de risco: BAIXO / MÉDIO / ALTO / CRÍTICO\n6. Liste recomendações específicas\n\n### Referências obrigatórias\n- Sempre cite artigos de lei específicos\n- Mencione jurisprudência STJ/STF quando relevante\n- Indique se há necessidade de consulta especializada',
+ ARRAY['jurídico', 'contratos', 'compliance', 'lgpd'], true,
+ (SELECT id FROM users WHERE email = 'admin@orga.com' LIMIT 1))
+ON CONFLICT (org_id, name) DO NOTHING;
+
+-- ── Skill 2: FAQ Corporativo ────────────────────────────────────────────────
+INSERT INTO catalog_skills (id, org_id, name, description, category, instructions, tags, is_system, created_by) VALUES
+('00000000-0000-0000-0060-000000000002', '00000000-0000-0000-0000-000000000001',
+ 'FAQ Corporativo', 'Template para assistente de FAQ baseado em política interna',
+ 'generation',
+ E'## FAQ Corporativo\n\nVocê é um assistente de RH que responde dúvidas sobre política interna.\n\n### Regras\n1. Responda APENAS com base no contexto fornecido (RAG)\n2. Se a resposta não está no contexto, diga: "Não encontrei informação sobre isso na base de conhecimento. Consulte o RH."\n3. Nunca invente informações\n4. Use linguagem acessível, evite jargão técnico\n5. Formate com bullet points para listas\n6. Cite o documento fonte quando possível\n\n### Tópicos cobertos\n- Férias e licenças\n- Benefícios\n- Horário e jornada\n- Código de conduta\n- Canais de denúncia',
+ ARRAY['rh', 'faq', 'política interna'], true,
+ (SELECT id FROM users WHERE email = 'admin@orga.com' LIMIT 1))
+ON CONFLICT (org_id, name) DO NOTHING;
+
+-- ── Skill 3: Code Review Governado ──────────────────────────────────────────
+INSERT INTO catalog_skills (id, org_id, name, description, category, instructions, tags, is_system, created_by) VALUES
+('00000000-0000-0000-0060-000000000003', '00000000-0000-0000-0000-000000000001',
+ 'Code Review Governado', 'Revisão de código com scoring de confiança e filtro de falso positivo',
+ 'review',
+ E'## Code Review Governado\n\nInspirado no plugin code-review da Anthropic.\n\n### Fluxo\n1. **Triagem**: leia o diff/PR e classifique: bugfix, feature, refactor, config\n2. **Descoberta de contexto**: procure CLAUDE.md, README, padrões do projeto\n3. **Resumo**: descreva o que a mudança faz em 2-3 frases\n4. **Revisão paralela** em 4 dimensões:\n   - Correção lógica\n   - Segurança\n   - Performance\n   - Manutenibilidade\n5. **Validação**: para cada finding, atribua score de confiança 0-100\n6. **Filtro de falso positivo**: remova findings com score < 60\n7. **Relatório**: liste findings ordenados por severidade\n\n### Scoring\n- 90-100: certeza alta, requer ação imediata\n- 70-89: provável issue, recomenda ação\n- 60-69: possível issue, verificar\n- <60: descartado como falso positivo\n\n### Output\nPara cada finding:\n- Arquivo e linha\n- Severidade (critical/high/medium/low)\n- Score de confiança\n- Descrição concisa\n- Sugestão de correção',
+ ARRAY['code-review', 'segurança', 'qualidade', 'development'], true,
+ (SELECT id FROM users WHERE email = 'admin@orga.com' LIMIT 1))
+ON CONFLICT (org_id, name) DO NOTHING;
+
+-- ── Workflow Template 1: Feature Development (7 fases) ──────────────────────
+INSERT INTO architect_workflow_templates (id, org_id, name, description, category, phases, default_execution_hint, estimated_duration_minutes, is_system, created_by) VALUES
+('00000000-0000-0000-0070-000000000001', '00000000-0000-0000-0000-000000000001',
+ 'Feature Development', 'Fluxo completo de desenvolvimento de feature — da descoberta ao summary',
+ 'development',
+ '[
+   {"name":"Discovery","description":"Entender o problema e o contexto do negócio","execution_hint":"human","auto_advance":false},
+   {"name":"Codebase Exploration","description":"Analisar o código existente e identificar pontos de integração","execution_hint":"openclaude","auto_advance":true},
+   {"name":"Clarifying Questions","description":"Formular perguntas de clarificação para o stakeholder","execution_hint":"openclaude","auto_advance":false},
+   {"name":"Architecture Design","description":"Propor 2-3 abordagens arquiteturais com trade-offs","execution_hint":"openclaude","auto_advance":false},
+   {"name":"Implementation","description":"Implementar a abordagem aprovada","execution_hint":"openclaude","auto_advance":true},
+   {"name":"Review","description":"Revisar o código gerado com scoring de confiança","execution_hint":"openclaude","auto_advance":true},
+   {"name":"Summary","description":"Resumo do que foi feito, decisões tomadas e próximos passos","execution_hint":"openclaude","auto_advance":true}
+ ]'::jsonb,
+ 'openclaude', 120, true,
+ (SELECT id FROM users WHERE email = 'admin@orga.com' LIMIT 1))
+ON CONFLICT (org_id, name) DO NOTHING;
+
+-- ── Workflow Template 2: Security Review (4 fases) ──────────────────────────
+INSERT INTO architect_workflow_templates (id, org_id, name, description, category, phases, default_execution_hint, estimated_duration_minutes, is_system, created_by) VALUES
+('00000000-0000-0000-0070-000000000002', '00000000-0000-0000-0000-000000000001',
+ 'Security Review', 'Revisão de segurança com triagem, análise paralela e filtro de falso positivo',
+ 'security',
+ '[
+   {"name":"Triage","description":"Classificar a mudança: tipo, escopo, superfície de ataque","execution_hint":"openclaude","auto_advance":true},
+   {"name":"Parallel Analysis","description":"4 agentes analisam: injeção, autenticação, dados sensíveis, configuração","execution_hint":"openclaude","auto_advance":true},
+   {"name":"Validation","description":"Validar findings contra o contexto do projeto, filtrar falso positivo","execution_hint":"openclaude","auto_advance":true},
+   {"name":"Report","description":"Relatório consolidado com severidade, score de confiança e recomendações","execution_hint":"openclaude","auto_advance":true}
+ ]'::jsonb,
+ 'openclaude', 45, true,
+ (SELECT id FROM users WHERE email = 'admin@orga.com' LIMIT 1))
+ON CONFLICT (org_id, name) DO NOTHING;
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║  FASE 5d — Escalação Governada                                             ║
+-- ║  (requer migration 075_delegation_config.sql)                              ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- ── Auto-Delegation Workflow Graph (singleton per org) ──────────────────────
+-- Usado pelo execution.service.ts ao escalar mensagens para o Architect.
+-- Reutiliza o problem_contract + decision_set já criados para o demo OpenClaude.
+INSERT INTO workflow_graphs (
+    id, org_id, architecture_decision_set_id, version, status, graph_json
+) VALUES (
+    '00000000-0000-0000-00B4-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-00B1-000000000001',
+    1,
+    'delegated',
+    '{"nodes": [{"id": "auto-delegation", "type": "openclaude_task"}], "marker": "auto_delegation"}'::jsonb
+) ON CONFLICT (id) DO NOTHING;
+
+-- ── Delegation config no Assistente Jurídico ────────────────────────────────
+UPDATE assistants SET delegation_config = '{
+  "enabled": true,
+  "auto_delegate_patterns": [
+    "analise o (repositório|código|projeto)",
+    "gere um relatório",
+    "execute os testes",
+    "faça (um|uma) (code review|revisão)",
+    "crie (uma|a) (documentação|spec|proposta)"
+  ],
+  "max_duration_seconds": 300
+}'::jsonb
+WHERE id = '00000000-0000-0000-0002-000000000001';
+
 COMMIT;

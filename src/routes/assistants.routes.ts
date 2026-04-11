@@ -1986,4 +1986,111 @@ export async function assistantsRoutes(app: FastifyInstance, opts: { pgPool: Poo
         }
     });
 
+    // ── FASE 5d: GET /v1/admin/assistants/:id/delegation ─────────────────────
+    app.get('/v1/admin/assistants/:id/delegation', { preHandler: requireTenantRole(['admin', 'sre', 'operator', 'auditor', 'dpo']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+        const { id } = request.params as { id: string };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const result = await client.query(
+                `SELECT id, name, delegation_config FROM assistants WHERE id = $1 AND org_id = $2`,
+                [id, orgId]
+            );
+            if (result.rows.length === 0) {
+                return reply.status(404).send({ error: 'Assistente não encontrado.' });
+            }
+            return reply.send(result.rows[0]);
+        } finally {
+            client.release();
+        }
+    });
+
+    // ── FASE 5d: PUT /v1/admin/assistants/:id/delegation ─────────────────────
+    // Atualiza o delegation_config de um assistente.
+    // Validação: enabled boolean, auto_delegate_patterns array de strings (regex válido),
+    // max_duration_seconds positivo (max 3600).
+    app.put('/v1/admin/assistants/:id/delegation', { preHandler: requireTenantRole(['admin']) }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+        const { id } = request.params as { id: string };
+        const body   = (request.body ?? {}) as {
+            enabled?: boolean;
+            auto_delegate_patterns?: string[];
+            max_duration_seconds?: number;
+        };
+
+        // Validate
+        if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
+            return reply.status(400).send({ error: 'enabled deve ser boolean.' });
+        }
+        if (body.auto_delegate_patterns !== undefined) {
+            if (!Array.isArray(body.auto_delegate_patterns)) {
+                return reply.status(400).send({ error: 'auto_delegate_patterns deve ser array de strings.' });
+            }
+            // Validate each pattern is a valid regex
+            for (const p of body.auto_delegate_patterns) {
+                if (typeof p !== 'string') {
+                    return reply.status(400).send({ error: 'auto_delegate_patterns deve conter apenas strings.' });
+                }
+                try {
+                    new RegExp(p);
+                } catch {
+                    return reply.status(400).send({ error: `Pattern regex inválido: "${p}"` });
+                }
+            }
+        }
+        if (body.max_duration_seconds !== undefined) {
+            if (typeof body.max_duration_seconds !== 'number' || body.max_duration_seconds <= 0 || body.max_duration_seconds > 3600) {
+                return reply.status(400).send({ error: 'max_duration_seconds deve ser entre 1 e 3600.' });
+            }
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+
+            // Merge with existing config so partial updates work
+            const currentRes = await client.query(
+                `SELECT delegation_config FROM assistants WHERE id = $1 AND org_id = $2`,
+                [id, orgId]
+            );
+            if (currentRes.rows.length === 0) {
+                return reply.status(404).send({ error: 'Assistente não encontrado.' });
+            }
+
+            const current = currentRes.rows[0].delegation_config || {
+                enabled: false,
+                auto_delegate_patterns: [],
+                max_duration_seconds: 300,
+            };
+
+            const merged = {
+                enabled: body.enabled !== undefined ? body.enabled : current.enabled,
+                auto_delegate_patterns: body.auto_delegate_patterns !== undefined ? body.auto_delegate_patterns : current.auto_delegate_patterns,
+                max_duration_seconds: body.max_duration_seconds !== undefined ? body.max_duration_seconds : current.max_duration_seconds,
+            };
+
+            const result = await client.query(
+                `UPDATE assistants
+                 SET delegation_config = $1
+                 WHERE id = $2 AND org_id = $3
+                 RETURNING id, name, delegation_config`,
+                [JSON.stringify(merged), id, orgId]
+            );
+
+            // Invalida cache de policy do assistente para que a próxima execução pegue o novo config
+            try {
+                const { redisCache } = await import('../lib/redis');
+                await redisCache.del(`assistant:${id}:policy`);
+            } catch { /* non-fatal */ }
+
+            return reply.send(result.rows[0]);
+        } finally {
+            client.release();
+        }
+    });
+
 }

@@ -7,6 +7,7 @@ import {
     BrainCircuit, Plus, RefreshCw, ChevronRight,
     ClipboardList, Search, CheckCircle2, GitBranch,
     X, FileText, MessageSquare, Layers, AlertTriangle,
+    Workflow, Play, Clock, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import api, { ENDPOINTS } from '@/lib/api';
 import { useToast } from '@/components/Toast';
@@ -76,6 +77,25 @@ interface DemandCaseFull {
     decisions: DecisionSet[];
     workflow: WorkflowGraph | null;
     workItems: WorkItem[];
+}
+
+interface WorkflowTemplatePhase {
+    name: string;
+    description?: string;
+    execution_hint?: string;
+    auto_advance?: boolean;
+}
+
+interface WorkflowTemplate {
+    id: string;
+    name: string;
+    description: string | null;
+    category: string | null;
+    phases: WorkflowTemplatePhase[];
+    default_execution_hint: string;
+    estimated_duration_minutes: number | null;
+    is_active: boolean;
+    is_system: boolean;
 }
 
 interface DiscoveryStatus {
@@ -169,6 +189,12 @@ export default function ArchitectPage() {
     const [cancellingItemId, setCancellingItemId] = useState<string | null>(null);
     const [expandedOutputId, setExpandedOutputId] = useState<string | null>(null);
 
+    // Templates (FASE 5c)
+    const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
+    const [loadingTemplates, setLoadingTemplates] = useState(false);
+    const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
+    const [instantiatingId, setInstantiatingId] = useState<string | null>(null);
+
     // Case summary
     const [caseSummary, setCaseSummary] = useState<{
         caseId: string; caseTitle: string; caseStatus: string; priority: string;
@@ -194,7 +220,45 @@ export default function ArchitectPage() {
         }
     }, [showToast]);
 
-    useEffect(() => { loadCases(); }, [loadCases]);
+    const loadTemplates = useCallback(async () => {
+        setLoadingTemplates(true);
+        try {
+            const res = await api.get(ENDPOINTS.ARCHITECT_TEMPLATES);
+            setTemplates(res.data ?? []);
+        } catch {
+            // Silent fail — templates section just shows empty
+        } finally {
+            setLoadingTemplates(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadCases();
+        loadTemplates();
+    }, [loadCases, loadTemplates]);
+
+    const instantiateTemplate = async (template: WorkflowTemplate) => {
+        setInstantiatingId(template.id);
+        try {
+            const res = await api.post(ENDPOINTS.ARCHITECT_TEMPLATE_INSTANTIATE(template.id), {
+                title: `${template.name} — ${new Date().toLocaleDateString('pt-BR')}`,
+                description: template.description || `Instanciado a partir de ${template.name}`,
+                priority: 'medium',
+            });
+            showToast(`Workflow criado com ${res.data.work_items_created} fases`, 'success');
+            await loadCases();
+            // Open the newly created case
+            const caseId = res.data.demand_case_id || res.data.case_id;
+            if (caseId) {
+                setDrawerTab('demand');
+                openCase(caseId);
+            }
+        } catch {
+            showToast('Erro ao instanciar template', 'error');
+        } finally {
+            setInstantiatingId(null);
+        }
+    };
 
     const openCase = useCallback(async (caseId: string) => {
         setDrawerLoading(true);
@@ -406,6 +470,122 @@ export default function ArchitectPage() {
                     </div>
                 ))}
             </div>
+
+            {/* Section A2: Workflow Templates (FASE 5c) */}
+            {(templates.length > 0 || loadingTemplates) && (
+                <div className="px-8 py-4 border-b border-border/30 shrink-0">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                            <Workflow className="w-4 h-4 text-violet-400" />
+                            <h3 className="text-sm font-semibold text-foreground">Templates de Workflow</h3>
+                            <span className="text-xs text-muted-foreground">({templates.length})</span>
+                        </div>
+                    </div>
+
+                    {loadingTemplates ? (
+                        <div className="flex gap-3">
+                            <SkeletonCard />
+                            <SkeletonCard />
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {templates.map(tpl => {
+                                const isExpanded = expandedTemplateId === tpl.id;
+                                const isInstantiating = instantiatingId === tpl.id;
+                                const categoryColor =
+                                    tpl.category === 'security' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20' :
+                                    tpl.category === 'development' ? 'text-blue-400 bg-blue-500/10 border-blue-500/20' :
+                                    tpl.category === 'review' ? 'text-violet-400 bg-violet-500/10 border-violet-500/20' :
+                                    tpl.category === 'compliance' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' :
+                                    'text-muted-foreground bg-secondary/20 border-border/30';
+
+                                return (
+                                    <div key={tpl.id} className="rounded-lg border border-border/40 bg-card/50 overflow-hidden">
+                                        <div className="p-3">
+                                            <div className="flex items-start justify-between gap-2 mb-2">
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="font-medium text-sm text-foreground truncate">{tpl.name}</div>
+                                                    {tpl.description && (
+                                                        <div className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{tpl.description}</div>
+                                                    )}
+                                                </div>
+                                                {tpl.is_system && (
+                                                    <Badge variant="neutral" className="text-[10px]">sistema</Badge>
+                                                )}
+                                            </div>
+
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+                                                <span className="flex items-center gap-1">
+                                                    <Layers className="w-3 h-3" />
+                                                    {tpl.phases?.length || 0} fases
+                                                </span>
+                                                {tpl.estimated_duration_minutes && (
+                                                    <>
+                                                        <span>·</span>
+                                                        <span className="flex items-center gap-1">
+                                                            <Clock className="w-3 h-3" />
+                                                            ~{tpl.estimated_duration_minutes} min
+                                                        </span>
+                                                    </>
+                                                )}
+                                                {tpl.category && (
+                                                    <>
+                                                        <span>·</span>
+                                                        <span className={`px-1.5 py-0.5 rounded border text-[10px] ${categoryColor}`}>
+                                                            {tpl.category}
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </div>
+
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => instantiateTemplate(tpl)}
+                                                    disabled={isInstantiating || role !== 'admin'}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-violet-500/20 text-violet-300 border border-violet-500/30 hover:bg-violet-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    <Play className="w-3 h-3" />
+                                                    {isInstantiating ? 'Criando...' : 'Instanciar'}
+                                                </button>
+                                                <button
+                                                    onClick={() => setExpandedTemplateId(isExpanded ? null : tpl.id)}
+                                                    className="flex items-center gap-1 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                                >
+                                                    {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                                    Ver fases
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {isExpanded && Array.isArray(tpl.phases) && tpl.phases.length > 0 && (
+                                            <div className="border-t border-border/20 bg-secondary/10 px-3 py-2 space-y-1.5">
+                                                {tpl.phases.map((phase, idx) => (
+                                                    <div key={idx} className="flex items-start gap-2 text-xs">
+                                                        <div className="w-5 h-5 rounded-full bg-secondary/40 flex items-center justify-center text-[10px] text-muted-foreground shrink-0">
+                                                            {idx + 1}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="font-medium text-foreground">{phase.name}</div>
+                                                            {phase.description && (
+                                                                <div className="text-muted-foreground text-[11px] line-clamp-1">{phase.description}</div>
+                                                            )}
+                                                        </div>
+                                                        {phase.execution_hint && (
+                                                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-violet-500/10 text-violet-400 border border-violet-500/20 shrink-0">
+                                                                {phase.execution_hint}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Section B: Cases table + drawer */}
             <div className="flex flex-1 overflow-hidden">

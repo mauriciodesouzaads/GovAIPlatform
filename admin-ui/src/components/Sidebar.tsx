@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
     LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck,
     ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2, X, Bell,
-    ScrollText, AlertTriangle, Settings, ClipboardCheck, ShieldEllipsis, BellRing,
+    ScrollText, AlertTriangle, Settings, ClipboardCheck, ShieldEllipsis, BellRing, Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
@@ -167,6 +167,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         <NavItem href="/policies"   label="Políticas"               Icon={ScrollText}    isActive={pathname === '/policies'}    accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
                         <NavItem href="/exceptions"       label="Exceções"                Icon={AlertTriangle}   isActive={pathname === '/exceptions'}       accentClass="bg-amber-400" iconActiveClass="text-amber-400" badge={exceptionsBadge} onClose={onClose} />
                         <NavItem href="/compliance-hub"   label="Compliance Hub"          Icon={ClipboardCheck}  isActive={pathname === '/compliance-hub'}   accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/skills"           label="Skills & Templates"      Icon={Sparkles}        isActive={pathname === '/skills'}           accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
                         <NavItem href="/logs"             label="Audit Logs"              Icon={ShieldAlert}     isActive={pathname === '/logs'}             accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
                         {(isAdmin || role === 'dpo') && (
                             <NavItem href="/settings/dlp" label="Proteção de Dados" Icon={ShieldEllipsis} isActive={pathname === '/settings/dlp'} accentClass="bg-amber-400" iconActiveClass="text-amber-400" onClose={onClose} />

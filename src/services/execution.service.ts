@@ -21,7 +21,7 @@
 import { FastifyBaseLogger } from 'fastify';
 import { PoolClient } from 'pg';
 import axios from 'axios';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { IntegrityService, ActionType } from '../lib/governance';
 import { opaEngine } from '../lib/opa-governance';
 import { dlpEngine } from '../lib/dlp-engine';
@@ -33,6 +33,7 @@ import { checkQuota, recordTokenUsage, getCostPerToken } from '../lib/finops';
 import { pgPool } from '../lib/db';
 import { redisCache } from '../lib/redis';
 import { recordEvidence } from '../lib/evidence';
+import { shouldDelegate, getAutoDelegationWorkflowGraphId, type DelegationConfig } from '../lib/architect-delegation';
 
 export interface ExecutionParams {
     assistantId: string;
@@ -114,22 +115,26 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
     try {
         await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
 
-        // ── 1. Fetch active assistant version + policy rules (Redis-cached, 60s TTL) ──
-        // Cache format: { versionId, policyRules } — includes versionId for snapshot
+        // ── 1. Fetch active assistant version + policy rules + delegation config ──
+        // Cache format: { versionId, policyRules, delegationConfig } — 60s TTL
         const cacheKey = `assistant:${assistantId}:policy`;
         let policyRules: any;
         let versionId: string | null = null;
+        let delegationConfig: DelegationConfig | null = null;
 
         const cachedStr = await redisCache.get(cacheKey);
         if (cachedStr) {
             const cached = JSON.parse(cachedStr);
             policyRules = cached.policyRules;
             versionId = cached.versionId ?? null;
+            delegationConfig = cached.delegationConfig ?? null;
         } else {
             const versionRes = await client.query(`
-                SELECT av.id as version_id, pv.rules_jsonb as policy_rules
+                SELECT av.id as version_id, pv.rules_jsonb as policy_rules,
+                       a.delegation_config
                 FROM assistant_versions av
                 JOIN policy_versions pv ON av.policy_version_id = pv.id
+                JOIN assistants a ON a.id = av.assistant_id
                 WHERE av.assistant_id = $1 AND av.status = 'published'
                 ORDER BY av.version DESC LIMIT 1
             `, [assistantId]);
@@ -137,15 +142,17 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             if (versionRes.rows.length > 0) {
                 policyRules = versionRes.rows[0].policy_rules;
                 versionId = versionRes.rows[0].version_id as string;
-                await redisCache.setex(cacheKey, 60, JSON.stringify({ versionId, policyRules }));
+                delegationConfig = versionRes.rows[0].delegation_config ?? null;
+                await redisCache.setex(cacheKey, 60, JSON.stringify({ versionId, policyRules, delegationConfig }));
             } else {
                 const assistantRes = await client.query(
-                    'SELECT id FROM assistants WHERE id = $1 AND status = $2',
+                    'SELECT id, delegation_config FROM assistants WHERE id = $1 AND status = $2',
                     [assistantId, 'published']
                 );
                 if (assistantRes.rows.length === 0) {
                     return { statusCode: 404, body: { error: 'Assistente não encontrado.' } };
                 }
+                delegationConfig = assistantRes.rows[0].delegation_config ?? null;
                 policyRules = { pii_filter: true, forbidden_topics: ['hack', 'bypass'] };
             }
         }
@@ -310,6 +317,121 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                 dlp_detections: (policyCheck.dlpReport?.totalDetections || 0) + dlpRulesResult.detections.length,
             },
         });
+
+        // ── 6c. Delegation check (FASE 5d) ────────────────────────────────────────
+        // If the assistant has delegation enabled and the message matches a pattern,
+        // escalate to the Architect → OpenClaude instead of calling the LLM.
+        // The check runs after governance approves but BEFORE we incur LLM cost.
+        const delegationDecision = shouldDelegate(message, delegationConfig);
+        if (delegationDecision.shouldDelegate) {
+            try {
+                const wfgId = await getAutoDelegationWorkflowGraphId(pgPool, orgId);
+                if (!wfgId) {
+                    log.warn({ orgId, assistantId },
+                        'Delegation pattern matched but no auto-delegation workflow_graph found — falling through to LLM');
+                } else {
+                    const workItemId = randomUUID();
+                    const titleSnippet = message.length > 100 ? message.substring(0, 97) + '...' : message;
+
+                    // Insert work item for OpenClaude
+                    await client.query(
+                        `INSERT INTO architect_work_items
+                            (id, org_id, workflow_graph_id, node_id, item_type, title, description,
+                             execution_hint, status, execution_context)
+                         VALUES ($1, $2, $3, $4, 'compliance_check', $5, $6, 'openclaude', 'pending', $7)`,
+                        [
+                            workItemId,
+                            orgId,
+                            wfgId,
+                            `delegation-${workItemId.substring(0, 8)}`,
+                            `Delegated: ${titleSnippet}`,
+                            safeMessage,
+                            JSON.stringify({
+                                delegated_from: 'execution_pipeline',
+                                assistantId,
+                                userId: userId ?? null,
+                                traceId,
+                                matchedPattern: delegationDecision.matchedPattern,
+                                instructions: safeMessage,
+                            }),
+                        ]
+                    );
+
+                    // Enqueue async dispatch via BullMQ
+                    const { architectQueue } = await import('../workers/architect.worker');
+                    const timeoutMs = (delegationConfig?.max_duration_seconds || 300) * 1000;
+                    await architectQueue.add(
+                        'dispatch-openclaude',
+                        { orgId, workItemId },
+                        {
+                            attempts: 3,
+                            backoff: { type: 'exponential', delay: 5000 },
+                        }
+                    );
+
+                    // Audit log + evidence
+                    const delegationPayload = {
+                        delegated: true,
+                        workItemId,
+                        matchedPattern: delegationDecision.matchedPattern,
+                        timeoutMs,
+                        traceId,
+                        snapshotId,
+                    };
+                    const signature = IntegrityService.signPayload(delegationPayload, process.env.SIGNING_SECRET!);
+                    await auditQueue.add('persist-log', {
+                        org_id: orgId,
+                        assistant_id: assistantId,
+                        action: 'EXECUTION_SUCCESS' satisfies ActionType,
+                        metadata: delegationPayload,
+                        signature,
+                        traceId,
+                    }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } }).catch(() => {});
+
+                    await recordEvidence(client, {
+                        orgId,
+                        category: 'data_access',
+                        eventType: 'EXECUTION_DELEGATED',
+                        actorId: userId ?? null,
+                        resourceType: 'assistant',
+                        resourceId: assistantId,
+                        metadata: { workItemId, matchedPattern: delegationDecision.matchedPattern, traceId },
+                    }).catch(() => {});
+
+                    recordRequest('success', Date.now() - execStart);
+                    log.info({ orgId, assistantId, workItemId, matchedPattern: delegationDecision.matchedPattern },
+                        'Execution delegated to Architect/OpenClaude');
+
+                    return {
+                        statusCode: 202,
+                        body: {
+                            id: `chatcmpl-${traceId}`,
+                            object: 'chat.completion',
+                            created: Math.floor(Date.now() / 1000),
+                            model: aiModel,
+                            choices: [{
+                                index: 0,
+                                message: {
+                                    role: 'assistant',
+                                    content: `📋 Tarefa delegada ao Architect para execução autônoma.\n\n**Padrão detectado:** \`${delegationDecision.matchedPattern}\`\n\n**Work Item ID:** \`${workItemId}\`\n\nAcompanhe o progresso em **/architect**.`,
+                                },
+                                finish_reason: 'stop',
+                            }],
+                            _govai: {
+                                traceId,
+                                delegated: true,
+                                workItemId,
+                                matchedPattern: delegationDecision.matchedPattern,
+                                signature: 'delegated',
+                            },
+                        },
+                    };
+                }
+            } catch (delegationErr) {
+                log.error(delegationErr, 'Delegation failed — falling through to standard LLM pipeline');
+                // Non-fatal: fall through to LLM
+            }
+        }
 
         // ── 7. FinOps quota enforcement (only reached if request is allowed) ──────
         const quota = await checkQuota(pgPool, orgId, assistantId);

@@ -178,6 +178,21 @@ export const ENDPOINTS = {
     NOTIFICATION_CHANNELS_TEST:       '/v1/admin/notification-channels/test',
     NOTIFICATION_CHANNELS_PREVIEW:    '/v1/admin/notification-channels/preview',
     NOTIFICATION_CHANNELS_EVENTS:     '/v1/admin/notification-channels/events',
+
+    // Catalog Skills (FASE 5c)
+    CATALOG_SKILLS:                   '/v1/admin/catalog/skills',
+    CATALOG_SKILL:                    (id: string) => `/v1/admin/catalog/skills/${id}`,
+    CATALOG_SKILLS_FOR_ASSISTANT:     (assistantId: string) => `/v1/admin/catalog/skills/assistants/${assistantId}`,
+    CATALOG_SKILL_BIND:               (assistantId: string) => `/v1/admin/catalog/skills/assistants/${assistantId}/bindings`,
+    CATALOG_SKILL_UNBIND:             (assistantId: string, skillId: string) => `/v1/admin/catalog/skills/assistants/${assistantId}/bindings/${skillId}`,
+
+    // Architect Workflow Templates (FASE 5c)
+    ARCHITECT_TEMPLATES:              '/v1/admin/architect/templates',
+    ARCHITECT_TEMPLATE:               (id: string) => `/v1/admin/architect/templates/${id}`,
+    ARCHITECT_TEMPLATE_INSTANTIATE:   (id: string) => `/v1/admin/architect/templates/${id}/instantiate`,
+
+    // Assistant Delegation Config (FASE 5d)
+    ASSISTANT_DELEGATION:             (id: string) => `/v1/admin/assistants/${id}/delegation`,
 };
 
 export default api;

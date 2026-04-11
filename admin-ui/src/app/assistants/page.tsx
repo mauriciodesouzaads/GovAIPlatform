@@ -2,7 +2,7 @@
 
 import { useEffect, useCallback, useState } from 'react';
 import api, { ENDPOINTS } from '@/lib/api';
-import { Plus, Upload, CheckCircle2, Bot, Database, Lock, FileText, AlertTriangle, X, FileCheck } from 'lucide-react';
+import { Plus, Upload, CheckCircle2, Bot, Database, Lock, FileText, AlertTriangle, X, FileCheck, Workflow } from 'lucide-react';
 import Link from 'next/link';
 import { useToast } from '@/components/Toast';
 import { useEscapeClose } from '@/hooks/useEscapeClose';
@@ -43,6 +43,68 @@ export default function AssistantsPage() {
         changeType: 'patch' as 'major' | 'minor' | 'patch',
         changelog: '',
     });
+
+    // FASE 5d: Delegation modal state
+    const [delegationAst, setDelegationAst] = useState<Assistant | null>(null);
+    const [delegationConfig, setDelegationConfig] = useState<{
+        enabled: boolean;
+        auto_delegate_patterns: string[];
+        max_duration_seconds: number;
+    }>({ enabled: false, auto_delegate_patterns: [], max_duration_seconds: 300 });
+    const [delegationPatternsRaw, setDelegationPatternsRaw] = useState('');
+    const [savingDelegation, setSavingDelegation] = useState(false);
+    const [loadingDelegation, setLoadingDelegation] = useState(false);
+
+    const openDelegationModal = async (ast: Assistant) => {
+        setDelegationAst(ast);
+        setLoadingDelegation(true);
+        try {
+            const res = await api.get(ENDPOINTS.ASSISTANT_DELEGATION(ast.id));
+            const cfg = res.data.delegation_config || {
+                enabled: false,
+                auto_delegate_patterns: [],
+                max_duration_seconds: 300,
+            };
+            setDelegationConfig(cfg);
+            setDelegationPatternsRaw((cfg.auto_delegate_patterns || []).join('\n'));
+        } catch {
+            toast('Erro ao carregar configuração de delegação', 'error');
+        } finally {
+            setLoadingDelegation(false);
+        }
+    };
+
+    const saveDelegation = async () => {
+        if (!delegationAst) return;
+        setSavingDelegation(true);
+        try {
+            const patterns = delegationPatternsRaw
+                .split('\n')
+                .map(p => p.trim())
+                .filter(Boolean);
+
+            // Validate each pattern is a valid regex client-side
+            for (const p of patterns) {
+                try { new RegExp(p); } catch {
+                    toast(`Pattern regex inválido: "${p}"`, 'error');
+                    setSavingDelegation(false);
+                    return;
+                }
+            }
+
+            await api.put(ENDPOINTS.ASSISTANT_DELEGATION(delegationAst.id), {
+                enabled: delegationConfig.enabled,
+                auto_delegate_patterns: patterns,
+                max_duration_seconds: delegationConfig.max_duration_seconds,
+            });
+            toast('Configuração de delegação salva', 'success');
+            setDelegationAst(null);
+        } catch {
+            toast('Erro ao salvar delegação', 'error');
+        } finally {
+            setSavingDelegation(false);
+        }
+    };
 
     const [fetchError, setFetchError] = useState(false);
     const { toast } = useToast();
@@ -264,6 +326,10 @@ export default function AssistantsPage() {
                                         className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold bg-secondary/50 text-foreground hover:bg-secondary/70 border border-border transition-all">
                                         <Database className="w-3.5 h-3.5" /> Vetorizar Conhecimento
                                     </button>
+                                    <button onClick={() => openDelegationModal(ast)}
+                                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border border-violet-500/30 text-violet-300 hover:bg-violet-500/10 transition-all">
+                                        <Workflow className="w-3.5 h-3.5" /> Delegação Autônoma
+                                    </button>
                                     <Link href={`/evidence/${ast.id}`}
                                         className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border border-border text-muted-foreground hover:text-foreground hover:border-white/20 transition-all">
                                         <FileCheck className="w-3.5 h-3.5" /> Evidência
@@ -445,6 +511,115 @@ export default function AssistantsPage() {
                                 <button onClick={handlePublish} disabled={publishing || !Object.values(checklist).every(Boolean)}
                                     className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
                                     <CheckCircle2 className="w-4 h-4" /> {publishing ? 'Assinando...' : 'Assinar e Publicar'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* FASE 5d — Delegation Config Modal */}
+                {delegationAst && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                        <div className="w-full max-w-2xl bg-card border border-border rounded-xl shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                                <div className="flex items-center gap-2">
+                                    <Workflow className="w-5 h-5 text-violet-400" />
+                                    <h2 className="text-lg font-semibold text-foreground">Delegação Autônoma</h2>
+                                </div>
+                                <button onClick={() => setDelegationAst(null)} className="text-muted-foreground hover:text-foreground transition-colors">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                                <div>
+                                    <p className="text-sm text-muted-foreground mb-1">Assistente</p>
+                                    <p className="text-sm font-medium text-foreground">{delegationAst.name}</p>
+                                </div>
+
+                                {loadingDelegation ? (
+                                    <div className="h-32 bg-secondary/20 rounded-lg animate-pulse" />
+                                ) : (
+                                    <>
+                                        <div className="bg-violet-500/5 border border-violet-500/20 rounded-lg p-4">
+                                            <p className="text-xs text-violet-300/80 leading-relaxed">
+                                                Quando habilitado, mensagens que matchem um dos padrões regex serão escaladas
+                                                para o <strong>Architect → OpenClaude</strong> em vez de chamar o LLM diretamente.
+                                                A execução roda autonomamente e o resultado fica em <code className="text-[11px] bg-violet-500/10 px-1 rounded">/architect</code>.
+                                            </p>
+                                        </div>
+
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <label className="block text-sm font-medium text-foreground">Habilitar delegação</label>
+                                                <p className="text-xs text-muted-foreground mt-0.5">Necessário para que padrões sejam avaliados</p>
+                                            </div>
+                                            <button
+                                                onClick={() => setDelegationConfig(c => ({ ...c, enabled: !c.enabled }))}
+                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                                    delegationConfig.enabled ? 'bg-violet-500' : 'bg-secondary'
+                                                }`}
+                                            >
+                                                <span
+                                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                                        delegationConfig.enabled ? 'translate-x-6' : 'translate-x-1'
+                                                    }`}
+                                                />
+                                            </button>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-foreground mb-1">
+                                                Padrões de delegação (regex, um por linha)
+                                            </label>
+                                            <textarea
+                                                value={delegationPatternsRaw}
+                                                onChange={e => setDelegationPatternsRaw(e.target.value)}
+                                                rows={6}
+                                                placeholder={`analise o (repositório|código|projeto)\ngere um relatório\nexecute os testes`}
+                                                className="w-full bg-secondary border border-border rounded px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500/50"
+                                            />
+                                            <p className="text-[10px] text-muted-foreground mt-1">
+                                                Match case-insensitive. Cada linha é uma RegExp JavaScript válida.
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-foreground mb-1">
+                                                Timeout máximo (segundos)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min={10}
+                                                max={3600}
+                                                value={delegationConfig.max_duration_seconds}
+                                                onChange={e => setDelegationConfig(c => ({
+                                                    ...c,
+                                                    max_duration_seconds: Math.max(10, Math.min(3600, parseInt(e.target.value) || 300)),
+                                                }))}
+                                                className="w-32 bg-secondary border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500/50"
+                                            />
+                                            <p className="text-[10px] text-muted-foreground mt-1">
+                                                Tempo máximo para execução do OpenClaude. Padrão: 300s (5 min).
+                                            </p>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+
+                            <div className="px-6 py-4 border-t border-border bg-secondary/10 flex items-center justify-end gap-2">
+                                <button
+                                    onClick={() => setDelegationAst(null)}
+                                    className="px-4 py-2 text-sm rounded-md text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={saveDelegation}
+                                    disabled={savingDelegation || loadingDelegation}
+                                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-violet-500/20 text-violet-300 border border-violet-500/30 hover:bg-violet-500/30 transition-colors disabled:opacity-50"
+                                >
+                                    {savingDelegation ? 'Salvando...' : 'Salvar'}
                                 </button>
                             </div>
                         </div>
