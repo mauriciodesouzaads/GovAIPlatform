@@ -515,14 +515,15 @@ export default function DlpPage() {
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center h-64">
+            <div className="flex-1 flex items-center justify-center">
                 <Loader2 className="w-6 h-6 animate-spin text-primary" />
             </div>
         );
     }
 
     return (
-        <div className="p-6 max-w-5xl mx-auto">
+        <div className="flex-1 overflow-auto">
+        <div className="max-w-5xl mx-auto p-4 sm:p-6">
             <PageHeader
                 icon={<Shield className="w-5 h-5 text-primary" />}
                 title="Proteção de Dados (DLP)"
@@ -646,6 +647,7 @@ export default function DlpPage() {
                     onDeleted={() => { setDeleteTarget(null); loadRules(); }}
                 />
             )}
+        </div>
         </div>
     );
 }

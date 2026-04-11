@@ -203,7 +203,8 @@ export default function ComplianceHubPage() {
     };
 
     return (
-        <div className="p-6 space-y-6">
+        <div className="flex-1 overflow-auto">
+        <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
             <PageHeader
                 title="Compliance Hub"
                 subtitle="Mapeamento regulatório e avaliação de conformidade"
@@ -406,6 +407,7 @@ export default function ComplianceHubPage() {
                     </div>
                 </div>
             )}
+        </div>
         </div>
     );
 }

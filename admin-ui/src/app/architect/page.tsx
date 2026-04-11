@@ -356,7 +356,7 @@ export default function ArchitectPage() {
     const delegatedCases = cases.filter(c => c.status === 'delegated').length;
 
     return (
-        <div className="flex flex-col h-full overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden">
 
             {/* Header */}
             <div className="p-4 sm:p-6 border-b border-border/50 shrink-0">
