@@ -38,7 +38,16 @@ function LoginForm() {
                 const res = await axios.post(`${API_BASE}/v1/auth/oidc/session`, { code: authCode });
                 if (cancelled) return;
                 setAuthToken(res.data.token);
-                router.replace('/');
+
+                // Same role-based redirect as the standard login path
+                const GOVERNANCE_ROLES = ['dpo', 'auditor', 'compliance'];
+                try {
+                    const payload = JSON.parse(atob(res.data.token.split('.')[1]));
+                    const userRole: string = payload?.role || 'operator';
+                    router.replace(GOVERNANCE_ROLES.includes(userRole) ? '/shield' : '/');
+                } catch {
+                    router.replace('/');
+                }
             } catch (err: unknown) {
                 if (cancelled) return;
                 const e = err as { response?: { data?: { error?: string } } };
@@ -72,7 +81,19 @@ function LoginForm() {
             setAuthToken(res.data.token);
             api.defaults.headers.common['Authorization'] = `Bearer ${res.data.token}`;
             await refreshFromServer();
-            router.push('/');
+
+            // Governance roles land on Shield after login; admins/operators go to Dashboard.
+            // We decode the JWT payload (no crypto — just reading the claims) to decide the
+            // redirect destination at login time only. Manual navigation to / is still allowed
+            // and will show the role-filtered dashboard without triggering this redirect.
+            const GOVERNANCE_ROLES = ['dpo', 'auditor', 'compliance'];
+            try {
+                const payload = JSON.parse(atob(res.data.token.split('.')[1]));
+                const userRole: string = payload?.role || 'operator';
+                router.push(GOVERNANCE_ROLES.includes(userRole) ? '/shield' : '/');
+            } catch {
+                router.push('/');
+            }
         } catch (err: unknown) {
             const e = err as { response?: { status: number; data?: { requires_password_change?: boolean; resetToken?: string; error?: string } } };
             if (e.response?.status === 403 && e.response?.data?.requires_password_change) {
