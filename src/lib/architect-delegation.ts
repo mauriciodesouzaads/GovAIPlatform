@@ -16,7 +16,101 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { searchSimilarChunks } from './rag';
 import { recordEvidence } from './evidence';
-import { executeOpenClaudeRun } from './openclaude-client';
+import { executeOpenClaudeRun, resolveOpenClaudeTarget } from './openclaude-client';
+import { createWorkspace, cleanupWorkspace } from './workspace-manager';
+import { registerStream, unregisterStream } from './architect-stream-registry';
+
+// ── Tool grant resolution (FASE 5-hardening) ─────────────────────────────────
+
+export interface ToolDecision {
+    action: 'allow' | 'deny' | 'requires_approval';
+    reason: string;
+}
+
+/**
+ * Tools that read but never write the filesystem or shell. Always allowed
+ * regardless of org policy — they cannot exfiltrate or destroy.
+ * Safelist mirrored from OpenClaude's tools.ts (View, Glob, Grep, etc.).
+ */
+const SAFE_READ_ONLY_TOOLS = new Set<string>([
+    'View', 'FileReadTool',
+    'Glob', 'GlobTool',
+    'Grep', 'GrepTool',
+    'LS', 'ListFilesTool',
+    'ReadNotebook',
+    'Think', 'ThinkTool',
+    'NotebookRead',
+    'TodoRead',
+]);
+
+/**
+ * Tools that can mutate state (filesystem, shell, network). Default to
+ * requires_approval. Org-level policy can opt-in via delegation_config.
+ */
+const DANGEROUS_TOOLS = new Set<string>([
+    'Bash', 'BashTool',
+    'FileWriteTool', 'Write',
+    'FileEditTool', 'Edit', 'MultiEdit',
+    'Replace',
+    'WebFetch', 'WebFetchTool',
+    'WebSearch', 'WebSearchTool',
+    'NotebookEdit',
+]);
+
+/**
+ * Decide whether a tool call from OpenClaude should be allowed automatically,
+ * denied automatically, or escalated to a human approval. The decision is
+ * based on a static safelist plus the org's delegation_config (when available).
+ *
+ * Pure-ish: opens its own DB connection only when needed for org policy.
+ */
+export async function resolveToolDecision(
+    pool: Pool,
+    orgId: string,
+    workItemId: string,
+    toolName: string
+): Promise<ToolDecision> {
+    void workItemId; // reserved for future per-item override
+
+    if (SAFE_READ_ONLY_TOOLS.has(toolName)) {
+        return { action: 'allow', reason: 'safe_read_only_tool' };
+    }
+
+    if (DANGEROUS_TOOLS.has(toolName)) {
+        // Check if the org has explicitly opted-in to auto-approve dangerous tools.
+        // We piggyback on the assistant delegation_config since the work item
+        // execution_context already records assistant_id when it came from the
+        // execution pipeline.
+        const client = await pool.connect();
+        try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+            const wiRes = await client.query(
+                `SELECT execution_context FROM architect_work_items WHERE id = $1 AND org_id = $2`,
+                [workItemId, orgId]
+            );
+            const ctx = wiRes.rows[0]?.execution_context || {};
+            const assistantId = ctx.assistant_id || ctx.assistantId;
+            if (assistantId) {
+                const aRes = await client.query(
+                    `SELECT delegation_config FROM assistants WHERE id = $1 AND org_id = $2`,
+                    [assistantId, orgId]
+                );
+                const dc = aRes.rows[0]?.delegation_config || {};
+                const allowList: string[] = Array.isArray(dc.auto_allow_tools) ? dc.auto_allow_tools : [];
+                if (allowList.includes(toolName)) {
+                    return { action: 'allow', reason: `assistant ${assistantId} auto_allow_tools` };
+                }
+            }
+            return { action: 'requires_approval', reason: `${toolName} requires human approval` };
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    }
+
+    // Unknown tool → safest default is human approval.
+    return { action: 'requires_approval', reason: 'unknown_tool_requires_approval' };
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -356,6 +450,59 @@ export async function runAgnoAdapter(
     }
 }
 
+// ── Work item event helpers (FASE 5-hardening) ───────────────────────────────
+
+/**
+ * Append an entry to architect_work_item_events with monotonic event_seq.
+ * Auto-touches last_event_at on the parent work item. Errors are swallowed
+ * to avoid breaking the gRPC stream — the timeline is best-effort telemetry.
+ */
+export async function insertWorkItemEvent(
+    pool: Pool,
+    orgId: string,
+    workItemId: string,
+    eventType: string,
+    payload: Record<string, unknown>,
+    toolName?: string,
+    promptId?: string
+): Promise<void> {
+    const client = await pool.connect();
+    try {
+        await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+        // Compute next event_seq atomically using SELECT then INSERT inside a single statement
+        await client.query(
+            `INSERT INTO architect_work_item_events
+                (org_id, work_item_id, event_type, event_seq, tool_name, prompt_id, payload)
+             VALUES (
+                $1, $2, $3,
+                COALESCE((SELECT MAX(event_seq) + 1 FROM architect_work_item_events WHERE work_item_id = $2), 1),
+                $4, $5, $6
+             )`,
+            [orgId, workItemId, eventType, toolName ?? null, promptId ?? null, JSON.stringify(payload)]
+        );
+        await client.query(
+            `UPDATE architect_work_items SET last_event_at = NOW() WHERE id = $1 AND org_id = $2`,
+            [workItemId, orgId]
+        );
+    } catch (err) {
+        // Non-fatal: timeline event logging must never break the run
+        console.warn('[Architect] insertWorkItemEvent failed:', (err as Error).message);
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
+/**
+ * Parse a tool name from OpenClaude's "Approve <ToolName>?" question.
+ * Falls back to 'unknown' so the registry rules can still apply.
+ */
+function parseToolNameFromQuestion(question: string | undefined): string {
+    if (!question) return 'unknown';
+    const m = question.match(/Approve\s+(\w+)\b/i);
+    return m?.[1] || 'unknown';
+}
+
 // ── Adapter: openclaude ───────────────────────────────────────────────────────
 
 export async function runOpenClaudeAdapter(
@@ -364,6 +511,9 @@ export async function runOpenClaudeAdapter(
     workItemId: string
 ): Promise<AdapterResult> {
     const client = await pool.connect();
+    let workspacePath: string | null = null;
+    let streamRegistered = false;
+
     try {
         await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
 
@@ -384,27 +534,51 @@ export async function runOpenClaudeAdapter(
             return { success: false, output: {}, error: 'Work item not in dispatchable state' };
         }
 
-        // 2. Mark in_progress + record session
+        // 2. Mark in_progress + record session + worker_runtime
         const sessionId = randomUUID();
         await client.query(
             `UPDATE architect_work_items
              SET status = 'in_progress', dispatched_at = now(),
                  dispatch_attempts = dispatch_attempts + 1,
-                 worker_session_id = $2, run_started_at = now()
+                 worker_session_id = $2, run_started_at = now(),
+                 worker_runtime = 'openclaude', last_event_at = now()
              WHERE id = $1`,
             [workItemId, sessionId]
         );
 
-        // 3. Build instruction from work item fields
+        // 3. Resolve skill instructions if delegated from an assistant (FASE 5-hardening)
+        let skillInstructions = '';
+        const ctx = (item.execution_context ?? {}) as Record<string, unknown>;
+        const ctxAssistantId = (ctx.assistant_id ?? ctx.assistantId) as string | undefined;
+        if (ctxAssistantId) {
+            try {
+                const skillsRes = await client.query(
+                    `SELECT cs.name, cs.instructions
+                     FROM catalog_skills cs
+                     JOIN assistant_skill_bindings asb ON cs.id = asb.skill_id
+                     WHERE asb.assistant_id = $1 AND asb.org_id = $2
+                       AND cs.is_active = true AND asb.is_active = true
+                     ORDER BY cs.name`,
+                    [ctxAssistantId, orgId]
+                );
+                if (skillsRes.rows.length > 0) {
+                    skillInstructions = '\n\n## Skills Aplicáveis\n\n' +
+                        skillsRes.rows.map(s => `### ${s.name}\n${s.instructions}`).join('\n\n');
+                }
+            } catch (skillErr) {
+                console.warn('[OpenClaude] failed to resolve skills:', (skillErr as Error).message);
+            }
+        }
+
+        // 4. Build instruction from work item fields + skills
         const instruction = [
             `## Task: ${item.title}`,
             item.description ? `\n${item.description}` : '',
-            item.execution_context?.instructions
-                ? `\n### Instructions\n${item.execution_context.instructions}`
-                : '',
+            (ctx.instructions as string | undefined) ? `\n### Instructions\n${ctx.instructions}` : '',
+            skillInstructions,
         ].filter(Boolean).join('\n');
 
-        // 4. Record evidence: run started
+        // 5. Record evidence: run started
         await recordEvidence(pool, {
             orgId,
             category: 'data_access',
@@ -413,27 +587,40 @@ export async function runOpenClaudeAdapter(
             resourceId: workItemId,
             metadata: { sessionId, adapter: 'openclaude', title: item.title },
         });
+        await insertWorkItemEvent(pool, orgId, workItemId, 'RUN_STARTED', {
+            sessionId, title: item.title, hasSkills: Boolean(skillInstructions),
+        });
 
-        // 5. Execute via gRPC (non-blocking handle)
-        const host = process.env.OPENCLAUDE_GRPC_HOST || 'openclaude-runner:50051';
+        // 6. Resolve gRPC target (prefers unix socket via OPENCLAUDE_SOCKET_PATH)
+        const target = resolveOpenClaudeTarget();
         const timeoutMs = parseInt(process.env.OPENCLAUDE_TIMEOUT_MS || '300000', 10);
-        const workDir = `/tmp/govai-workspace/${workItemId}`;
 
-        const { emitter, respond } = executeOpenClaudeRun({
-            host,
+        // 7. Create per-(org, work_item) workspace under the shared volume
+        workspacePath = createWorkspace(orgId, workItemId);
+
+        // 8. Execute via gRPC (non-blocking handle)
+        const handle = executeOpenClaudeRun({
+            host: target.host,
+            socketPath: target.socketPath,
             message: instruction,
-            workingDirectory: workDir,
+            workingDirectory: workspacePath,
             sessionId,
             timeoutMs,
         });
+        const { emitter, respond, cancel } = handle;
 
-        // 6. Collect events and await completion
+        // 9. Register the live stream so the worker can cancel/respond from
+        // separate BullMQ jobs (cancel-run, resolve-approval).
+        registerStream(workItemId, { cancel, respond });
+        streamRegistered = true;
+
+        // 10. Collect events and await completion
         const toolEvents: Array<{ name: string; output?: string; error?: boolean }> = [];
         let fullText = '';
         let promptTokens = 0;
         let completionTokens = 0;
 
-        const result = await new Promise<AdapterResult>((resolve) => {
+        const result = await new Promise<AdapterResult>((resolvePromise) => {
 
             emitter.on('text_chunk', (data: any) => {
                 fullText += data.text || '';
@@ -448,6 +635,9 @@ export async function runOpenClaudeAdapter(
                     resourceId: workItemId,
                     metadata: { tool: data.tool_name, toolUseId: data.tool_use_id, sessionId },
                 }).catch(() => {});
+                await insertWorkItemEvent(pool, orgId, workItemId, 'TOOL_START', {
+                    args: data.arguments_json, toolUseId: data.tool_use_id,
+                }, data.tool_name);
             });
 
             emitter.on('tool_result', async (data: any) => {
@@ -470,20 +660,79 @@ export async function runOpenClaudeAdapter(
                         sessionId,
                     },
                 }).catch(() => {});
+                await insertWorkItemEvent(pool, orgId, workItemId, 'TOOL_RESULT', {
+                    output: typeof data.output === 'string' ? data.output.substring(0, 500) : null,
+                    isError: Boolean(data.is_error),
+                    toolUseId: data.tool_use_id,
+                }, data.tool_name);
             });
 
-            emitter.on('action_required', (data: any) => {
-                // v1: auto-approve all tool usage
-                // v2: create GovAI HITL approval, wait for human decision
-                respond(data.prompt_id, 'yes');
-                recordEvidence(pool, {
+            // FASE 5-hardening: replaced auto-approval with grant resolution.
+            // Safe tools auto-allowed, dangerous tools → human approval bridge.
+            emitter.on('action_required', async (data: any) => {
+                const toolName = parseToolNameFromQuestion(data.question);
+                const decision = await resolveToolDecision(pool, orgId, workItemId, toolName);
+
+                if (decision.action === 'allow') {
+                    respond(data.prompt_id, 'yes');
+                    await recordEvidence(pool, {
+                        orgId,
+                        category: 'data_access',
+                        eventType: 'TOOL_ALLOWED_BY_GRANT',
+                        resourceType: 'architect_work_item',
+                        resourceId: workItemId,
+                        metadata: { tool: toolName, promptId: data.prompt_id, reason: decision.reason, sessionId },
+                    }).catch(() => {});
+                    await insertWorkItemEvent(pool, orgId, workItemId, 'ACTION_RESPONSE', {
+                        decision: 'allow', reason: decision.reason, automatic: true,
+                    }, toolName, data.prompt_id);
+                    return;
+                }
+
+                if (decision.action === 'deny') {
+                    respond(data.prompt_id, 'no');
+                    await recordEvidence(pool, {
+                        orgId,
+                        category: 'policy_enforcement',
+                        eventType: 'TOOL_DENIED_BY_POLICY',
+                        resourceType: 'architect_work_item',
+                        resourceId: workItemId,
+                        metadata: { tool: toolName, promptId: data.prompt_id, reason: decision.reason, sessionId },
+                    }).catch(() => {});
+                    await insertWorkItemEvent(pool, orgId, workItemId, 'ACTION_RESPONSE', {
+                        decision: 'deny', reason: decision.reason, automatic: true,
+                    }, toolName, data.prompt_id);
+                    return;
+                }
+
+                // requires_approval — suspend the stream and flip the work item state.
+                // The stream stays open; the worker will call respond() when the human
+                // resolves the approval via POST /approve-action → resolve-approval job.
+                const cl = await pool.connect();
+                try {
+                    await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                    await cl.query(
+                        `UPDATE architect_work_items SET status = 'awaiting_approval' WHERE id = $1 AND org_id = $2`,
+                        [workItemId, orgId]
+                    );
+                } catch (e) {
+                    console.warn('[OpenClaude] failed to flip awaiting_approval:', (e as Error).message);
+                } finally {
+                    await cl.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+                    cl.release();
+                }
+
+                await recordEvidence(pool, {
                     orgId,
-                    category: 'data_access',
-                    eventType: 'OPENCLAUDE_ACTION_AUTO_APPROVED',
+                    category: 'approval',
+                    eventType: 'TOOL_AWAITING_APPROVAL',
                     resourceType: 'architect_work_item',
                     resourceId: workItemId,
-                    metadata: { promptId: data.prompt_id, question: data.question, sessionId },
+                    metadata: { tool: toolName, promptId: data.prompt_id, question: data.question, sessionId },
                 }).catch(() => {});
+                await insertWorkItemEvent(pool, orgId, workItemId, 'ACTION_REQUIRED', {
+                    question: data.question, type: data.type,
+                }, toolName, data.prompt_id);
             });
 
             emitter.on('done', async (data: any) => {
@@ -491,17 +740,17 @@ export async function runOpenClaudeAdapter(
                 promptTokens = data.prompt_tokens || 0;
                 completionTokens = data.completion_tokens || 0;
 
-                // Update work item as done
                 const cl = await pool.connect();
                 try {
                     await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
                     await cl.query(
                         `UPDATE architect_work_items
-                         SET status = 'done', completed_at = now(),
+                         SET status = 'done', completed_at = now(), last_event_at = now(),
                              execution_context = $1
                          WHERE id = $2`,
                         [
                             JSON.stringify({
+                                ...ctx,
                                 adapter: 'openclaude',
                                 sessionId,
                                 input: { instruction: instruction.substring(0, 500) },
@@ -527,8 +776,11 @@ export async function runOpenClaudeAdapter(
                     resourceId: workItemId,
                     metadata: { sessionId, promptTokens, completionTokens, toolCount: toolEvents.length },
                 }).catch(() => {});
+                await insertWorkItemEvent(pool, orgId, workItemId, 'RUN_COMPLETED', {
+                    promptTokens, completionTokens, toolCount: toolEvents.length,
+                });
 
-                resolve({
+                resolvePromise({
                     success: true,
                     output: {
                         fullText: fullText.substring(0, 5000),
@@ -546,10 +798,15 @@ export async function runOpenClaudeAdapter(
                     await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
                     await cl.query(
                         `UPDATE architect_work_items
-                         SET dispatch_error = $1,
+                         SET dispatch_error = $1, last_event_at = now(),
                              status = CASE
+                                 WHEN cancellation_requested_at IS NOT NULL THEN 'cancelled'
                                  WHEN dispatch_attempts >= 3 THEN 'blocked'
                                  ELSE 'pending'
+                             END,
+                             cancelled_at = CASE
+                                 WHEN cancellation_requested_at IS NOT NULL THEN now()
+                                 ELSE cancelled_at
                              END
                          WHERE id = $2`,
                         [errorMsg, workItemId]
@@ -567,19 +824,22 @@ export async function runOpenClaudeAdapter(
                     resourceId: workItemId,
                     metadata: { sessionId, error: errorMsg, code: data.code },
                 }).catch(() => {});
+                await insertWorkItemEvent(pool, orgId, workItemId, 'RUN_FAILED', {
+                    error: errorMsg, code: data.code,
+                });
 
-                resolve({ success: false, output: {}, error: errorMsg });
+                resolvePromise({ success: false, output: {}, error: errorMsg });
             });
 
             // Fallback: stream ended without done/error
             emitter.on('end', () => {
                 if (fullText) {
-                    resolve({
+                    resolvePromise({
                         success: true,
                         output: { fullText: fullText.substring(0, 5000), toolEvents },
                     });
                 } else {
-                    resolve({
+                    resolvePromise({
                         success: false,
                         output: {},
                         error: 'gRPC stream ended without response',
@@ -604,6 +864,12 @@ export async function runOpenClaudeAdapter(
         } catch { /* non-fatal */ }
         return { success: false, output: {}, error: errorMsg };
     } finally {
+        if (streamRegistered) {
+            unregisterStream(workItemId);
+        }
+        if (workspacePath) {
+            cleanupWorkspace(workspacePath);
+        }
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
         client.release();
     }

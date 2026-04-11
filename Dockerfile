@@ -49,6 +49,13 @@ COPY --chown=govai:govai package.json ./
 COPY --chown=govai:govai scripts ./scripts
 COPY --chown=govai:govai *.sql ./
 
+# FASE 5-hardening: pre-create the shared volume mount points with govai
+# ownership so when docker mounts the named volumes on top, they inherit
+# the right uid/gid. Required because the api process runs as the
+# unprivileged govai user but writes per-work-item workspace dirs there.
+RUN mkdir -p /tmp/govai-workspaces /var/run/govai && \
+    chown -R govai:govai /tmp/govai-workspaces /var/run/govai
+
 USER govai
 
 EXPOSE 3000

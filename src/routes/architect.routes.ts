@@ -496,6 +496,10 @@ export async function architectRoutes(
     });
 
     // ── POST /v1/admin/architect/work-items/:workItemId/cancel ───────────────
+    // FASE 5-hardening: cancel is now async. We mark cancellation_requested_at,
+    // enqueue a `cancel-run` BullMQ job, and let the worker call CancelSignal
+    // on the live gRPC stream. cancelled_at is only set after the runner
+    // confirms the stream ended (or for items that never started running).
     fastify.post('/v1/admin/architect/work-items/:workItemId/cancel', {
         preHandler: requireRole(['admin']),
     }, async (request: any, reply) => {
@@ -507,16 +511,27 @@ export async function architectRoutes(
             await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
             const result = await client.query(
                 `UPDATE architect_work_items
-                 SET status = 'cancelled', cancelled_at = now()
+                 SET cancellation_requested_at = NOW()
                  WHERE id = $1 AND org_id = $2
-                   AND status IN ('pending', 'in_progress')
+                   AND status IN ('pending', 'in_progress', 'awaiting_approval')
                  RETURNING id, status`,
                 [workItemId, orgId]
             );
             if (result.rows.length === 0) {
                 return reply.status(404).send({ error: 'Work item not found or not cancellable' });
             }
-            return reply.send({ cancelled: true, workItemId });
+
+            await architectQueue.add('cancel-run', { orgId, workItemId }, {
+                attempts: 1,
+                removeOnComplete: { count: 50 },
+                removeOnFail: { count: 50 },
+            });
+
+            return reply.send({
+                cancellation_requested: true,
+                workItemId,
+                previous_status: result.rows[0].status,
+            });
         } finally {
             await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
             client.release();
@@ -524,9 +539,9 @@ export async function architectRoutes(
     });
 
     // ── GET /v1/admin/architect/work-items/:workItemId/events ────────────────
-    // Returns the work item state plus all evidence records linked to it,
-    // ordered chronologically. Used by the /architect drawer to render the
-    // OpenClaude live execution timeline.
+    // FASE 5-hardening: reads from the dedicated architect_work_item_events
+    // table (operational telemetry) instead of evidence_records. Returns the
+    // work item state plus the ordered event timeline.
     fastify.get('/v1/admin/architect/work-items/:workItemId/events', {
         preHandler: requireRole(['admin', 'operator', 'auditor', 'dpo']),
     }, async (request: any, reply) => {
@@ -541,8 +556,9 @@ export async function architectRoutes(
             const wi = await client.query(
                 `SELECT id, status, execution_hint, title, description, item_type,
                         execution_context, dispatch_attempts, dispatch_error,
-                        worker_session_id, run_started_at, dispatched_at,
-                        cancelled_at, completed_at, created_at, updated_at
+                        worker_session_id, worker_runtime, run_started_at,
+                        dispatched_at, last_event_at, cancelled_at,
+                        cancellation_requested_at, completed_at, created_at, updated_at
                  FROM architect_work_items
                  WHERE id = $1 AND org_id = $2`,
                 [workItemId, orgId]
@@ -552,12 +568,10 @@ export async function architectRoutes(
             }
 
             const events = await client.query(
-                `SELECT id, event_type, metadata, created_at
-                 FROM evidence_records
-                 WHERE resource_type = 'architect_work_item'
-                   AND resource_id = $1
-                   AND org_id = $2
-                 ORDER BY created_at ASC`,
+                `SELECT id, event_type, event_seq, tool_name, prompt_id, payload, created_at
+                 FROM architect_work_item_events
+                 WHERE work_item_id = $1 AND org_id = $2
+                 ORDER BY event_seq ASC`,
                 [workItemId, orgId]
             );
 
@@ -566,7 +580,10 @@ export async function architectRoutes(
                 events: events.rows.map(e => ({
                     id: e.id,
                     type: e.event_type,
-                    metadata: e.metadata,
+                    seq: e.event_seq,
+                    tool_name: e.tool_name,
+                    prompt_id: e.prompt_id,
+                    metadata: e.payload,
                     timestamp: e.created_at,
                 })),
             });
@@ -577,13 +594,14 @@ export async function architectRoutes(
     });
 
     // ── POST /v1/admin/architect/work-items/:workItemId/approve-action ───────
-    // v1: stub — the adapter currently auto-approves all gRPC ActionRequired
-    // events. This endpoint exists so the frontend approval bridge can be built
-    // ahead of v2, which will forward UserInput back through the gRPC stream.
+    // FASE 5-hardening: real approval bridge. The work item must be in
+    // 'awaiting_approval' state. We enqueue a `resolve-approval` BullMQ job
+    // that the architect worker picks up and uses to call respond() on the
+    // live gRPC stream registered by the adapter.
     fastify.post('/v1/admin/architect/work-items/:workItemId/approve-action', {
         preHandler: requireRole(['admin']),
     }, async (request: any, reply) => {
-        const { orgId } = request.user ?? {};
+        const { orgId, email: actorEmail } = request.user ?? {};
         if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
         const { workItemId } = request.params as { workItemId: string };
         const body = (request.body ?? {}) as { prompt_id?: string; approved?: boolean };
@@ -592,28 +610,44 @@ export async function architectRoutes(
             return reply.status(400).send({ error: 'prompt_id e approved (boolean) são obrigatórios.' });
         }
 
-        // v1: confirm work item exists; do not actually forward — adapter auto-approves
         const client = await pgPool.connect();
         try {
             await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
-            const exists = await client.query(
-                `SELECT id FROM architect_work_items WHERE id = $1 AND org_id = $2`,
+            const wi = await client.query(
+                `SELECT id, status FROM architect_work_items WHERE id = $1 AND org_id = $2`,
                 [workItemId, orgId]
             );
-            if (exists.rows.length === 0) {
+            if (wi.rows.length === 0) {
                 return reply.status(404).send({ error: 'Work item not found' });
+            }
+            if (wi.rows[0].status !== 'awaiting_approval') {
+                return reply.status(400).send({
+                    error: 'Work item not awaiting approval',
+                    current_status: wi.rows[0].status,
+                });
             }
         } finally {
             await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
             client.release();
         }
 
+        await architectQueue.add('resolve-approval', {
+            orgId,
+            workItemId,
+            promptId: body.prompt_id,
+            approved: body.approved,
+            actorEmail: actorEmail ?? null,
+        }, {
+            attempts: 1,
+            removeOnComplete: { count: 50 },
+            removeOnFail: { count: 50 },
+        });
+
         return reply.send({
-            message: 'v1: auto-approve is active — manual approval will be available in v2',
+            queued: true,
             workItemId,
             prompt_id: body.prompt_id,
             approved: body.approved,
-            stubbed: true,
         });
     });
 

@@ -127,6 +127,16 @@ services:
       MICROSOFT_TOKEN: ${MICROSOFT_TOKEN:-}
       GOOGLE_ADMIN_TOKEN: ${GOOGLE_ADMIN_TOKEN:-}
       ADMIN_UI_URL: ${ADMIN_UI_URL:-http://localhost:3001}
+      # --- OpenClaude transport (FASE 5-hardening) ---
+      # Prefer unix socket via shared volume; falls back to TCP if not present.
+      OPENCLAUDE_SOCKET_PATH: /var/run/govai/openclaude.sock
+      OPENCLAUDE_GRPC_HOST: openclaude-runner:50051
+      OPENCLAUDE_TIMEOUT_MS: ${OPENCLAUDE_TIMEOUT_MS:-300000}
+      GOVAI_WORKSPACE_BASE: /tmp/govai-workspaces
+      GOVAI_WORKSPACE_MAX_AGE_HOURS: ${GOVAI_WORKSPACE_MAX_AGE_HOURS:-24}
+    volumes:
+      - govai_sockets:/var/run/govai
+      - govai_workspaces:/tmp/govai-workspaces
     ports:
       - "3000:3000"
     restart: unless-stopped
@@ -177,6 +187,9 @@ services:
     environment:
       GRPC_HOST: "0.0.0.0"
       GRPC_PORT: "50051"
+      # FASE 5-hardening: bind on a unix socket exposed via shared volume.
+      # The TCP listener is also kept as a fallback for healthcheck and tooling.
+      GRPC_SOCKET_PATH: /var/run/govai/openclaude.sock
       OPENCLAUDE_GOVAI_LOCKED_MODE: "true"
       # Uses GovAI's LiteLLM as OpenAI-compatible LLM proxy
       OPENAI_API_KEY: ${LITELLM_KEY}
@@ -186,6 +199,8 @@ services:
       OPENCLAUDE_DISABLE_WEB_SEARCH: "true"
       OPENCLAUDE_DISABLE_WEB_FETCH: "true"
     volumes:
+      - govai_sockets:/var/run/govai
+      - govai_workspaces:/tmp/govai-workspaces
       - openclaude_workspaces:/tmp/govai-workspace
     networks:
       - govai-net
@@ -208,6 +223,11 @@ volumes:
   pgdata:
   redisdata:
   openclaude_workspaces:
+  # FASE 5-hardening: shared between api and openclaude-runner.
+  # govai_sockets carries the gRPC unix socket; govai_workspaces holds the
+  # per-(org, work_item) scratch directories created by workspace-manager.
+  govai_sockets:
+  govai_workspaces:
 
 
 networks:

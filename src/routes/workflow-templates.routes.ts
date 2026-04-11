@@ -367,6 +367,8 @@ export async function workflowTemplatesRoutes(
             const workflowGraphId = wgRes.rows[0].id as string;
 
             // 6. Cria architect_work_items (uma por fase)
+            // Cada work item carrega metadata da fase em execution_context para que
+            // o adapter (e o frontend) possa renderizar o contexto do template.
             const workItemIds: string[] = [];
             for (let i = 0; i < phases.length; i++) {
                 const phase = phases[i];
@@ -374,10 +376,21 @@ export async function workflowTemplatesRoutes(
                     ? phase.execution_hint
                     : tpl.default_execution_hint;
 
+                const phaseContext = {
+                    template_id: tpl.id,
+                    template_name: tpl.name,
+                    phase_index: i,
+                    phase_total: phases.length,
+                    phase_name: phase.name,
+                    auto_advance: phase.auto_advance ?? false,
+                    instructions: phase.description ?? null,
+                };
+
                 const wiRes = await client.query(
                     `INSERT INTO architect_work_items
-                        (org_id, workflow_graph_id, node_id, item_type, title, description, execution_hint, status)
-                     VALUES ($1, $2, $3, 'compliance_check', $4, $5, $6, 'pending')
+                        (org_id, workflow_graph_id, node_id, item_type, title, description,
+                         execution_hint, status, execution_context)
+                     VALUES ($1, $2, $3, 'compliance_check', $4, $5, $6, 'pending', $7)
                      RETURNING id`,
                     [
                         orgId,
@@ -386,6 +399,7 @@ export async function workflowTemplatesRoutes(
                         `[${i + 1}/${phases.length}] ${phase.name}`,
                         phase.description ?? null,
                         hint,
+                        JSON.stringify(phaseContext),
                     ]
                 );
                 workItemIds.push(wiRes.rows[0].id as string);

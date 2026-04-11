@@ -349,6 +349,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                             JSON.stringify({
                                 delegated_from: 'execution_pipeline',
                                 assistantId,
+                                assistant_id: assistantId,
                                 userId: userId ?? null,
                                 traceId,
                                 matchedPattern: delegationDecision.matchedPattern,

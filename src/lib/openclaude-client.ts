@@ -56,14 +56,27 @@ function getAgentService() {
 }
 
 export interface OpenClaudeRunConfig {
-    /** e.g. 'openclaude-runner:50051' */
+    /** TCP target, e.g. 'openclaude-runner:50051'. Used as fallback when socketPath is empty. */
     host: string;
+    /** Optional unix socket path. When set, takes precedence over host. */
+    socketPath?: string;
     message: string;
     workingDirectory: string;
     model?: string;
     sessionId: string;
     /** Default 300_000 ms (5 min) */
     timeoutMs?: number;
+}
+
+/**
+ * Resolve the gRPC target string from runtime env. Prefers unix socket
+ * (lower latency, no port exposure, no TCP listener at all) when
+ * OPENCLAUDE_SOCKET_PATH is set; otherwise falls back to TCP.
+ */
+export function resolveOpenClaudeTarget(): { socketPath?: string; host: string } {
+    const socketPath = process.env.OPENCLAUDE_SOCKET_PATH;
+    const host = process.env.OPENCLAUDE_GRPC_HOST || 'openclaude-runner:50051';
+    return socketPath ? { socketPath, host } : { host };
 }
 
 export interface OpenClaudeHandle {
@@ -81,8 +94,15 @@ export interface OpenClaudeHandle {
 export function executeOpenClaudeRun(config: OpenClaudeRunConfig): OpenClaudeHandle {
     const emitter = new EventEmitter();
     const AgentService = getAgentService();
+
+    // Prefer unix socket when configured (no TCP exposure, lower latency).
+    // gRPC accepts `unix:/absolute/path` (single slash) or `unix:///abs/path` (three).
+    const target = config.socketPath
+        ? `unix:${config.socketPath}`
+        : config.host;
+
     const client = new AgentService(
-        config.host,
+        target,
         grpc.credentials.createInsecure(),
         { 'grpc.max_receive_message_length': 4 * 1024 * 1024 }
     );

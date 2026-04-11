@@ -36,17 +36,65 @@ export class GrpcServer {
   }
 
   start(port: number = 50051, host: string = 'localhost') {
-    this.server.bindAsync(
-      `${host}:${port}`,
-      grpc.ServerCredentials.createInsecure(),
-      (error, boundPort) => {
-        if (error) {
-          console.error('Failed to start gRPC server')
-          return
+    // GovAI: prefer unix socket when GRPC_SOCKET_PATH is set. Lower latency,
+    // no TCP exposure, and only the api container can reach it via the
+    // shared docker volume mount. The TCP listener is only kept as a
+    // fallback for environments where unix sockets aren't supported.
+    const socketPath = process.env.GRPC_SOCKET_PATH
+    const tcpTarget = `${host}:${port}`
+
+    const startTcp = () => {
+      this.server.bindAsync(
+        tcpTarget,
+        grpc.ServerCredentials.createInsecure(),
+        (error, boundPort) => {
+          if (error) {
+            console.error('[GovAI] Failed to bind gRPC TCP:', error.message)
+            return
+          }
+          console.log(`gRPC Server running at ${host}:${boundPort}`)
         }
-        console.log(`gRPC Server running at ${host}:${boundPort}`)
+      )
+    }
+
+    if (socketPath) {
+      // Ensure the parent directory exists and remove any stale socket.
+      try {
+        const path = require('path') as typeof import('path')
+        const fs = require('fs') as typeof import('fs')
+        fs.mkdirSync(path.dirname(socketPath), { recursive: true })
+        try { fs.unlinkSync(socketPath) } catch { /* not present */ }
+      } catch (err) {
+        console.warn('[GovAI] Failed to prep socket dir:', (err as Error).message)
       }
-    )
+
+      this.server.bindAsync(
+        `unix:${socketPath}`,
+        grpc.ServerCredentials.createInsecure(),
+        (error) => {
+          if (error) {
+            console.error('[GovAI] Failed to bind gRPC unix socket, falling back to TCP:', error.message)
+            startTcp()
+            return
+          }
+          console.log(`gRPC Server running at unix:${socketPath}`)
+          // GovAI: the openclaude-runner runs as root but the api container
+          // process runs as the unprivileged govai user (uid 1001). The socket
+          // lives on a shared docker volume with no external exposure, so we
+          // chmod 0666 to allow the api user to connect. Also try to chown to
+          // gid 1001 (govai) where supported.
+          try {
+            const fs = require('fs') as typeof import('fs')
+            fs.chmodSync(socketPath, 0o666)
+            try { fs.chownSync(socketPath, 0, 1001) } catch { /* gid may not exist */ }
+          } catch { /* best-effort */ }
+          // Also keep TCP as a backup transport for tooling/healthchecks.
+          startTcp()
+        }
+      )
+    } else {
+      startTcp()
+    }
   }
 
   private handleChat(call: grpc.ServerDuplexStream<any, any>) {
