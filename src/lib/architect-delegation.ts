@@ -669,8 +669,84 @@ export async function runOpenClaudeAdapter(
 
             // FASE 5-hardening: replaced auto-approval with grant resolution.
             // Safe tools auto-allowed, dangerous tools → human approval bridge.
+            //
+            // FASE 6c: before falling into the classifier, check whether the
+            // user already opted the entire work item into an auto-approve
+            // mode via POST /approve-action (approve_mode=auto_all|auto_safe).
+            // This is what prevents the approval-fatigue loop on real agent
+            // runs that chain 10-30 tool calls.
             emitter.on('action_required', async (data: any) => {
                 const toolName = parseToolNameFromQuestion(data.question);
+
+                // 1. Read the current approval_mode (persisted by the route
+                //    and/or the resolve-approval worker job).
+                //    IMPORTANT: architect_work_items has RLS; use a dedicated
+                //    client with set_config so the SELECT can see the row.
+                //    Using `pool.query` directly hits a fresh unset session
+                //    and returns zero rows silently.
+                let approvalMode: string | null = null;
+                try {
+                    const modeClient = await pool.connect();
+                    try {
+                        await modeClient.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                        const modeRes = await modeClient.query(
+                            `SELECT execution_context->>'approval_mode' AS mode
+                             FROM architect_work_items WHERE id = $1 AND org_id = $2`,
+                            [workItemId, orgId]
+                        );
+                        approvalMode = modeRes.rows[0]?.mode ?? null;
+                    } finally {
+                        await modeClient.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+                        modeClient.release();
+                    }
+                } catch { /* best-effort */ }
+
+                // 2. auto_all — user approved everything up front. Skip the
+                //    classifier and immediately respond 'yes'.
+                if (approvalMode === 'auto_all') {
+                    respond(data.prompt_id, 'yes');
+                    await recordEvidence(pool, {
+                        orgId,
+                        category: 'approval',
+                        eventType: 'TOOL_AUTO_APPROVED_BY_USER',
+                        resourceType: 'architect_work_item',
+                        resourceId: workItemId,
+                        metadata: {
+                            tool: toolName, promptId: data.prompt_id,
+                            mode: 'auto_all', sessionId,
+                        },
+                    }).catch(() => {});
+                    await insertWorkItemEvent(pool, orgId, workItemId, 'ACTION_RESPONSE', {
+                        decision: 'allow',
+                        reason: 'user_approved_all',
+                        automatic: true,
+                    }, toolName, data.prompt_id);
+                    return;
+                }
+
+                // 3. auto_safe — allow read-only tools without prompting;
+                //    mutating tools still fall through to requires_approval.
+                if (approvalMode === 'auto_safe' && SAFE_READ_ONLY_TOOLS.has(toolName)) {
+                    respond(data.prompt_id, 'yes');
+                    await recordEvidence(pool, {
+                        orgId,
+                        category: 'approval',
+                        eventType: 'TOOL_AUTO_APPROVED_BY_USER',
+                        resourceType: 'architect_work_item',
+                        resourceId: workItemId,
+                        metadata: {
+                            tool: toolName, promptId: data.prompt_id,
+                            mode: 'auto_safe', sessionId,
+                        },
+                    }).catch(() => {});
+                    await insertWorkItemEvent(pool, orgId, workItemId, 'ACTION_RESPONSE', {
+                        decision: 'allow',
+                        reason: 'user_approved_safe_read',
+                        automatic: true,
+                    }, toolName, data.prompt_id);
+                    return;
+                }
+
                 const decision = await resolveToolDecision(pool, orgId, workItemId, toolName);
 
                 if (decision.action === 'allow') {

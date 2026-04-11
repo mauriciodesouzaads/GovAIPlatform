@@ -83,7 +83,13 @@ interface DelegationState {
     fullText: string | null;
     tokens: { prompt?: number; completion?: number } | null;
     toolCount: number;
+    // FASE 6c: tracks the user's approval opt-in for this entire work item.
+    // Surfaces the "⚡ Aprovação automática ativa" badge on the card so the
+    // user knows they won't be asked again for this run.
+    approvalMode: 'single' | 'auto_all' | 'auto_safe' | null;
 }
+
+type ApproveMode = 'single' | 'auto_all' | 'auto_safe';
 
 type MessageRole =
     | 'user'
@@ -568,6 +574,9 @@ export default function GovAIChatPage() {
                     tokens: wi.execution_context?.tokens ?? null,
                     toolCount: Array.isArray(wi.execution_context?.output?.toolEvents)
                         ? wi.execution_context.output.toolEvents.length : 0,
+                    approvalMode: (wi.approval_mode
+                        ?? wi.execution_context?.approval_mode
+                        ?? null) as DelegationState['approvalMode'],
                 },
             }));
 
@@ -646,6 +655,7 @@ export default function GovAIChatPage() {
                 fullText: null,
                 tokens: null,
                 toolCount: 0,
+                approvalMode: null,
             },
         }));
         startPolling(workItemId);
@@ -882,16 +892,33 @@ export default function GovAIChatPage() {
     ]);
 
     // ── Approval handler ─────────────────────────────────────────────────────
-    const handleApproval = useCallback(async (workItemId: string, promptId: string, approved: boolean) => {
+    // FASE 6c: `mode` lets the user opt into bulk approval for the entire work
+    // item. The backend persists the mode into execution_context.approval_mode
+    // and the adapter's action_required handler reads it on every subsequent
+    // tool call to decide whether to auto-allow.
+    const handleApproval = useCallback(async (
+        workItemId: string,
+        promptId: string,
+        approved: boolean,
+        mode: ApproveMode = 'single'
+    ) => {
         try {
             await api.post(ENDPOINTS.ARCHITECT_WORK_ITEM_APPROVE_ACTION(workItemId), {
                 prompt_id: promptId,
                 approved,
+                approve_mode: mode,
             });
             setDelegationStates(prev => ({
                 ...prev,
                 [workItemId]: prev[workItemId]
-                    ? { ...prev[workItemId], pendingApproval: null, status: 'in_progress' }
+                    ? {
+                        ...prev[workItemId],
+                        pendingApproval: null,
+                        status: 'in_progress',
+                        approvalMode: (approved && mode !== 'single')
+                            ? mode
+                            : prev[workItemId].approvalMode,
+                    }
                     : prev[workItemId],
             }));
         } catch {
@@ -1394,7 +1421,7 @@ function MessageRow({
 }: {
     msg: ChatMessage;
     delegationState?: DelegationState;
-    onApprove: (workItemId: string, promptId: string, approved: boolean) => void;
+    onApprove: (workItemId: string, promptId: string, approved: boolean, mode?: ApproveMode) => void;
 }) {
     if (msg.role === 'user') {
         return (
@@ -1488,7 +1515,7 @@ function DelegationCard({
 }: {
     msg: ChatMessage;
     state: DelegationState | undefined;
-    onApprove: (workItemId: string, promptId: string, approved: boolean) => void;
+    onApprove: (workItemId: string, promptId: string, approved: boolean, mode?: ApproveMode) => void;
 }) {
     const status = state?.status ?? 'pending';
     const isTerminal = ['done', 'cancelled', 'blocked'].includes(status);
@@ -1530,19 +1557,44 @@ function DelegationCard({
                 <div className="px-4 py-3">
                     <EventTimeline state={state ?? {
                         work_item_id: workItemId,
-                        status, events: [], pendingApproval: null, fullText: null, tokens: null, toolCount: 0,
+                        status, events: [], pendingApproval: null, fullText: null, tokens: null, toolCount: 0, approvalMode: null,
                     }} />
+                    {/* FASE 6c: tool counter — how many were approved vs executed so far */}
+                    {state?.events && state.events.length > 0 && (() => {
+                        const approved = state.events.filter(e => e.type === 'ACTION_RESPONSE').length;
+                        const executed = state.events.filter(e => e.type === 'TOOL_RESULT').length;
+                        if (approved === 0 && executed === 0) return null;
+                        return (
+                            <div className="mt-2 pt-2 border-t border-border/30 flex items-center gap-3 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                                {approved > 0 && <span>{approved} aprovadas</span>}
+                                {executed > 0 && <span>· {executed} executadas</span>}
+                            </div>
+                        );
+                    })()}
+                    {/* FASE 6c: "auto-approval active" badge */}
+                    {state?.approvalMode === 'auto_all' && state.status !== 'done' && (
+                        <div className="mt-2 inline-flex items-center gap-1.5 text-[10px] text-primary">
+                            <Zap className="w-2.5 h-2.5" />
+                            Aprovação automática ativa para esta tarefa
+                        </div>
+                    )}
+                    {state?.approvalMode === 'auto_safe' && state.status !== 'done' && (
+                        <div className="mt-2 inline-flex items-center gap-1.5 text-[10px] text-primary">
+                            <Zap className="w-2.5 h-2.5" />
+                            Leituras auto-aprovadas (escritas ainda pedem permissão)
+                        </div>
+                    )}
                 </div>
 
                 {state?.pendingApproval && (
                     <div className="px-4 py-3 border-t border-border/60 bg-muted/30">
-                        <div className="flex items-start gap-2 mb-2">
+                        <div className="flex items-start gap-2 mb-3">
                             <AlertCircle className="w-4 h-4 text-foreground mt-0.5 shrink-0" />
                             <div className="flex-1 min-w-0">
                                 <div className="text-xs font-semibold text-foreground">
                                     Ferramenta requer aprovação
                                 </div>
-                                <div className="text-[11px] text-muted-foreground mt-0.5">
+                                <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
                                     {state.pendingApproval.tool_name}
                                 </div>
                                 {state.pendingApproval.question && (
@@ -1552,21 +1604,33 @@ function DelegationCard({
                                 )}
                             </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                             <button
                                 type="button"
-                                onClick={() => onApprove(workItemId, state.pendingApproval!.prompt_id, true)}
+                                onClick={() => onApprove(workItemId, state.pendingApproval!.prompt_id, true, 'single')}
                                 className="px-3 py-1 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                             >
                                 Aprovar
                             </button>
                             <button
                                 type="button"
-                                onClick={() => onApprove(workItemId, state.pendingApproval!.prompt_id, false)}
+                                onClick={() => onApprove(workItemId, state.pendingApproval!.prompt_id, false, 'single')}
                                 className="px-3 py-1 text-xs font-semibold rounded-md bg-destructive/80 text-destructive-foreground hover:bg-destructive transition-colors"
                             >
                                 Negar
                             </button>
+                            <button
+                                type="button"
+                                onClick={() => onApprove(workItemId, state.pendingApproval!.prompt_id, true, 'auto_all')}
+                                title="Aprova esta e todas as ferramentas seguintes desta tarefa, sem pedir confirmação de novo."
+                                className="px-3 py-1 text-xs font-semibold rounded-md bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 transition-colors inline-flex items-center gap-1"
+                            >
+                                <Zap className="w-3 h-3" />
+                                Aprovar Todos
+                            </button>
+                        </div>
+                        <div className="mt-2 text-[10px] text-muted-foreground/70">
+                            Esta decisão é registrada em <code className="font-mono">evidence_records</code> (trilha de auditoria governada).
                         </div>
                     </div>
                 )}

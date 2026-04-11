@@ -575,8 +575,17 @@ export async function architectRoutes(
                 [workItemId, orgId]
             );
 
+            // Surface approval_mode as a first-class field so the UI can
+            // show the "auto-approval active" badge without reaching into
+            // execution_context from TypeScript.
+            const workItem = wi.rows[0];
+            const approvalMode = workItem.execution_context?.approval_mode ?? null;
+
             return reply.send({
-                work_item: wi.rows[0],
+                work_item: {
+                    ...workItem,
+                    approval_mode: approvalMode,
+                },
                 events: events.rows.map(e => ({
                     id: e.id,
                     type: e.event_type,
@@ -598,16 +607,32 @@ export async function architectRoutes(
     // 'awaiting_approval' state. We enqueue a `resolve-approval` BullMQ job
     // that the architect worker picks up and uses to call respond() on the
     // live gRPC stream registered by the adapter.
+    //
+    // Approve modes (FASE 6c):
+    //   'single'    — default; user approves this one tool call
+    //   'auto_all'  — user approves every subsequent tool call on this task
+    //   'auto_safe' — user approves every read-only tool; writes still prompt
+    //
+    // The mode is persisted into execution_context.approval_mode so the
+    // adapter's action_required handler can consult it before escalating.
     fastify.post('/v1/admin/architect/work-items/:workItemId/approve-action', {
         preHandler: requireRole(['admin']),
     }, async (request: any, reply) => {
         const { orgId, email: actorEmail } = request.user ?? {};
         if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
         const { workItemId } = request.params as { workItemId: string };
-        const body = (request.body ?? {}) as { prompt_id?: string; approved?: boolean };
+        const body = (request.body ?? {}) as {
+            prompt_id?: string;
+            approved?: boolean;
+            approve_mode?: 'single' | 'auto_all' | 'auto_safe';
+        };
 
         if (!body.prompt_id || typeof body.approved !== 'boolean') {
             return reply.status(400).send({ error: 'prompt_id e approved (boolean) são obrigatórios.' });
+        }
+        const approveMode: 'single' | 'auto_all' | 'auto_safe' = body.approve_mode ?? 'single';
+        if (!['single', 'auto_all', 'auto_safe'].includes(approveMode)) {
+            return reply.status(400).send({ error: `approve_mode inválido: ${approveMode}` });
         }
 
         const client = await pgPool.connect();
@@ -626,6 +651,20 @@ export async function architectRoutes(
                     current_status: wi.rows[0].status,
                 });
             }
+
+            // Persist approval_mode on the work item BEFORE enqueueing the
+            // resolve-approval job. This guarantees the adapter sees the new
+            // mode when the next action_required event fires, because the
+            // stream.respond() call happens inside the worker job.
+            if (body.approved && approveMode !== 'single') {
+                await client.query(
+                    `UPDATE architect_work_items
+                     SET execution_context = COALESCE(execution_context, '{}'::jsonb)
+                                              || jsonb_build_object('approval_mode', $1::text)
+                     WHERE id = $2 AND org_id = $3`,
+                    [approveMode, workItemId, orgId]
+                );
+            }
         } finally {
             await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
             client.release();
@@ -636,6 +675,7 @@ export async function architectRoutes(
             workItemId,
             promptId: body.prompt_id,
             approved: body.approved,
+            approveMode,
             actorEmail: actorEmail ?? null,
         }, {
             attempts: 1,
@@ -648,6 +688,7 @@ export async function architectRoutes(
             workItemId,
             prompt_id: body.prompt_id,
             approved: body.approved,
+            approve_mode: approveMode,
         });
     });
 
