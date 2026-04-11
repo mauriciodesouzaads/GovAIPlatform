@@ -79,6 +79,13 @@ interface DemandCaseFull {
     workItems: WorkItem[];
 }
 
+interface WorkItemEvent {
+    id: string;
+    type: string;
+    metadata: Record<string, any>;
+    timestamp: string;
+}
+
 interface WorkflowTemplatePhase {
     name: string;
     description?: string;
@@ -145,6 +152,124 @@ function confidenceColor(score: number) {
 
 // ── Component ──────────────────────────────────────────────────────────────
 
+// ── FASE 5b-fix: Live execution event timeline ──────────────────────────────
+
+const EVENT_ICONS: Record<string, string> = {
+    OPENCLAUDE_RUN_STARTED:           '🚀',
+    OPENCLAUDE_TOOL_START:            '🔧',
+    OPENCLAUDE_TOOL_RESULT:           '📄',
+    OPENCLAUDE_ACTION_AUTO_APPROVED:  '⚡',
+    OPENCLAUDE_RUN_COMPLETED:         '✅',
+    OPENCLAUDE_RUN_FAILED:            '❌',
+    OPENCLAUDE_RUN_CANCELLED:         '🚫',
+    EXECUTION_DELEGATED:              '📋',
+    ARCHITECT_ADAPTER_EXECUTED:       '⚙️',
+};
+
+const EVENT_LABELS: Record<string, string> = {
+    OPENCLAUDE_RUN_STARTED:           'Execução iniciada',
+    OPENCLAUDE_TOOL_START:            'Ferramenta iniciada',
+    OPENCLAUDE_TOOL_RESULT:           'Resultado da ferramenta',
+    OPENCLAUDE_ACTION_AUTO_APPROVED:  'Ação auto-aprovada',
+    OPENCLAUDE_RUN_COMPLETED:         'Concluído',
+    OPENCLAUDE_RUN_FAILED:            'Falhou',
+    OPENCLAUDE_RUN_CANCELLED:         'Cancelado',
+    EXECUTION_DELEGATED:              'Delegação criada',
+    ARCHITECT_ADAPTER_EXECUTED:       'Adapter executado',
+};
+
+function EventTimeline({ events, status }: { events: WorkItemEvent[]; status: string }) {
+    if (events.length === 0 && status === 'pending') {
+        return <p className="text-xs text-muted-foreground italic">Aguardando dispatch...</p>;
+    }
+    if (events.length === 0 && status === 'in_progress') {
+        return (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="w-3 h-3 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                Conectando ao OpenClaude...
+            </div>
+        );
+    }
+    if (events.length === 0) {
+        return <p className="text-xs text-muted-foreground italic">Sem eventos registrados.</p>;
+    }
+    return (
+        <div className="space-y-1.5">
+            {events.map(ev => (
+                <div key={ev.id} className="flex items-start gap-2 text-xs">
+                    <span className="text-base leading-none mt-0.5 shrink-0">
+                        {EVENT_ICONS[ev.type] ?? '📌'}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-foreground">
+                                {EVENT_LABELS[ev.type] ?? ev.type}
+                            </span>
+                            {ev.metadata?.tool && (
+                                <span className="text-[10px] bg-secondary/40 text-muted-foreground px-1.5 py-0.5 rounded">
+                                    {ev.metadata.tool}
+                                </span>
+                            )}
+                            <span className="text-[10px] text-muted-foreground ml-auto">
+                                {new Date(ev.timestamp).toLocaleTimeString('pt-BR')}
+                            </span>
+                        </div>
+                        {ev.metadata?.question && (
+                            <p className="text-[11px] text-muted-foreground mt-0.5 italic line-clamp-2">
+                                &quot;{ev.metadata.question}&quot;
+                            </p>
+                        )}
+                        {ev.metadata?.isError && (
+                            <p className="text-[11px] text-rose-400 mt-0.5">Erro na ferramenta</p>
+                        )}
+                        {ev.metadata?.error && (
+                            <p className="text-[11px] text-rose-400 mt-0.5">{String(ev.metadata.error).substring(0, 200)}</p>
+                        )}
+                        {ev.metadata?.matchedPattern && (
+                            <p className="text-[11px] text-violet-400 mt-0.5 font-mono">
+                                pattern: {ev.metadata.matchedPattern}
+                            </p>
+                        )}
+                    </div>
+                </div>
+            ))}
+            {status === 'in_progress' && (
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground pt-2 border-t border-border/30">
+                    <div className="w-2.5 h-2.5 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                    Executando...
+                </div>
+            )}
+        </div>
+    );
+}
+
+function WorkItemResult({ executionContext }: { executionContext: any }) {
+    if (!executionContext?.output?.fullText) {
+        return <p className="text-xs text-muted-foreground italic">Sem resultado disponível.</p>;
+    }
+    return (
+        <div className="bg-background/40 rounded-md p-3 border border-border/30">
+            <h4 className="text-xs font-semibold text-violet-400 mb-2">Resultado</h4>
+            <pre className="text-xs text-foreground/90 whitespace-pre-wrap break-words max-h-64 overflow-y-auto leading-relaxed">
+                {executionContext.output.fullText}
+            </pre>
+            {executionContext.tokens && (
+                <div className="flex gap-3 mt-2 pt-2 border-t border-border/30 text-[10px] text-muted-foreground flex-wrap">
+                    {executionContext.tokens.prompt !== undefined && (
+                        <span>Prompt: {executionContext.tokens.prompt} tokens</span>
+                    )}
+                    {executionContext.tokens.completion !== undefined && (
+                        <span>Completion: {executionContext.tokens.completion} tokens</span>
+                    )}
+                    {executionContext.output.toolEvents?.length > 0 && (
+                        <span>Tools: {executionContext.output.toolEvents.length} chamadas</span>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function ArchitectPage() {
     const { role } = useAuth();
     const { toast: showToast } = useToast();
@@ -188,6 +313,11 @@ export default function ArchitectPage() {
     const [dispatchingAll, setDispatchingAll] = useState(false);
     const [cancellingItemId, setCancellingItemId] = useState<string | null>(null);
     const [expandedOutputId, setExpandedOutputId] = useState<string | null>(null);
+
+    // FASE 5b-fix: Live execution events
+    const [expandedEventsId, setExpandedEventsId] = useState<string | null>(null);
+    const [workItemEvents, setWorkItemEvents] = useState<WorkItemEvent[]>([]);
+    const [pollingEvents, setPollingEvents] = useState(false);
 
     // Templates (FASE 5c)
     const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
@@ -236,6 +366,43 @@ export default function ArchitectPage() {
         loadCases();
         loadTemplates();
     }, [loadCases, loadTemplates]);
+
+    // FASE 5b-fix: poll work item events when expanded panel is open
+    useEffect(() => {
+        if (!expandedEventsId || !selected) return;
+
+        let cancelled = false;
+        const fetchEvents = async () => {
+            try {
+                const res = await api.get(ENDPOINTS.ARCHITECT_WORK_ITEM_EVENTS(expandedEventsId));
+                if (cancelled) return;
+                setWorkItemEvents(res.data.events || []);
+                const status = res.data.work_item?.status;
+                const isTerminal = ['done', 'cancelled', 'blocked'].includes(status);
+                setPollingEvents(!isTerminal);
+                // If status changed from in_progress to terminal, refresh the case to pick up
+                // execution_context.output.fullText for the result panel
+                const currentWi = selected.workItems.find(wi => wi.id === expandedEventsId);
+                if (currentWi && currentWi.status !== status) {
+                    openCase(selected.case.id);
+                }
+            } catch {
+                // ignore polling errors silently
+            }
+        };
+
+        fetchEvents();
+        const interval = setInterval(() => {
+            // Stop polling if last status was terminal — fetchEvents will set pollingEvents=false
+            fetchEvents().catch(() => {});
+        }, 3000);
+
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [expandedEventsId, selected?.case.id]);
 
     const instantiateTemplate = async (template: WorkflowTemplate) => {
         setInstantiatingId(template.id);
@@ -398,6 +565,18 @@ export default function ArchitectPage() {
             showToast('Erro ao cancelar work item', 'error');
         } finally {
             setCancellingItemId(null);
+        }
+    };
+
+    // FASE 5b-fix: toggle execution events panel for a work item
+    const toggleEventsPanel = (workItemId: string) => {
+        if (expandedEventsId === workItemId) {
+            setExpandedEventsId(null);
+            setWorkItemEvents([]);
+            setPollingEvents(false);
+        } else {
+            setExpandedEventsId(workItemId);
+            setWorkItemEvents([]);
         }
     };
 
@@ -1089,6 +1268,16 @@ export default function ArchitectPage() {
                                                                     </button>
                                                                 )}
 
+                                                                {/* OpenClaude live events toggle */}
+                                                                {wi.execution_hint === 'openclaude' && (
+                                                                    <button
+                                                                        onClick={() => toggleEventsPanel(wi.id)}
+                                                                        className="shrink-0 px-2 py-0.5 rounded text-xs font-medium text-violet-400 hover:text-violet-300 underline-offset-2 hover:underline transition-colors"
+                                                                    >
+                                                                        {expandedEventsId === wi.id ? 'Fechar eventos' : 'Eventos'}
+                                                                    </button>
+                                                                )}
+
                                                                 <span className="text-xs text-muted-foreground shrink-0">{wi.item_type}</span>
 
                                                                 {/* Dispatch button */}
@@ -1128,6 +1317,25 @@ export default function ArchitectPage() {
                                                                     <pre className="text-xs text-muted-foreground whitespace-pre-wrap break-words bg-background/50 rounded p-2 max-h-48 overflow-y-auto">
                                                                         {wi.execution_context.output.fullText}
                                                                     </pre>
+                                                                </div>
+                                                            )}
+
+                                                            {/* FASE 5b-fix: Live execution events panel */}
+                                                            {expandedEventsId === wi.id && (
+                                                                <div className="px-3 pb-3 pt-1 border-t border-border/20 space-y-3">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-xs text-violet-400 font-medium">Execução OpenClaude</span>
+                                                                        {pollingEvents && (
+                                                                            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                                                                <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+                                                                                polling 3s
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <EventTimeline events={workItemEvents} status={wi.status} />
+                                                                    {wi.status === 'done' && (
+                                                                        <WorkItemResult executionContext={wi.execution_context} />
+                                                                    )}
                                                                 </div>
                                                             )}
                                                         </div>

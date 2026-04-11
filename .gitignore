@@ -77,4 +77,12 @@ migration_error.log
 *.wasm.bak
 migrations/
 admin-ui/test-results/
-openclaude/
+
+# OpenClaude runner — third-party fork with GovAI patches.
+# Tracked because the patches (Dockerfile.govai, locked-mode bootstrap,
+# bundle stub, mkdir of cwd) are required for the runner to start.
+# Excluded subdirectories: build artifacts and the runner's own deps.
+openclaude/node_modules/
+openclaude/dist/
+openclaude/build/
+openclaude/.cache/

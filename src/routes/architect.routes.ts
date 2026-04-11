@@ -523,6 +523,100 @@ export async function architectRoutes(
         }
     });
 
+    // ── GET /v1/admin/architect/work-items/:workItemId/events ────────────────
+    // Returns the work item state plus all evidence records linked to it,
+    // ordered chronologically. Used by the /architect drawer to render the
+    // OpenClaude live execution timeline.
+    fastify.get('/v1/admin/architect/work-items/:workItemId/events', {
+        preHandler: requireRole(['admin', 'operator', 'auditor', 'dpo']),
+    }, async (request: any, reply) => {
+        const { orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const { workItemId } = request.params as { workItemId: string };
+
+        const client = await pgPool.connect();
+        try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+
+            const wi = await client.query(
+                `SELECT id, status, execution_hint, title, description, item_type,
+                        execution_context, dispatch_attempts, dispatch_error,
+                        worker_session_id, run_started_at, dispatched_at,
+                        cancelled_at, completed_at, created_at, updated_at
+                 FROM architect_work_items
+                 WHERE id = $1 AND org_id = $2`,
+                [workItemId, orgId]
+            );
+            if (wi.rows.length === 0) {
+                return reply.status(404).send({ error: 'Work item not found' });
+            }
+
+            const events = await client.query(
+                `SELECT id, event_type, metadata, created_at
+                 FROM evidence_records
+                 WHERE resource_type = 'architect_work_item'
+                   AND resource_id = $1
+                   AND org_id = $2
+                 ORDER BY created_at ASC`,
+                [workItemId, orgId]
+            );
+
+            return reply.send({
+                work_item: wi.rows[0],
+                events: events.rows.map(e => ({
+                    id: e.id,
+                    type: e.event_type,
+                    metadata: e.metadata,
+                    timestamp: e.created_at,
+                })),
+            });
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+    // ── POST /v1/admin/architect/work-items/:workItemId/approve-action ───────
+    // v1: stub — the adapter currently auto-approves all gRPC ActionRequired
+    // events. This endpoint exists so the frontend approval bridge can be built
+    // ahead of v2, which will forward UserInput back through the gRPC stream.
+    fastify.post('/v1/admin/architect/work-items/:workItemId/approve-action', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const { workItemId } = request.params as { workItemId: string };
+        const body = (request.body ?? {}) as { prompt_id?: string; approved?: boolean };
+
+        if (!body.prompt_id || typeof body.approved !== 'boolean') {
+            return reply.status(400).send({ error: 'prompt_id e approved (boolean) são obrigatórios.' });
+        }
+
+        // v1: confirm work item exists; do not actually forward — adapter auto-approves
+        const client = await pgPool.connect();
+        try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+            const exists = await client.query(
+                `SELECT id FROM architect_work_items WHERE id = $1 AND org_id = $2`,
+                [workItemId, orgId]
+            );
+            if (exists.rows.length === 0) {
+                return reply.status(404).send({ error: 'Work item not found' });
+            }
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+
+        return reply.send({
+            message: 'v1: auto-approve is active — manual approval will be available in v2',
+            workItemId,
+            prompt_id: body.prompt_id,
+            approved: body.approved,
+            stubbed: true,
+        });
+    });
+
     // ── POST /v1/admin/architect/cases/:id/workflow/dispatch-all ────────────
     fastify.post('/v1/admin/architect/cases/:id/workflow/dispatch-all', {
         preHandler: requireRole(['admin']),

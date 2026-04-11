@@ -141,6 +141,8 @@ export const ENDPOINTS = {
     ARCHITECT_WORK_ITEM:              (id: string) => `/v1/admin/architect/work-items/${id}`,
     ARCHITECT_WORK_ITEM_DISPATCH:     (id: string) => `/v1/admin/architect/work-items/${id}/dispatch`,
     ARCHITECT_WORK_ITEM_CANCEL:       (id: string) => `/v1/admin/architect/work-items/${id}/cancel`,
+    ARCHITECT_WORK_ITEM_EVENTS:       (id: string) => `/v1/admin/architect/work-items/${id}/events`,
+    ARCHITECT_WORK_ITEM_APPROVE_ACTION: (id: string) => `/v1/admin/architect/work-items/${id}/approve-action`,
     ARCHITECT_WORKFLOW_DISPATCH_ALL:  (id: string) => `/v1/admin/architect/cases/${id}/workflow/dispatch-all`,
     ARCHITECT_CASE_SUMMARY:           (id: string) => `/v1/admin/architect/cases/${id}/summary`,
 

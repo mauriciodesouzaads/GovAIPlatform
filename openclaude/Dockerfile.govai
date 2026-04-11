@@ -1,0 +1,69 @@
+# openclaude/Dockerfile.govai
+# GovAI-hardened OpenClaude gRPC worker
+# ---------------------------------------------------------------------------
+# - Two-stage build with Bun 1.2 (Alpine-based oven/bun:1.2-slim)
+# - Runs `scripts/start-grpc.ts` in GovAI locked mode (no provider profile,
+#   no credentials hydration, no validation — env vars only)
+# - LiteLLM is the only LLM backend (OPENAI_BASE_URL + OPENAI_API_KEY)
+# - Web tools disabled by default
+# - HEALTHCHECK probes the gRPC TCP port directly so Compose can wait for
+#   actual readiness, not just process start
+# ---------------------------------------------------------------------------
+
+FROM oven/bun:1.2-slim AS builder
+
+WORKDIR /app
+
+# Copy package files first for cache efficiency
+COPY package.json bun.lock* ./
+
+# bun install — fall back gracefully if the lockfile schema differs
+RUN bun install --frozen-lockfile 2>/dev/null || bun install
+
+# Stub `bun:bundle` virtual module: OpenClaude was designed to be consumed
+# via `bun build` (which inlines a virtual `bun:bundle` providing feature
+# flags). Bun's resolver strips the `bun:` prefix and looks for a real
+# `bundle` package — so we drop a no-op stub into node_modules that returns
+# false for every feature flag, defaulting all conditional paths to the
+# safest behavior (no team-mem, no auto-connect, no experimental features).
+RUN mkdir -p node_modules/bundle && \
+    printf '%s\n' \
+        '{' \
+        '  "name": "bundle",' \
+        '  "version": "0.0.0",' \
+        '  "main": "index.js",' \
+        '  "type": "commonjs"' \
+        '}' > node_modules/bundle/package.json && \
+    printf '%s\n' \
+        '// Stub for `bun:bundle` virtual module (GovAI runtime mode).' \
+        'function feature(_name) { return false; }' \
+        'module.exports = { feature };' > node_modules/bundle/index.js
+
+# Copy the rest of the source
+COPY . .
+
+# ── Runtime stage ──────────────────────────────────────────────────────────
+FROM oven/bun:1.2-slim
+
+WORKDIR /app
+
+# Bring deps + source from the builder
+COPY --from=builder /app /app
+
+# Workspace volume mount-point — created so the volume mounts cleanly
+RUN mkdir -p /tmp/govai-workspace && chmod 777 /tmp/govai-workspace
+
+# GovAI defaults — overridable from docker-compose
+ENV OPENCLAUDE_GOVAI_LOCKED_MODE=true \
+    GRPC_HOST=0.0.0.0 \
+    GRPC_PORT=50051 \
+    OPENCLAUDE_DISABLE_WEB_SEARCH=true \
+    OPENCLAUDE_DISABLE_WEB_FETCH=true
+
+# Health check — probes the gRPC TCP port directly
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=15s \
+    CMD bun -e "const net=require('net');const c=net.connect(50051,'127.0.0.1',()=>{c.end();process.exit(0)});c.on('error',()=>process.exit(1))" || exit 1
+
+EXPOSE 50051
+
+CMD ["bun", "run", "scripts/start-grpc.ts"]

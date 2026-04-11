@@ -17,6 +17,10 @@ RUN mkdir -p /app/dist/lib/opa && \
     (cp /app/src/lib/opa/policy.wasm /app/dist/lib/opa/ || \
     cp /app/lib/opa/policy.wasm /app/dist/lib/opa/ || \
     echo "Warning: policy.wasm not found during build")
+# Copy non-TS assets that tsc skips: .proto definitions consumed at runtime
+# by openclaude-client.ts via @grpc/proto-loader (FASE 5b)
+RUN mkdir -p /app/dist/proto && \
+    cp /app/src/proto/openclaude.proto /app/dist/proto/openclaude.proto
 # Test stage — retains devDependencies for running Vitest inside Docker
 FROM node:20-alpine AS test
 
