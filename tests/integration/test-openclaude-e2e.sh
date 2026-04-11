@@ -79,10 +79,17 @@ fi
 # ── Step 2: Trigger delegation ───────────────────────────────────────────────
 echo ""
 echo "═══ Step 2: Trigger delegation via /v1/execute ═══"
+# NOTE on message choice: we need a prompt that (a) triggers delegation via a
+# seeded pattern and (b) does NOT make OpenClaude request any tools, because
+# when the hardened resolveToolDecision catches a dangerous tool it flips the
+# work item to `awaiting_approval` and the test would time out waiting.
+# "analise o repositório..." matches but makes the agent call sub-tools;
+# the simple "[OPENCLAUDE]" prefix below matches the escape pattern and
+# lets the agent answer in one shot.
 EXEC_RESULT=$(curl -s -X POST "$API/v1/execute/$DEMO_ASSISTANT" \
     -H "Authorization: Bearer $DEMO_API_KEY" \
     -H "Content-Type: application/json" \
-    -d '{"message":"analise o repositório e identifique problemas de segurança"}')
+    -d '{"message":"[OPENCLAUDE] Responda exatamente a frase: pronto"}')
 
 DELEGATED=$(echo "$EXEC_RESULT" | jq -r '._govai.delegated // false')
 WORK_ITEM_ID=$(echo "$EXEC_RESULT" | jq -r '._govai.workItemId // empty')

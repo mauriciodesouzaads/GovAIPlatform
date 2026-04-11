@@ -196,6 +196,12 @@ services:
       # The TCP listener is also kept as a fallback for healthcheck and tooling.
       GRPC_SOCKET_PATH: /var/run/govai/openclaude.sock
       OPENCLAUDE_GOVAI_LOCKED_MODE: "true"
+      # Force the OpenAI-compatible shim (src/services/api/openaiShim.ts).
+      # Without this, OpenClaude's getAPIProvider() defaults to 'firstParty'
+      # which talks directly to the Anthropic API with x-api-key auth and
+      # fails with "Not logged in · Please run /login" — because the key we
+      # have is the LiteLLM proxy key, not a real Anthropic key.
+      CLAUDE_CODE_USE_OPENAI: "1"
       # Uses GovAI's LiteLLM as OpenAI-compatible LLM proxy
       OPENAI_API_KEY: ${LITELLM_KEY}
       OPENAI_BASE_URL: http://litellm:4000/v1
