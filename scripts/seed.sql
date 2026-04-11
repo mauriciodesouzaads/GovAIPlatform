@@ -1051,4 +1051,60 @@ VALUES
    true)
 ON CONFLICT (org_id, name) DO NOTHING;
 
+-- ── Architect Workflow — OpenClaude Demo (FASE 5b) ───────────────────────────
+-- Chain: problem_contract → architecture_decision_set → workflow_graph → work_item
+-- Uses demand_case 000A-000001 ("Migração para LLM Nacional")
+
+-- Problem contract
+INSERT INTO problem_contracts
+    (id, org_id, demand_case_id, version, goal, status, confidence_score)
+VALUES (
+    '00000000-0000-0000-00B0-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-000A-000000000001',
+    1,
+    'Avaliar a viabilidade técnica e regulatória de migrar o LLM principal para um modelo nacional (Maritaca AI), garantindo conformidade com BACEN e soberania de dados.',
+    'accepted',
+    88
+) ON CONFLICT (id) DO NOTHING;
+
+-- Architecture decision set
+INSERT INTO architecture_decision_sets
+    (id, org_id, problem_contract_id, recommended_option, rationale_md, status)
+VALUES (
+    '00000000-0000-0000-00B1-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-00B0-000000000001',
+    'Migrar para Maritaca AI com fallback para modelo atual',
+    '## Decisão\nAdotar Maritaca AI (sabiá-3) como provedor primário via LiteLLM, mantendo o modelo atual como fallback automático.\n\n## Justificativa\n- Conformidade nativa com BACEN 4.557 (dados no território nacional)\n- Custo 40% menor por token vs. provedores internacionais\n- Suporte a português com melhor performance',
+    'approved'
+) ON CONFLICT (id) DO NOTHING;
+
+-- Workflow graph
+INSERT INTO workflow_graphs
+    (id, org_id, architecture_decision_set_id, version, status, graph_json)
+VALUES (
+    '00000000-0000-0000-00B2-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-00B1-000000000001',
+    1,
+    'delegated',
+    '{"nodes": [{"id": "openclaude-review", "type": "openclaude_task"}]}'::jsonb
+) ON CONFLICT (id) DO NOTHING;
+
+-- Work item with execution_hint = 'openclaude' (requires migration 073)
+INSERT INTO architect_work_items
+    (id, org_id, workflow_graph_id, node_id, item_type, title, description, execution_hint, status)
+VALUES (
+    '00000000-0000-0000-00B3-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-00B2-000000000001',
+    'openclaude-review',
+    'compliance_check',
+    'Análise de Conformidade — Migração LLM Nacional',
+    'Revisar o litellm-config.yaml e execution.service.ts para identificar todos os pontos de configuração que precisam ser atualizados para suportar Maritaca AI como provedor primário. Listar endpoints, parâmetros de autenticação e ajustes de fallback necessários.',
+    'openclaude',
+    'pending'
+) ON CONFLICT (id) DO NOTHING;
+
 COMMIT;

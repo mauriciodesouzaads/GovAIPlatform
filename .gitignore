@@ -77,3 +77,4 @@ migration_error.log
 *.wasm.bak
 migrations/
 admin-ui/test-results/
+openclaude/

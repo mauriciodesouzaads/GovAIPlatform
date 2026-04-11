@@ -31,6 +31,7 @@ import {
     generateCaseSummary,
 } from '../lib/architect';
 import { dispatchWorkItem, dispatchPendingWorkItems } from '../lib/architect-delegation';
+import { architectQueue } from '../workers/architect.worker';
 
 export async function architectRoutes(
     fastify: FastifyInstance,
@@ -460,6 +461,28 @@ export async function architectRoutes(
         if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
         const { workItemId } = request.params as { workItemId: string };
         try {
+            // Check execution_hint before dispatching
+            const hintCheck = await pgPool.query(
+                `SELECT execution_hint FROM architect_work_items WHERE id = $1`,
+                [workItemId]
+            );
+            const hint = hintCheck.rows[0]?.execution_hint;
+
+            if (hint === 'openclaude') {
+                // Async dispatch via BullMQ — returns 202 Accepted immediately
+                await architectQueue.add('dispatch-openclaude', { orgId, workItemId }, {
+                    attempts: 3,
+                    backoff: { type: 'exponential', delay: 5_000 },
+                });
+                return reply.status(202).send({
+                    accepted: true,
+                    workItemId,
+                    adapter: 'openclaude',
+                    message: 'OpenClaude dispatch enqueued. Poll work item status for updates.',
+                });
+            }
+
+            // Synchronous dispatch for other adapters
             const result = await dispatchWorkItem(pgPool, orgId, workItemId);
             return reply.send(result);
         } catch (err: unknown) {
@@ -469,6 +492,34 @@ export async function architectRoutes(
                 return reply.status(409).send({ error: msg });
             }
             throw err;
+        }
+    });
+
+    // ── POST /v1/admin/architect/work-items/:workItemId/cancel ───────────────
+    fastify.post('/v1/admin/architect/work-items/:workItemId/cancel', {
+        preHandler: requireRole(['admin']),
+    }, async (request: any, reply) => {
+        const { orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const { workItemId } = request.params as { workItemId: string };
+        const client = await pgPool.connect();
+        try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+            const result = await client.query(
+                `UPDATE architect_work_items
+                 SET status = 'cancelled', cancelled_at = now()
+                 WHERE id = $1 AND org_id = $2
+                   AND status IN ('pending', 'in_progress')
+                 RETURNING id, status`,
+                [workItemId, orgId]
+            );
+            if (result.rows.length === 0) {
+                return reply.status(404).send({ error: 'Work item not found or not cancellable' });
+            }
+            return reply.send({ cancelled: true, workItemId });
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
         }
     });
 

@@ -4,6 +4,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 RUN npm ci --omit=dev && cp -R node_modules /prod_modules && \
     rm -rf /prod_modules/vitest /prod_modules/@vitest
 RUN npm ci

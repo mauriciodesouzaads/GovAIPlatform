@@ -13,8 +13,10 @@
  */
 
 import { Pool } from 'pg';
+import { randomUUID } from 'crypto';
 import { searchSimilarChunks } from './rag';
 import { recordEvidence } from './evidence';
+import { executeOpenClaudeRun } from './openclaude-client';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -271,6 +273,259 @@ export async function runAgnoAdapter(
     }
 }
 
+// ── Adapter: openclaude ───────────────────────────────────────────────────────
+
+export async function runOpenClaudeAdapter(
+    pool: Pool,
+    orgId: string,
+    workItemId: string
+): Promise<AdapterResult> {
+    const client = await pool.connect();
+    try {
+        await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+
+        // 1. Fetch work item
+        const wiRes = await client.query(
+            `SELECT * FROM architect_work_items WHERE id = $1 AND org_id = $2`,
+            [workItemId, orgId]
+        );
+        if (wiRes.rows.length === 0) {
+            return { success: false, output: {}, error: 'Work item not found' };
+        }
+        const item = wiRes.rows[0];
+
+        if (item.execution_hint !== 'openclaude') {
+            return { success: false, output: {}, error: 'Wrong adapter for this item' };
+        }
+        if (item.status !== 'pending' && item.status !== 'in_progress') {
+            return { success: false, output: {}, error: 'Work item not in dispatchable state' };
+        }
+
+        // 2. Mark in_progress + record session
+        const sessionId = randomUUID();
+        await client.query(
+            `UPDATE architect_work_items
+             SET status = 'in_progress', dispatched_at = now(),
+                 dispatch_attempts = dispatch_attempts + 1,
+                 worker_session_id = $2, run_started_at = now()
+             WHERE id = $1`,
+            [workItemId, sessionId]
+        );
+
+        // 3. Build instruction from work item fields
+        const instruction = [
+            `## Task: ${item.title}`,
+            item.description ? `\n${item.description}` : '',
+            item.execution_context?.instructions
+                ? `\n### Instructions\n${item.execution_context.instructions}`
+                : '',
+        ].filter(Boolean).join('\n');
+
+        // 4. Record evidence: run started
+        await recordEvidence(pool, {
+            orgId,
+            category: 'data_access',
+            eventType: 'OPENCLAUDE_RUN_STARTED',
+            resourceType: 'architect_work_item',
+            resourceId: workItemId,
+            metadata: { sessionId, adapter: 'openclaude', title: item.title },
+        });
+
+        // 5. Execute via gRPC (non-blocking handle)
+        const host = process.env.OPENCLAUDE_GRPC_HOST || 'openclaude-runner:50051';
+        const timeoutMs = parseInt(process.env.OPENCLAUDE_TIMEOUT_MS || '300000', 10);
+        const workDir = `/tmp/govai-workspace/${workItemId}`;
+
+        const { emitter, respond } = executeOpenClaudeRun({
+            host,
+            message: instruction,
+            workingDirectory: workDir,
+            sessionId,
+            timeoutMs,
+        });
+
+        // 6. Collect events and await completion
+        const toolEvents: Array<{ name: string; output?: string; error?: boolean }> = [];
+        let fullText = '';
+        let promptTokens = 0;
+        let completionTokens = 0;
+
+        const result = await new Promise<AdapterResult>((resolve) => {
+
+            emitter.on('text_chunk', (data: any) => {
+                fullText += data.text || '';
+            });
+
+            emitter.on('tool_start', async (data: any) => {
+                await recordEvidence(pool, {
+                    orgId,
+                    category: 'data_access',
+                    eventType: 'OPENCLAUDE_TOOL_START',
+                    resourceType: 'architect_work_item',
+                    resourceId: workItemId,
+                    metadata: { tool: data.tool_name, toolUseId: data.tool_use_id, sessionId },
+                }).catch(() => {});
+            });
+
+            emitter.on('tool_result', async (data: any) => {
+                toolEvents.push({
+                    name: data.tool_name,
+                    output: typeof data.output === 'string' ? data.output.substring(0, 500) : undefined,
+                    error: Boolean(data.is_error),
+                });
+                await recordEvidence(pool, {
+                    orgId,
+                    category: 'data_access',
+                    eventType: 'OPENCLAUDE_TOOL_RESULT',
+                    resourceType: 'architect_work_item',
+                    resourceId: workItemId,
+                    metadata: {
+                        tool: data.tool_name,
+                        toolUseId: data.tool_use_id,
+                        isError: Boolean(data.is_error),
+                        outputLength: data.output?.length || 0,
+                        sessionId,
+                    },
+                }).catch(() => {});
+            });
+
+            emitter.on('action_required', (data: any) => {
+                // v1: auto-approve all tool usage
+                // v2: create GovAI HITL approval, wait for human decision
+                respond(data.prompt_id, 'yes');
+                recordEvidence(pool, {
+                    orgId,
+                    category: 'data_access',
+                    eventType: 'OPENCLAUDE_ACTION_AUTO_APPROVED',
+                    resourceType: 'architect_work_item',
+                    resourceId: workItemId,
+                    metadata: { promptId: data.prompt_id, question: data.question, sessionId },
+                }).catch(() => {});
+            });
+
+            emitter.on('done', async (data: any) => {
+                fullText = data.full_text || fullText;
+                promptTokens = data.prompt_tokens || 0;
+                completionTokens = data.completion_tokens || 0;
+
+                // Update work item as done
+                const cl = await pool.connect();
+                try {
+                    await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                    await cl.query(
+                        `UPDATE architect_work_items
+                         SET status = 'done', completed_at = now(),
+                             execution_context = $1
+                         WHERE id = $2`,
+                        [
+                            JSON.stringify({
+                                adapter: 'openclaude',
+                                sessionId,
+                                input: { instruction: instruction.substring(0, 500) },
+                                output: {
+                                    fullText: fullText.substring(0, 2000),
+                                    toolEvents,
+                                },
+                                tokens: { prompt: promptTokens, completion: completionTokens },
+                            }),
+                            workItemId,
+                        ]
+                    );
+                } finally {
+                    await cl.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+                    cl.release();
+                }
+
+                await recordEvidence(pool, {
+                    orgId,
+                    category: 'data_access',
+                    eventType: 'OPENCLAUDE_RUN_COMPLETED',
+                    resourceType: 'architect_work_item',
+                    resourceId: workItemId,
+                    metadata: { sessionId, promptTokens, completionTokens, toolCount: toolEvents.length },
+                }).catch(() => {});
+
+                resolve({
+                    success: true,
+                    output: {
+                        fullText: fullText.substring(0, 5000),
+                        toolEvents,
+                        tokens: { prompt: promptTokens, completion: completionTokens },
+                    },
+                });
+            });
+
+            emitter.on('error', async (data: any) => {
+                const errorMsg = data.message || 'OpenClaude execution failed';
+
+                const cl = await pool.connect();
+                try {
+                    await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                    await cl.query(
+                        `UPDATE architect_work_items
+                         SET dispatch_error = $1,
+                             status = CASE
+                                 WHEN dispatch_attempts >= 3 THEN 'blocked'
+                                 ELSE 'pending'
+                             END
+                         WHERE id = $2`,
+                        [errorMsg, workItemId]
+                    );
+                } finally {
+                    await cl.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+                    cl.release();
+                }
+
+                await recordEvidence(pool, {
+                    orgId,
+                    category: 'data_access',
+                    eventType: 'OPENCLAUDE_RUN_FAILED',
+                    resourceType: 'architect_work_item',
+                    resourceId: workItemId,
+                    metadata: { sessionId, error: errorMsg, code: data.code },
+                }).catch(() => {});
+
+                resolve({ success: false, output: {}, error: errorMsg });
+            });
+
+            // Fallback: stream ended without done/error
+            emitter.on('end', () => {
+                if (fullText) {
+                    resolve({
+                        success: true,
+                        output: { fullText: fullText.substring(0, 5000), toolEvents },
+                    });
+                } else {
+                    resolve({
+                        success: false,
+                        output: {},
+                        error: 'gRPC stream ended without response',
+                    });
+                }
+            });
+        });
+
+        return result;
+
+    } catch (err: unknown) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        try {
+            await client.query(
+                `UPDATE architect_work_items
+                 SET dispatch_error = $1,
+                     dispatch_attempts = dispatch_attempts + 1,
+                     status = CASE WHEN dispatch_attempts + 1 >= 3 THEN 'blocked' ELSE 'pending' END
+                 WHERE id = $2 AND org_id = $3`,
+                [errorMsg, workItemId, orgId]
+            );
+        } catch { /* non-fatal */ }
+        return { success: false, output: {}, error: errorMsg };
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+}
+
 // ── Delegation Router ─────────────────────────────────────────────────────────
 
 export async function dispatchWorkItem(
@@ -360,6 +615,9 @@ export async function dispatchWorkItem(
     } else if (hint === 'human') {
         adapterName = 'human';
         result = await runHumanAdapter(pool, orgId, workItemId);
+    } else if (hint === 'openclaude') {
+        adapterName = 'openclaude';
+        result = await runOpenClaudeAdapter(pool, orgId, workItemId);
     } else {
         // No hint or unknown — default to human adapter
         adapterName = 'human';

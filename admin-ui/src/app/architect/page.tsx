@@ -63,7 +63,11 @@ interface WorkItem {
     status: string;
     node_id: string;
     execution_hint: string | null;
-    execution_context: { output?: { snippets?: unknown[] } } | null;
+    execution_context: {
+        output?: { snippets?: unknown[]; fullText?: string; toolEvents?: { name: string }[] };
+        adapter?: string;
+    } | null;
+    worker_session_id?: string | null;
 }
 
 interface DemandCaseFull {
@@ -162,6 +166,8 @@ export default function ArchitectPage() {
     // Dispatch
     const [dispatchingItemId, setDispatchingItemId] = useState<string | null>(null);
     const [dispatchingAll, setDispatchingAll] = useState(false);
+    const [cancellingItemId, setCancellingItemId] = useState<string | null>(null);
+    const [expandedOutputId, setExpandedOutputId] = useState<string | null>(null);
 
     // Case summary
     const [caseSummary, setCaseSummary] = useState<{
@@ -314,6 +320,20 @@ export default function ArchitectPage() {
             showToast('Erro ao despachar work item', 'error');
         } finally {
             setDispatchingItemId(null);
+        }
+    };
+
+    const handleCancelItem = async (workItemId: string) => {
+        if (!selected) return;
+        setCancellingItemId(workItemId);
+        try {
+            await api.post(ENDPOINTS.ARCHITECT_WORK_ITEM_CANCEL(workItemId), {});
+            showToast('Work item cancelado', 'success');
+            openCase(selected.case.id);
+        } catch {
+            showToast('Erro ao cancelar work item', 'error');
+        } finally {
+            setCancellingItemId(null);
         }
     };
 
@@ -850,25 +870,85 @@ export default function ArchitectPage() {
                                                 </div>
                                                 <div className="space-y-1.5">
                                                     {selected.workItems.map(wi => (
-                                                        <div key={wi.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-secondary/10 border border-border/20">
-                                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border ${statusBadge(wi.status)}`}>
-                                                                {wi.status}
-                                                            </span>
-                                                            <span className="text-xs text-foreground flex-1 truncate">{wi.title}</span>
-                                                            {wi.execution_context?.output?.snippets && wi.execution_context.output.snippets.length > 0 && (
-                                                                <span className="text-xs text-violet-400 shrink-0">
-                                                                    {wi.execution_context.output.snippets.length} snippets
+                                                        <div key={wi.id} className="rounded-lg bg-secondary/10 border border-border/20 overflow-hidden">
+                                                            {/* Main row */}
+                                                            <div className="flex items-center gap-3 px-3 py-2">
+                                                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border ${statusBadge(wi.status)}`}>
+                                                                    {wi.status}
                                                                 </span>
-                                                            )}
-                                                            <span className="text-xs text-muted-foreground shrink-0">{wi.item_type}</span>
-                                                            {wi.status === 'pending' && ['admin', 'operator'].includes(role) && (
-                                                                <button
-                                                                    onClick={() => handleDispatchItem(wi.id)}
-                                                                    disabled={dispatchingItemId === wi.id}
-                                                                    className="shrink-0 px-2 py-0.5 rounded text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50"
-                                                                >
-                                                                    {dispatchingItemId === wi.id ? '...' : 'Despachar'}
-                                                                </button>
+                                                                <span className="text-xs text-foreground flex-1 truncate">{wi.title}</span>
+
+                                                                {/* OpenClaude badge */}
+                                                                {wi.execution_hint === 'openclaude' && (
+                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20 shrink-0">
+                                                                        🤖 OpenClaude
+                                                                    </span>
+                                                                )}
+
+                                                                {/* In-progress spinner for OpenClaude */}
+                                                                {wi.status === 'in_progress' && wi.execution_hint === 'openclaude' && (
+                                                                    <span className="text-xs text-violet-400 shrink-0 animate-pulse">
+                                                                        ⟳ Executando...
+                                                                    </span>
+                                                                )}
+
+                                                                {/* RAG snippets count */}
+                                                                {wi.execution_context?.output?.snippets && wi.execution_context.output.snippets.length > 0 && (
+                                                                    <span className="text-xs text-violet-400 shrink-0">
+                                                                        {wi.execution_context.output.snippets.length} snippets
+                                                                    </span>
+                                                                )}
+
+                                                                {/* OpenClaude result link */}
+                                                                {wi.status === 'done' && wi.execution_context?.adapter === 'openclaude' && wi.execution_context?.output?.fullText && (
+                                                                    <button
+                                                                        onClick={() => setExpandedOutputId(expandedOutputId === wi.id ? null : wi.id)}
+                                                                        className="shrink-0 px-2 py-0.5 rounded text-xs font-medium text-violet-400 hover:text-violet-300 underline-offset-2 hover:underline transition-colors"
+                                                                    >
+                                                                        {expandedOutputId === wi.id ? 'Fechar' : 'Ver resultado'}
+                                                                    </button>
+                                                                )}
+
+                                                                <span className="text-xs text-muted-foreground shrink-0">{wi.item_type}</span>
+
+                                                                {/* Dispatch button */}
+                                                                {wi.status === 'pending' && ['admin', 'operator'].includes(role) && (
+                                                                    <button
+                                                                        onClick={() => handleDispatchItem(wi.id)}
+                                                                        disabled={dispatchingItemId === wi.id}
+                                                                        className="shrink-0 px-2 py-0.5 rounded text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50"
+                                                                    >
+                                                                        {dispatchingItemId === wi.id ? '...' : 'Despachar'}
+                                                                    </button>
+                                                                )}
+
+                                                                {/* Cancel button — OpenClaude in_progress */}
+                                                                {wi.status === 'in_progress' && wi.execution_hint === 'openclaude' && role === 'admin' && (
+                                                                    <button
+                                                                        onClick={() => handleCancelItem(wi.id)}
+                                                                        disabled={cancellingItemId === wi.id}
+                                                                        className="shrink-0 px-2 py-0.5 rounded text-xs font-medium bg-destructive/80 hover:bg-destructive text-white transition-colors disabled:opacity-50"
+                                                                    >
+                                                                        {cancellingItemId === wi.id ? '...' : 'Cancelar'}
+                                                                    </button>
+                                                                )}
+                                                            </div>
+
+                                                            {/* Expandable OpenClaude output */}
+                                                            {expandedOutputId === wi.id && wi.execution_context?.output?.fullText && (
+                                                                <div className="px-3 pb-3 pt-1 border-t border-border/20">
+                                                                    <div className="flex items-center justify-between mb-1">
+                                                                        <span className="text-xs text-violet-400 font-medium">Resultado OpenClaude</span>
+                                                                        {wi.execution_context.output.toolEvents && wi.execution_context.output.toolEvents.length > 0 && (
+                                                                            <span className="text-xs text-muted-foreground">
+                                                                                {wi.execution_context.output.toolEvents.length} tool calls
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap break-words bg-background/50 rounded p-2 max-h-48 overflow-y-auto">
+                                                                        {wi.execution_context.output.fullText}
+                                                                    </pre>
+                                                                </div>
                                                             )}
                                                         </div>
                                                     ))}

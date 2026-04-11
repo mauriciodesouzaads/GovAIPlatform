@@ -140,6 +140,7 @@ export const ENDPOINTS = {
     ARCHITECT_DECISION_DOCUMENT:      (id: string) => `/v1/admin/architect/decisions/${id}/document`,
     ARCHITECT_WORK_ITEM:              (id: string) => `/v1/admin/architect/work-items/${id}`,
     ARCHITECT_WORK_ITEM_DISPATCH:     (id: string) => `/v1/admin/architect/work-items/${id}/dispatch`,
+    ARCHITECT_WORK_ITEM_CANCEL:       (id: string) => `/v1/admin/architect/work-items/${id}/cancel`,
     ARCHITECT_WORKFLOW_DISPATCH_ALL:  (id: string) => `/v1/admin/architect/cases/${id}/workflow/dispatch-all`,
     ARCHITECT_CASE_SUMMARY:           (id: string) => `/v1/admin/architect/cases/${id}/summary`,
 

@@ -169,9 +169,36 @@ services:
       retries: 30
       start_period: 60s
 
+  openclaude-runner:
+    profiles: ["dev"]
+    image: oven/bun:1.2-slim
+    working_dir: /app
+    volumes:
+      - ./openclaude:/app
+      - openclaude_workspaces:/tmp/govai-workspace
+    environment:
+      GRPC_HOST: "0.0.0.0"
+      GRPC_PORT: "50051"
+      # Uses GovAI's LiteLLM as OpenAI-compatible LLM proxy
+      OPENAI_API_KEY: ${LITELLM_KEY}
+      OPENAI_BASE_URL: http://litellm:4000/v1
+      OPENAI_MODEL: govai-llm
+      # Security: disable web tools in regulated environment
+      OPENCLAUDE_DISABLE_WEB_SEARCH: "true"
+      OPENCLAUDE_DISABLE_WEB_FETCH: "true"
+    command: ["bun", "run", "scripts/start-grpc.ts"]
+    networks:
+      - govai-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
 volumes:
   pgdata:
   redisdata:
+  openclaude_workspaces:
 
 
 networks:

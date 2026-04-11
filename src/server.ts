@@ -32,6 +32,7 @@ import { initKeyRotationJob } from './jobs/key-rotation.job';
 import { initApiKeyRotationJob } from './jobs/api-key-rotation.job';
 import { startShieldWorker } from './workers/shield.worker';
 import { startShieldSchedule } from './jobs/shield-schedule.job';
+import { initArchitectWorker, architectQueue } from './workers/architect.worker';
 
 // ---------------------------------------------------------------------------
 // Fail-fast guards — must run before anything else
@@ -57,6 +58,7 @@ initExpirationWorker();
 initNotificationWorker(pgPool);
 initTelemetryWorker();
 startShieldWorker();
+initArchitectWorker(pgPool);
 
 // ---------------------------------------------------------------------------
 // Jobs — scheduled tasks (run after server startup via internal delay)

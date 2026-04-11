@@ -124,6 +124,7 @@ MIGRATIONS=(
     "070_alert_thresholds.sql"
     "071_dlp_rules.sql"
     "072_notification_channels.sql"
+    "073_architect_openclaude.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
