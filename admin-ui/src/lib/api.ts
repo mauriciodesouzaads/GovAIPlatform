@@ -165,6 +165,11 @@ export const ENDPOINTS = {
     MONITORING_TRENDS:                (days?: number) => `/v1/admin/monitoring/trends${days ? `?days=${days}` : ''}`,
     MONITORING_ALERTS:                '/v1/admin/monitoring/alerts',
     MONITORING_THRESHOLDS:            '/v1/admin/monitoring/thresholds',
+
+    // DLP Rules (FASE 4b)
+    DLP_RULES:                        '/v1/admin/dlp/rules',
+    DLP_RULE:                         (id: string) => `/v1/admin/dlp/rules/${id}`,
+    DLP_TEST:                         '/v1/admin/dlp/test',
 };
 
 export default api;

@@ -1,19 +1,26 @@
 /**
  * DLP Engine — Data Loss Prevention for LGPD Compliance
- * 
+ *
  * Provides semantic detection and masking of PII (Personally Identifiable Information)
  * in text payloads BEFORE they are signed (HMAC-SHA256) and persisted to immutable audit logs.
- * 
- * Supported PII types:
+ *
+ * Supported PII types (built-in):
  * - CPF (with checksum validation)
  * - CNPJ (with checksum validation)
  * - Credit/Debit Cards (Luhn algorithm)
  * - Email addresses
- * - Phone numbers (BR format — requires formatting markers)
+ * - Phone numbers (BR format)
  * - Bank account patterns
  * - CEP (postal codes)
  * - RG (identity document)
  * - PIX keys
+ *
+ * FASE 4b additions:
+ * - `sanitizeWithRules({ text, orgId, assistantId })` — loads org-specific rules
+ *   from DB (Redis-cached, 5-min TTL) and dispatches mask/block/alert per rule.
+ * - Policy-exception downgrade: active exceptions for PII/sensitive-data topics
+ *   downgrade block/mask → alert.
+ * - Backward-compat: `sanitize(text)` continues to work as a synchronous fallback.
  */
 
 // ---------------------------------------------------------------------------
@@ -33,6 +40,40 @@ export interface SanitizationResult {
     sanitizedText: string;
     detections: PIIDetection[];
     hasPII: boolean;
+}
+
+// ── FASE 4b ─────────────────────────────────────────────────────────────────
+
+export interface DlpSanitizeInput {
+    text: string;
+    orgId: string;
+    assistantId: string;
+}
+
+export interface DlpDetection {
+    rule_id: string;
+    rule_name: string;
+    detector_type: string;
+    pattern_matched: string;
+    action_taken: 'mask' | 'block' | 'alert';
+}
+
+export interface DlpSanitizeResult {
+    sanitized_text: string;
+    blocked: boolean;
+    block_reason?: string;
+    detections: DlpDetection[];
+}
+
+interface DbDlpRule {
+    id: string;
+    name: string;
+    detector_type: 'builtin' | 'regex' | 'keyword_list';
+    pattern: string | null;
+    pattern_config: Record<string, unknown>;
+    action: 'mask' | 'block' | 'alert';
+    applies_to: string[];
+    is_active: boolean;
 }
 
 interface PIIDetector {
@@ -103,7 +144,7 @@ function isValidLuhn(number: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// PII Detectors
+// Built-in PII Detectors
 // ---------------------------------------------------------------------------
 
 const cpfDetector: PIIDetector = {
@@ -217,7 +258,7 @@ const phoneDetector: PIIDetector = {
                 });
             }
         }
-        // A3 FIX: Context-aware detection for unformatted phones
+        // Context-aware detection for unformatted phones
         const contextPattern = /\b(tel(?:efone)?|celular|whatsapp|contato|fone)\s*:?\s*(\d{10,11})\b/gi;
         let cm;
         while ((cm = contextPattern.exec(text)) !== null) {
@@ -289,18 +330,7 @@ const rgDetector: PIIDetector = {
 };
 
 /**
- * PIX Key detector — requires explicit PIX context keyword before the value to
- * avoid false positives on CPFs and other 11-digit sequences in unrelated fields.
- *
- * Supported key formats (when preceded by "pix", "via pix", or "chave pix"):
- *   - Email (e.g. user@bank.com)
- *   - CPF formatted (xxx.xxx.xxx-xx) — common for personal PIX keys
- *   - CNPJ formatted (xx.xxx.xxx/xxxx-xx) — common for corporate PIX keys
- *   - 11–14 raw digits (CPF/CNPJ unformatted, phone number)
- *   - UUID (random key)
- *
- * Confidence is HIGH to win deduplication over CPF/CNPJ detectors when
- * the same number appears in a PIX context.
+ * PIX Key detector — requires explicit PIX context keyword before the value.
  */
 const pixKeyDetector: PIIDetector = {
     type: 'PIX_KEY',
@@ -323,6 +353,23 @@ const pixKeyDetector: PIIDetector = {
 };
 
 // ---------------------------------------------------------------------------
+// Builtin detector map (used by sanitizeWithRules for 'builtin' type)
+// ---------------------------------------------------------------------------
+
+const BUILTIN_DETECTORS: Record<string, PIIDetector> = {
+    CPF:         cpfDetector,
+    CNPJ:        cnpjDetector,
+    CREDIT_CARD: creditCardDetector,
+    EMAIL:       emailDetector,
+    PHONE:       phoneDetector,
+    BANK_ACCOUNT: bankAccountDetector,
+    CEP:         cepDetector,
+    RG:          rgDetector,
+    PIX_KEY:     pixKeyDetector,
+    // PERSON is Presidio-only — handled via sanitizeSemanticNLP, mapped to alert only
+};
+
+// ---------------------------------------------------------------------------
 // DLP Engine
 // ---------------------------------------------------------------------------
 
@@ -330,11 +377,6 @@ export class DLPEngine {
     private detectors: PIIDetector[];
 
     constructor() {
-        // pixKeyDetector is listed first so that a CPF-format number preceded by "pix" context
-        // is recognized as PIX_KEY rather than CPF during deduplication.
-        // The deduplication logic retains the detection with the smaller index in `all[]`
-        // when two overlapping detections have equal confidence — so the detector that
-        // runs first wins the tie.
         this.detectors = [
             pixKeyDetector, cpfDetector, cnpjDetector, creditCardDetector, emailDetector,
             phoneDetector, bankAccountDetector, cepDetector, rgDetector,
@@ -397,33 +439,276 @@ export class DLPEngine {
     }
 
     /**
-     * Tier 2 Semantic NLP Scanner (Microsoft Presidio)
-     * Offloads contextual detection to an external Python/ML microservice
+     * Tier 2 Semantic NLP Scanner (Microsoft Presidio).
+     * Offloads contextual detection to an external Python/ML microservice.
      */
     async sanitizeSemanticNLP(text: string): Promise<SanitizationResult> {
-        // Step 1: Tier 1 Regex (Locally)
         const localSanitized = this.sanitize(text);
-
         const presidioUrl = process.env.PRESIDIO_URL || 'http://localhost:5001/analyze';
-
         try {
             const axios = require('axios');
-            const response = await axios.post(presidioUrl, { text: localSanitized.sanitizedText, language: "pt" });
-
+            const response = await axios.post(presidioUrl, { text: localSanitized.sanitizedText, language: 'pt' });
             const presidioDetections = response.data.detections || [];
             const mergedDetections = [...localSanitized.detections, ...presidioDetections];
-
             return {
                 sanitizedText: response.data.sanitized_text || localSanitized.sanitizedText,
                 detections: mergedDetections,
                 hasPII: localSanitized.hasPII || response.data.has_pii || presidioDetections.length > 0
             };
-        } catch (e) {
-            console.warn("[DLP NLP] Presidio Semantic API unavailable. Falling back to Tier 1 Regex.");
+        } catch {
+            console.warn('[DLP NLP] Presidio Semantic API unavailable. Falling back to Tier 1 Regex.');
             return localSanitized;
         }
     }
 
+    // ── FASE 4b ──────────────────────────────────────────────────────────────
+
+    /**
+     * Load org DLP rules from DB (Redis-cached, 5-min TTL).
+     * Falls back to empty array on any error (backward-compat: behaves like pre-4b).
+     */
+    private async loadOrgRules(orgId: string): Promise<DbDlpRule[]> {
+        const cacheKey = `dlp_rules:${orgId}`;
+        try {
+            const { redisCache } = require('./redis');
+            const cached = await redisCache.get(cacheKey);
+            if (cached) {
+                return JSON.parse(cached) as DbDlpRule[];
+            }
+        } catch {
+            // Redis unavailable — proceed to DB
+        }
+
+        try {
+            const { pgPool } = require('./db');
+            const client = await pgPool.connect();
+            try {
+                await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                const result = await client.query(
+                    `SELECT id, name, detector_type, pattern, pattern_config, action, applies_to, is_active
+                     FROM dlp_rules
+                     WHERE org_id = $1 AND is_active = true
+                     ORDER BY is_system DESC, created_at ASC`,
+                    [orgId]
+                );
+                const rules: DbDlpRule[] = result.rows.map((r: any) => ({
+                    ...r,
+                    pattern_config: r.pattern_config || {},
+                    applies_to: r.applies_to || [],
+                }));
+                try {
+                    const { redisCache } = require('./redis');
+                    await redisCache.set(cacheKey, JSON.stringify(rules), 'EX', 300);
+                } catch {
+                    // Redis unavailable
+                }
+                return rules;
+            } finally {
+                client.release();
+            }
+        } catch (e) {
+            console.warn('[DLP] Could not load org rules from DB, using builtin-only fallback:', (e as Error).message);
+            return [];
+        }
+    }
+
+    /**
+     * Check if any active policy exception for this assistant downgrades DLP enforcement.
+     * Exception types that trigger downgrade: allow_sensitive_data, allow_pii_processing, allow_financial_data.
+     */
+    private async hasActivePiiException(orgId: string, assistantId: string): Promise<boolean> {
+        if (!assistantId) return false;
+        try {
+            const { pgPool } = require('./db');
+            const client = await pgPool.connect();
+            try {
+                await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                const result = await client.query(
+                    `SELECT 1 FROM policy_exceptions
+                     WHERE org_id = $1
+                       AND (assistant_id = $2 OR assistant_id IS NULL)
+                       AND status = 'active'
+                       AND exception_type IN ('allow_sensitive_data', 'allow_pii_processing', 'allow_financial_data')
+                       AND (expires_at IS NULL OR expires_at > NOW())
+                     LIMIT 1`,
+                    [orgId, assistantId]
+                );
+                return result.rows.length > 0;
+            } finally {
+                client.release();
+            }
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * FASE 4b — Context-aware DLP sanitization.
+     *
+     * 1. If no org rules in DB → fall back to legacy `sanitize(text)` behavior (REGRA 3).
+     * 2. Load active rules, filter by `applies_to` for the given assistant.
+     * 3. Check policy exceptions → downgrade block/mask → alert when active.
+     * 4. Apply each rule in order: block (highest priority), then mask, then alert.
+     * 5. Return DlpSanitizeResult with sanitized text, blocked flag, and detections list.
+     */
+    async sanitizeWithRules(input: DlpSanitizeInput): Promise<DlpSanitizeResult> {
+        const { text, orgId, assistantId } = input;
+
+        const orgRules = await this.loadOrgRules(orgId);
+
+        // REGRA 3: No custom rules → behave exactly like legacy sanitize()
+        if (orgRules.length === 0) {
+            const legacy = this.sanitize(text);
+            return {
+                sanitized_text: legacy.sanitizedText,
+                blocked: false,
+                detections: legacy.detections.map(d => ({
+                    rule_id: 'builtin',
+                    rule_name: d.type,
+                    detector_type: 'builtin',
+                    pattern_matched: d.original,
+                    action_taken: 'mask' as const,
+                })),
+            };
+        }
+
+        // Check policy exceptions for this assistant
+        const hasPiiException = await this.hasActivePiiException(orgId, assistantId);
+
+        // Filter rules applicable to this assistant
+        const applicableRules = orgRules.filter(rule => {
+            if (!Array.isArray(rule.applies_to) || rule.applies_to.length === 0) return true;
+            return rule.applies_to.includes(assistantId);
+        });
+
+        const allDetections: DlpDetection[] = [];
+        let workingText = text;
+        let blocked = false;
+        let blockReason: string | undefined;
+
+        // Sort: block rules first, then mask, then alert (descending priority)
+        const priorityOrder = { block: 0, mask: 1, alert: 2 };
+        const sortedRules = [...applicableRules].sort((a, b) => {
+            const effA = hasPiiException && a.action !== 'alert' ? 2 : priorityOrder[a.action];
+            const effB = hasPiiException && b.action !== 'alert' ? 2 : priorityOrder[b.action];
+            return effA - effB;
+        });
+
+        for (const rule of sortedRules) {
+            // Determine effective action (downgrade if policy exception active)
+            const effectiveAction: 'mask' | 'block' | 'alert' =
+                hasPiiException && rule.action !== 'alert' ? 'alert' : rule.action;
+
+            const matches = this.matchRule(workingText, rule);
+            if (matches.length === 0) continue;
+
+            for (const match of matches) {
+                allDetections.push({
+                    rule_id: rule.id,
+                    rule_name: rule.name,
+                    detector_type: rule.detector_type,
+                    pattern_matched: match,
+                    action_taken: effectiveAction,
+                });
+            }
+
+            if (effectiveAction === 'block') {
+                blocked = true;
+                blockReason = `Regra DLP "${rule.name}" bloqueou a mensagem.`;
+                // Return immediately — no need to process further
+                return {
+                    sanitized_text: text, // Return original (blocked, not sent)
+                    blocked: true,
+                    block_reason: blockReason,
+                    detections: allDetections,
+                };
+            }
+
+            if (effectiveAction === 'mask') {
+                workingText = this.applyMask(workingText, rule, matches);
+            }
+            // 'alert': no text change, detection recorded above
+        }
+
+        return {
+            sanitized_text: workingText,
+            blocked,
+            block_reason: blockReason,
+            detections: allDetections,
+        };
+    }
+
+    /**
+     * Find all matches in `text` for the given DB rule.
+     * Returns array of matched substrings.
+     */
+    private matchRule(text: string, rule: DbDlpRule): string[] {
+        const matches: string[] = [];
+
+        if (rule.detector_type === 'builtin') {
+            const detector = BUILTIN_DETECTORS[rule.pattern ?? ''];
+            if (!detector) return matches;
+            const detections = detector.detect(text);
+            for (const d of detections) matches.push(d.original);
+            return matches;
+        }
+
+        if (rule.detector_type === 'regex' && rule.pattern) {
+            try {
+                const flags = (rule.pattern_config?.flags as string) || 'gi';
+                const re = new RegExp(rule.pattern, flags);
+                let m: RegExpExecArray | null;
+                while ((m = re.exec(text)) !== null) {
+                    matches.push(m[0]);
+                    // Prevent infinite loop on zero-length matches
+                    if (m[0].length === 0) re.lastIndex++;
+                }
+            } catch {
+                // Invalid regex — skip silently
+            }
+            return matches;
+        }
+
+        if (rule.detector_type === 'keyword_list') {
+            const keywords: string[] = (rule.pattern_config?.keywords as string[]) || [];
+            for (const kw of keywords) {
+                if (!kw) continue;
+                try {
+                    const re = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+                    let m: RegExpExecArray | null;
+                    while ((m = re.exec(text)) !== null) {
+                        matches.push(m[0]);
+                    }
+                } catch {
+                    // Invalid keyword — skip
+                }
+            }
+            return matches;
+        }
+
+        return matches;
+    }
+
+    /**
+     * Apply mask replacement for all matches of the rule in the text.
+     */
+    private applyMask(text: string, rule: DbDlpRule, matches: string[]): string {
+        let result = text;
+        const redactLabel = `[${rule.name.toUpperCase().replace(/\s+/g, '_')}_REDACTED]`;
+
+        // Build a combined regex from all unique match strings
+        const uniqueMatches = [...new Set(matches)];
+        for (const match of uniqueMatches) {
+            try {
+                const escaped = match.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const re = new RegExp(escaped, 'g');
+                result = result.replace(re, redactLabel);
+            } catch {
+                // Skip on error
+            }
+        }
+        return result;
+    }
 }
 
 export const dlpEngine = new DLPEngine();

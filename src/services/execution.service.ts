@@ -241,7 +241,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
         }
 
         // ── 6. DLP flag: use sanitized message downstream ─────────────────────────
-        const safeMessage = policyCheck.sanitizedInput || message;
+        let safeMessage = policyCheck.sanitizedInput || message;
         if (policyCheck.action === 'FLAG') {
             log.info({
                 orgId, assistantId,
@@ -253,7 +253,42 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             }
         }
 
-        // Governance span (steps 3-6)
+        // ── 6b. Configurable DLP rules (FASE 4b) ─────────────────────────────────
+        // Applies org-specific DLP rules from DB (Redis-cached) on top of OPA DLP.
+        // block → POLICY_VIOLATION; mask → update safeMessage; alert → log only.
+        const dlpRulesResult = await dlpEngine.sanitizeWithRules({ text: safeMessage, orgId, assistantId });
+        if (dlpRulesResult.blocked) {
+            recordRequest('blocked', Date.now() - execStart);
+            const violationPayload = {
+                reason: dlpRulesResult.block_reason || 'DLP rule blocked',
+                input: safeMessage,
+                traceId, snapshotId,
+                dlp_detections: dlpRulesResult.detections,
+            };
+            const signature = IntegrityService.signPayload(violationPayload, process.env.SIGNING_SECRET!);
+            await auditQueue.add('persist-log', {
+                org_id: orgId, assistant_id: assistantId,
+                action: 'POLICY_VIOLATION' satisfies ActionType,
+                metadata: violationPayload, signature, traceId,
+            }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+            await recordEvidence(client, {
+                orgId, category: 'policy_enforcement', eventType: 'POLICY_VIOLATION',
+                actorId: userId ?? null, resourceType: 'assistant', resourceId: assistantId,
+                metadata: { traceId, reason: violationPayload.reason, snapshotId },
+            });
+            log.warn({ orgId, assistantId, reason: violationPayload.reason }, 'DLP Rule Block');
+            return { statusCode: 403, body: { error: violationPayload.reason, traceId } };
+        }
+        if (dlpRulesResult.detections.length > 0) {
+            safeMessage = dlpRulesResult.sanitized_text;
+            recordDlpDetection(dlpRulesResult.detections.length);
+            log.info({
+                orgId, assistantId,
+                dlp_rules_detections: dlpRulesResult.detections.length,
+            }, 'DLP rules: detections processed');
+        }
+
+        // Governance span (steps 3-6b)
         spans.push({
             name: 'governance-pipeline',
             type: 'span',
@@ -261,7 +296,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             endTime: new Date().toISOString(),
             metadata: {
                 decision: policyCheck.action,
-                dlp_detections: policyCheck.dlpReport?.totalDetections || 0,
+                dlp_detections: (policyCheck.dlpReport?.totalDetections || 0) + dlpRulesResult.detections.length,
             },
         });
 
@@ -616,6 +651,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
             traceId,
             snapshotId,
             ...(policyCheck.dlpReport ? { dlp: policyCheck.dlpReport } : {}),
+            ...(dlpRulesResult.detections.length > 0 ? { dlp_rules: dlpRulesResult.detections } : {}),
         };
         const { sanitized: logContent } = await dlpEngine.sanitizeObject(rawLogContent);
         const signature = IntegrityService.signPayload(logContent, process.env.SIGNING_SECRET!);

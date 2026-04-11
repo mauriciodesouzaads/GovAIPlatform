@@ -977,4 +977,59 @@ VALUES
    CURRENT_DATE - INTERVAL '20 days', CURRENT_DATE + INTERVAL '70 days')
 ON CONFLICT (org_id, assistant_id) DO NOTHING;
 
+-- ── DLP Rules (FASE 4b) ───────────────────────────────────────────────────────
+-- 5 builtin + 2 custom rules for the demo org.
+-- is_system = true → name/detector_type/pattern are immutable via API.
+
+INSERT INTO dlp_rules (id, org_id, name, detector_type, pattern, pattern_config, action, applies_to, is_active, is_system)
+VALUES
+  -- Builtin: CPF (Brazilian national ID)
+  ('00000000-0000-0000-0d10-000000000001',
+   '00000000-0000-0000-0000-000000000001',
+   'CPF', 'builtin', 'CPF', '{}', 'mask', '[]', true, true),
+
+  -- Builtin: Email address
+  ('00000000-0000-0000-0d10-000000000002',
+   '00000000-0000-0000-0000-000000000001',
+   'E-mail', 'builtin', 'EMAIL', '{}', 'mask', '[]', true, true),
+
+  -- Builtin: Phone number (BR format)
+  ('00000000-0000-0000-0d10-000000000003',
+   '00000000-0000-0000-0000-000000000001',
+   'Telefone', 'builtin', 'PHONE', '{}', 'mask', '[]', true, true),
+
+  -- Builtin: Person name (via Presidio NER)
+  ('00000000-0000-0000-0d10-000000000004',
+   '00000000-0000-0000-0000-000000000001',
+   'Nome de Pessoa', 'builtin', 'PERSON', '{}', 'alert', '[]', true, true),
+
+  -- Builtin: Credit card number
+  ('00000000-0000-0000-0d10-000000000005',
+   '00000000-0000-0000-0000-000000000001',
+   'Cartão de Crédito', 'builtin', 'CREDIT_CARD', '{}', 'block', '[]', true, true),
+
+  -- Custom: Brazilian bank account regex
+  ('00000000-0000-0000-0d10-000000000006',
+   '00000000-0000-0000-0000-000000000001',
+   'Conta Bancária BR',
+   'regex',
+   '\b(ag[eê]ncia|ag\.?)\s*:?\s*\d{4}[-.]?\d?\b|\b(conta|cc|c\/c)\s*:?\s*\d{4,12}[-.]?\d?\b',
+   '{"flags": "gi"}',
+   'mask', '[]', true, false),
+
+  -- Custom: sensitive keywords → block
+  ('00000000-0000-0000-0d10-000000000007',
+   '00000000-0000-0000-0000-000000000001',
+   'Palavras Sensíveis',
+   'keyword_list',
+   NULL,
+   '{"keywords": ["senha", "token", "api_key", "secret", "password", "credencial"]}',
+   'alert', '[]', true, false)
+
+ON CONFLICT (id) DO UPDATE SET
+    action      = EXCLUDED.action,
+    is_active   = EXCLUDED.is_active,
+    applies_to  = EXCLUDED.applies_to,
+    updated_at  = NOW();
+
 COMMIT;
