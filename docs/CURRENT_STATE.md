@@ -1,86 +1,114 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-04-06 20:59 UTC -->
-<!-- Não editar manualmente. Regenerar após cada sprint. -->
+# GovAI GRC Platform — Estado Atual
 
-# GovAI Platform — Current State
+> Gerado automaticamente em 2026-04-11 03:30 UTC por `scripts/generate-docs.sh`
 
-**Gerado em:** 2026-04-06 20:59 UTC
-
----
-
-## Migrations
+## Métricas do Projeto
 
 | Métrica | Valor |
 |---------|-------|
-| Total | **48** |
-| Intervalo | 011–058 (excluindo 050) |
-| Fonte | `scripts/migrate.sh` |
+| Migrations | 62 |
+| Arquivos de rota | 20 |
+| Endpoints HTTP | ~122 |
+| Páginas UI | 24 |
+| Workers BullMQ | 5 |
+| Services | 1 |
+| Libs compartilhadas | 39 |
+| Componentes React | 15 |
+| Testes automatizados | 70 |
+| Containers Docker | 6 |
+| Tabelas (migrations) | 64 |
+| INSERTs no seed | 65 |
 
----
+## Páginas da UI
 
-## Testes
+```
+/
+/api-keys
+/approvals
+/architect
+/assistants
+/catalog
+/chat/[assistantId]
+/compliance
+/compliance-hub
+/consultant
+/evidence/[assistantId]
+/exceptions
+/login
+/logs
+/organizations
+/playground
+/policies
+/reports
+/risk-assessment/[assistantId]
+/settings
+/settings/dlp
+/settings/notifications
+/shield
+/webhooks
+```
 
-| Métrica | Valor |
-|---------|-------|
-| Total de arquivos | **67** |
-| Suíte padrão — arquivos | **51** |
-| Suíte padrão — testes | **574** |
-| Suíte integração — arquivos | **16** |
+## Módulos de Rota (Backend)
 
-Comando: `DATABASE_URL='' npx vitest run`
+```
+admin.routes
+approvals.routes
+architect.routes
+assistants.routes
+compliance-hub.routes
+consultant.routes
+dlp.routes
+model-card.routes
+monitoring.routes
+notification-channels.routes
+oidc.routes
+platform.routes
+policies.routes
+reports.routes
+risk-assessment.routes
+settings.routes
+shield-admin.routes
+shield-consultant.routes
+shield.routes
+webhook.routes
+```
 
----
+## Migrations (últimas 15)
 
-## Domínios
+```
+058_rls_nullif_remediation.sql
+059_exit_perimeter_tracking.sql
+060_risk_scoring_and_evidence.sql
+061_review_tracks_and_semver.sql
+062_catalog_favorites.sql
+063_review_tracks_customizable.sql
+064_retention_config_and_archive.sql
+065_mcp_tool_call_actions.sql
+066_drop_old_audit_action_check.sql
+067_compliance_frameworks.sql
+068_model_cards.sql
+069_risk_assessments.sql
+070_alert_thresholds.sql
+071_dlp_rules.sql
+072_notification_channels.sql
+```
 
-| Domínio | Status |
-|---------|--------|
-| Gateway Core | ✓ |
-| Policy Snapshots | ✓ |
-| Evidence | ✓ |
-| Catalog | ✓ |
-| Consultant Plane | ✓ |
-| Shield | ✓ |
-| Architect | ✓ |
+## Containers Docker
 
----
+```
+  database
+  redis
+  litellm
+  presidio
+  api
+  admin-ui
+  pgdata
+  redisdata
+  govai-net
+```
 
-## Shield API Routes
+## Versão
 
-| Módulo | Rotas |
-|--------|-------|
-| Admin (`/v1/admin/shield/*`) | 32 |
-| Consultant (`/v1/consultant/tenants/*/shield/*`) | 3 |
-| **Total** | **35** |
-
----
-
-## Build
-
-| Check | Status |
-|-------|--------|
-| tsc --noEmit | ✓ clean |
-| Admin UI lockfile | ✓ |
-
----
-
-## ADRs (8)
-
-- ADR-001-no-streaming.md
-- ADR-002-modularization-roadmap.md
-- ADR-003-shield-core.md
-- ADR-004-shield-complete.md
-- ADR-006-shield-s1r-multisource.md
-- ADR-007-shield-s2-workflow-consultant.md
-- ADR-008-documentation-reset-by-audit.md
-- ADR-009-architect-domain.md
-
----
-
-## Limitações
-
-- BullMQ Shield workers: implementados — 5 cron jobs (shield.worker.ts + shield-schedule.job.ts): generate-findings, dedupe-findings, posture-snapshot, collect-oauth, collect-google
-- SSE / browser extension: não implementado — ver ADR-004
-- CASB integration: não implementada
-- Agno runtime: stub only (AGNO_ENABLED=false) — sem adapter real
-- Claude Code adapter: enum only — sem adapter implementado
-- Architect domain: Sprints A1–A5 — demand_cases, problem_contracts (discovery stateful + confidence scoring), architecture_decision_sets, workflow_graphs, architect_work_items, architect-delegation (dispatchWorkItem, internal_rag adapter, human adapter, agno stub), generateArchitectDocument via LiteLLM, generateCaseSummary, SELECT FOR UPDATE SKIP LOCKED concurrency, ADR-009 with 8 formal decisions
+- Tag: v1.0.0-rc1
+- Commit: 9512f5a
+- Branch: main

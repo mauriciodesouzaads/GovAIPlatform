@@ -1,136 +1,95 @@
-<!-- GENERATED — bash scripts/audit_project_state.sh — 2026-04-06 20:59 UTC -->
-<!-- Não editar manualmente. Regenerar após cada sprint. -->
+# GovAI GRC Platform — Superfície do Produto
 
-# GovAI Platform — Product Surface
+> Gerado automaticamente em 2026-04-11 03:30 UTC
 
-**Gerado em:** 2026-04-06 20:59 UTC
+## Produtos
 
----
+### 1. GOV.AI Gateway
+Pipeline de execução de 9 estágios com governança integrada:
+1. Auth + quota check
+2. Policy snapshot (imutável)
+3. DLP sanitization (configurável: mask/block/alert)
+4. Jailbreak detection (OPA Engine)
+5. Human-in-the-Loop (HITL approval)
+6. RAG retrieval
+7. MCP tool resolution + zero-trust enforcement
+8. LLM execution (multi-provider via LiteLLM)
+9. Audit log (HMAC-SHA256 + assinatura)
 
-## Gateway Core
+### 2. Catalog of Agents
+- Lifecycle: draft → in_review → official → deprecated → archived
+- Multi-track review (customizável)
+- Version diff (LCS-based para prompts, field-level para policies)
+- Model Cards / fichas técnicas (EU AI Act Art. 11)
+- Risk Assessment wizard (25 perguntas, 5 categorias, PDF export)
 
-- `POST /v1/execute/:id` — execução de assistente com pipeline completo
-- `GET  /v1/health` — health check
-- Auth: JWT Bearer + API Key (`sk-govai-...`)
-- DLP: Presidio NLP + regex
-- OPA WASM: OWASP LLM Top 10 (LLM01–LLM10)
-- HITL: aprovação humana
-- Audit log: HMAC-SHA256 signed
-- FinOps: tokens/custo por org
+### 3. Shadow AI Shield
+- Detecção de uso não autorizado de IA
+- KPIs de postura de segurança (25→55→68)
+- Classificação por criticidade
 
-## Policy
+## Módulos de Compliance
 
-- `GET/POST /v1/admin/policies`
-- `GET/POST /v1/admin/policy-snapshots`
-- `GET/POST /v1/admin/policy-exceptions`
+| Framework | Controles | Auto-assess |
+|-----------|-----------|-------------|
+| EU AI Act | 8 | 6 automáticos |
+| LGPD | 7 | 5 automáticos |
+| BACEN Res. 4.557 | 6 | 5 automáticos |
+| ISO/IEC 42001 | 6 | 4 automáticos |
+| CNJ Res. 615 | 6 | 4 automáticos |
+| **Total** | **33** | **24 automáticos** |
 
-## Evidence
+## DLP Configurável
 
-- `GET/POST /v1/admin/evidence`
+- 5 detectores builtin (CPF, Email, Telefone, Pessoa, Cartão de Crédito)
+- Detectores custom: regex e keyword list
+- 3 ações por detector: mask, block, alert
+- Escopo por assistente (applies_to)
+- Integração com policy exceptions
 
-## Catalog
+## Monitoring Contínuo
 
-- `GET/POST /v1/admin/catalog`
-- `GET/PATCH/DELETE /v1/admin/catalog/:id`
-- Lifecycle: draft → under_review → approved → official → suspended → archived
+- KPIs em tempo real (60s auto-refresh)
+- Alertas configuráveis (latência p95, taxa de violação, custo diário)
+- Trends de 30 dias (execuções, violações, latência, custo)
+- Ranking de assistentes por consumo
+- Role-filtered: admin vê tudo, dpo vê governança
 
-## Public Endpoints
+## Notificações
 
-- `GET /v1/public/assistant/:assistantId` — safe public info para chat UI (requer API Key)
+- Slack (Blocks API) + Teams (Adaptive Cards)
+- 11 tipos de evento (compliance, lifecycle, técnico)
+- Preview visual no frontend
+- Teste de webhook integrado
 
-## Platform Admin (platform_admin role)
+## Stack Técnica
 
-- `POST /v1/admin/organizations` — criar organização
-- `PATCH /v1/admin/organizations/:id` — atualizar organização
-- `POST /v1/admin/organizations/:id/invite-admin` — convidar admin para org
-- `GET /v1/admin/platform/organizations` — listar todas as orgs
-- `GET /v1/admin/platform/users` — listar todos os usuários
-- `POST/GET/DELETE /v1/admin/platform/consultant-assignments` — atribuições de consultor
-- `POST /v1/admin/platform/consultant-alerts` — alertas de consultor
+| Componente | Tecnologia |
+|------------|-----------|
+| API | TypeScript + Fastify |
+| Database | PostgreSQL 16 + pgvector + RLS |
+| Cache/Filas | Redis + BullMQ |
+| Frontend | Next.js 14 + Tailwind CSS 4 |
+| LLM Proxy | LiteLLM (multi-provider) |
+| DLP | Presidio + spaCy PT-BR |
+| Observability | Langfuse (trace hierarchy) |
+| Auth | JWT + OIDC/SSO |
+| Audit | HMAC-SHA256 + append-only |
 
-## Models
+## Segurança
 
-- `GET /v1/admin/models` — listar modelos LLM disponíveis
+- Row-Level Security (RLS) em todas as tabelas multi-tenant
+- Audit logs imutáveis (trigger + HMAC)
+- Criptografia de payloads (AES-256-GCM)
+- Zero-trust MCP tool enforcement
+- DLP com mascaramento automático de PII
+- Policy exceptions com expiração automática
 
-## Consultant Plane
+## Roles
 
-- `GET /v1/consultant/tenants/:tenantOrgId/*`
-- Shield: 3 rotas (posture, findings, actions)
-
-## Shield — Shadow-AI Detection (35 rotas total)
-
-**Admin (32 rotas):**
-
-| Categoria | Endpoints |
-|-----------|-----------|
-| Ingestion | POST /observations, POST /process |
-| Findings | POST /generate, GET /, POST /:id/{acknowledge,accept-risk,dismiss,resolve,reopen,promote,assign-owner}, GET /:id/actions |
-| Posture | GET /, POST /generate, GET /history |
-| Collectors | POST /, POST /:id/trigger |
-| Google | POST /google/collectors, POST /google/collectors/:id/{token,fetch} |
-| Network | POST /network/collectors, POST /network/collectors/:id/ingest |
-| Health | GET /health, POST /health/{success,failure} |
-| Reports | GET /executive |
-| Metrics | GET /metrics |
-| Export | GET /findings, GET /findings.csv, GET /posture |
-| Sync | POST /dedupe, POST /sync-catalog |
-
-**BullMQ Automation (5 cron jobs):**
-
-- `generate-findings` — gera findings automáticos
-- `dedupe-findings` — deduplicação de findings
-- `posture-snapshot` — snapshot de postura
-- `collect-oauth` — coleta via OAuth
-- `collect-google` — coleta via Google Workspace
-
-## Architect Domain (20 endpoints)
-
-- `POST /v1/admin/architect/cases` — criar caso de demanda
-- `GET /v1/admin/architect/cases` — listar casos
-- `GET /v1/admin/architect/cases/:id` — detalhe do caso
-- `PATCH /v1/admin/architect/cases/:id/status` — atualizar status
-- `POST/PUT /v1/admin/architect/cases/:id/contract` — problem contract
-- `POST /v1/admin/architect/cases/:id/contract/accept` — aceitar contrato
-- `POST /v1/admin/architect/cases/:id/discover` — discovery stateful
-- `POST /v1/admin/architect/cases/:id/discover/answer` — responder discovery
-- `POST /v1/admin/architect/cases/:id/discover/questions` — perguntas discovery
-- `GET /v1/admin/architect/cases/:id/discover/status` — status discovery
-- `POST /v1/admin/architect/cases/:id/decisions` — criar ADR
-- `POST /v1/admin/architect/decisions/:id/{propose,approve,reject,compile}` — workflow ADR
-- `POST /v1/admin/architect/decisions/:id/document` — gerar documento ADR via LiteLLM
-- `GET /v1/admin/architect/cases/:id/work-items` — listar work items
-- `PATCH /v1/admin/architect/work-items/:id` — atualizar work item
-- `POST /v1/admin/architect/work-items/:id/dispatch` — despachar work item
-- `POST /v1/admin/architect/cases/:id/workflow/dispatch-all` — despachar todos
-- `GET /v1/admin/architect/cases/:id/summary` — gerar resumo via LiteLLM
-
----
-
-## Não implementado (roadmap)
-
-- SSE / browser extension (ADR-004)
-- CASB integration
-- Agno runtime (stub only, AGNO_ENABLED=false)
-- Claude Code adapter (enum only, sem adapter implementado)
-
----
-
-## Admin UI (Next.js 14) — 15 páginas
-
-| Rota | Página | Roles |
-|------|--------|-------|
-| `/` | Dashboard — Security Command Center | todos |
-| `/playground` | Playground — teste com governança completa | admin, sre, operator |
-| `/logs` | Audit Logs — rastreabilidade LGPD/GDPR | todos |
-| `/assistants` | Assistants & RAG — gestão de assistentes | admin, sre, operator |
-| `/api-keys` | API Keys | admin |
-| `/approvals` | Approvals — fila HITL | admin, sre, dpo |
-| `/compliance` | Compliance LGPD — toggles de conformidade | admin, dpo |
-| `/reports` | Reports — exportação PDF/CSV | admin, dpo, auditor |
-| `/shield` | Shield Detection — shadow-AI | admin, sre, dpo, auditor |
-| `/catalog` | Catálogo de Agentes — registry formal | admin, operator, auditor |
-| `/consultant` | Painel do Consultor | admin, sre, dpo |
-| `/architect` | Arquiteto de IA — demandas e ADRs | admin, operator, dpo |
-| `/organizations` | Organizações (platform_admin) | platform_admin |
-| `/login` | Login — JWT + SSO (Microsoft Entra, Okta) | público |
-| `/chat/[assistantId]` | Chat Governado — interface end-user | API Key |
+| Role | Acesso | Redirect |
+|------|--------|----------|
+| admin | Tudo | / (Dashboard) |
+| dpo / compliance | Governança + DLP | /shield |
+| operator / sre | Técnico | / (Dashboard) |
+| platform_admin | Tudo + multi-tenant | / |
