@@ -500,8 +500,11 @@ export async function architectRoutes(
     // enqueue a `cancel-run` BullMQ job, and let the worker call CancelSignal
     // on the live gRPC stream. cancelled_at is only set after the runner
     // confirms the stream ended (or for items that never started running).
+    // Operators drive the chat and therefore own the delegated runs they
+    // trigger, so they must be able to cancel them. Admin kept for parity
+    // with the other governance surfaces.
     fastify.post('/v1/admin/architect/work-items/:workItemId/cancel', {
-        preHandler: requireRole(['admin']),
+        preHandler: requireRole(['admin', 'operator']),
     }, async (request: any, reply) => {
         const { orgId } = request.user ?? {};
         if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
@@ -615,8 +618,12 @@ export async function architectRoutes(
     //
     // The mode is persisted into execution_context.approval_mode so the
     // adapter's action_required handler can consult it before escalating.
+    // Operators who drive the chat own the approval bridge for the tasks
+    // they trigger. Without this, the "⚡ Aprovar Todos" click returned
+    // 403 for dev@orga.com (operator) and the flow was unreachable from
+    // the chat UI.
     fastify.post('/v1/admin/architect/work-items/:workItemId/approve-action', {
-        preHandler: requireRole(['admin']),
+        preHandler: requireRole(['admin', 'operator']),
     }, async (request: any, reply) => {
         const { orgId, email: actorEmail } = request.user ?? {};
         if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });

@@ -819,14 +819,19 @@ export async function runOpenClaudeAdapter(
                 const cl = await pool.connect();
                 try {
                     await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                    // FASE 6c-fix: merge with current DB state (not the stale `ctx`
+                    // snapshot) so mid-flight writes — like approval_mode set by
+                    // the approve-action route — are preserved at the terminal
+                    // state. The `||` operator shallow-merges JSONB, our payload
+                    // overwrites adapter/output/tokens but keeps approval_mode,
+                    // assistantId, delegated_from, matchedPattern, etc.
                     await cl.query(
                         `UPDATE architect_work_items
                          SET status = 'done', completed_at = now(), last_event_at = now(),
-                             execution_context = $1
+                             execution_context = COALESCE(execution_context, '{}'::jsonb) || $1::jsonb
                          WHERE id = $2`,
                         [
                             JSON.stringify({
-                                ...ctx,
                                 adapter: 'openclaude',
                                 sessionId,
                                 input: { instruction: instruction.substring(0, 500) },
