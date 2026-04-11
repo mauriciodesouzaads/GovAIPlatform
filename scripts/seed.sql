@@ -1195,9 +1195,12 @@ INSERT INTO workflow_graphs (
 ) ON CONFLICT (id) DO NOTHING;
 
 -- ── Delegation config no Assistente Jurídico ────────────────────────────────
+-- The [OPENCLAUDE] prefix is the explicit force-delegate escape hatch used
+-- by the chat wrapper (POST /v1/admin/chat/send with force_delegate=true).
 UPDATE assistants SET delegation_config = '{
   "enabled": true,
   "auto_delegate_patterns": [
+    "\\[OPENCLAUDE\\]",
     "analise o (repositório|código|projeto)",
     "gere um relatório",
     "execute os testes",

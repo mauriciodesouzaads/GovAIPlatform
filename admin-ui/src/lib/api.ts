@@ -195,6 +195,13 @@ export const ENDPOINTS = {
 
     // Assistant Delegation Config (FASE 5d)
     ASSISTANT_DELEGATION:             (id: string) => `/v1/admin/assistants/${id}/delegation`,
+
+    // Chat wrapper (FASE 6)
+    CHAT_SEND:                        '/v1/admin/chat/send',
+    CHAT_SESSIONS:                    '/v1/admin/chat/sessions',
+    CHAT_SESSION_MESSAGES:            (id: string) => `/v1/admin/chat/sessions/${id}/messages`,
+    ASSISTANTS_AVAILABLE:             '/v1/admin/assistants/available',
+    LLM_MODELS:                       '/v1/admin/llm/models',
 };
 
 export default api;

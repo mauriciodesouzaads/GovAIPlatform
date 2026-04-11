@@ -134,6 +134,8 @@ services:
       OPENCLAUDE_TIMEOUT_MS: ${OPENCLAUDE_TIMEOUT_MS:-300000}
       GOVAI_WORKSPACE_BASE: /tmp/govai-workspaces
       GOVAI_WORKSPACE_MAX_AGE_HOURS: ${GOVAI_WORKSPACE_MAX_AGE_HOURS:-24}
+      # --- Chat wrapper (FASE 6) ---
+      GOVAI_DEMO_API_KEY: ${GOVAI_DEMO_API_KEY:-sk-govai-demo00000000000000000000}
     volumes:
       - govai_sockets:/var/run/govai
       - govai_workspaces:/tmp/govai-workspaces

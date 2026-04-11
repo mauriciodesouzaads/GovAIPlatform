@@ -1,490 +1,1310 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-import api, { ENDPOINTS, API_BASE } from '@/lib/api';
-import { useToast } from '@/components/Toast';
+/**
+ * GovAI Chat — FASE 6
+ * ---------------------------------------------------------------------------
+ * Production-grade governed chat surface. The visual direction is editorial /
+ * legal-document: disciplined typography, monospaced metadata, generous
+ * vertical rhythm, no toy-like animations. Every color comes from a design
+ * token (bg-card, text-foreground, bg-primary, ...) — no raw violet/purple.
+ *
+ * Every message flows through the full /v1/execute pipeline (OPA, DLP,
+ * FinOps, RAG, delegation, audit). Delegated runs render an inline card with
+ * the live EventTimeline, human-approval bridge, and final markdown result.
+ */
+
 import {
-    Play, Bot, Key, MessageSquare, Loader2, ShieldAlert,
-    CheckCircle2, Clock, AlertTriangle, ChevronDown, Trash2,
-    History, Zap, Cpu,
+    useState, useEffect, useCallback, useRef, useMemo,
+} from 'react';
+import { marked } from 'marked';
+import api, { ENDPOINTS } from '@/lib/api';
+import { useAuth } from '@/components/AuthProvider';
+import {
+    MessageSquareText, Bot, Send, Shield, ShieldCheck, ShieldAlert,
+    Sparkles, Zap, ChevronDown, Copy, Check, Loader2, X, Menu,
+    AlertTriangle, AlertCircle, Clock, FileWarning, Ban, WifiOff,
+    History, PauseCircle, ChevronRight,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { PageHeader } from '@/components/PageHeader';
 
-interface Assistant { id: string; name: string; status: string; }
-interface ApiKey { id: string; prefix: string; created_at: string; }
-interface Model { id: string; name: string; provider: string; }
+// ═══════════════════════════════════════════════════════════════════════════
+// Types
+// ═══════════════════════════════════════════════════════════════════════════
 
-type ExecutionStatus = 'idle' | 'loading' | 'success' | 'blocked' | 'hitl' | 'error';
-
-interface ExecutionResult {
-    status: ExecutionStatus;
-    response?: string;
-    traceId?: string;
-    reason?: string;
-    approvalId?: string;
-    rawStatus?: number;
-    latencyMs?: number;
-    model?: string;
+interface Assistant {
+    id: string;
+    name: string;
+    description: string | null;
+    status: string;
+    lifecycle_state: string;
+    delegation_config: {
+        enabled: boolean;
+        auto_delegate_patterns: string[];
+        max_duration_seconds: number;
+    } | null;
+    delegation_enabled: boolean;
+    capability_tags: string[];
+    risk_level: string | null;
+    skill_count: number;
 }
 
-interface HistoryEntry {
+interface LlmModel {
+    id: string;
+    name: string;
+    provider: string;
+    default?: boolean;
+}
+
+interface ChatSession {
+    session_id: string;
+    assistant_id: string;
+    assistant_name: string | null;
+    started_at: string;
+    last_at: string;
+    message_count: number;
+    has_delegation: boolean;
+}
+
+interface WorkItemEvent {
+    id: string;
+    type: string;
+    seq?: number;
+    tool_name?: string | null;
+    prompt_id?: string | null;
+    metadata?: Record<string, any>;
     timestamp: string;
-    assistantId: string;
-    assistantName: string;
-    message: string;
-    result: ExecutionResult;
 }
 
-const HISTORY_KEY = 'govai_playground_history';
-const MAX_HISTORY = 5;
+interface DelegationState {
+    work_item_id: string;
+    status: string;
+    events: WorkItemEvent[];
+    pendingApproval: { prompt_id: string; tool_name: string; question: string } | null;
+    fullText: string | null;
+    tokens: { prompt?: number; completion?: number } | null;
+    toolCount: number;
+}
 
-function loadHistory(): HistoryEntry[] {
-    if (typeof window === 'undefined') return [];
+type MessageRole =
+    | 'user'
+    | 'assistant'
+    | 'delegation'
+    | 'delegation_result'
+    | 'error';
+
+type ErrorKind =
+    | 'rate_limit'
+    | 'policy_block'
+    | 'dlp_block'
+    | 'quota_exceeded'
+    | 'service_unavailable'
+    | 'hitl_pending'
+    | 'generic';
+
+interface ChatMessage {
+    id: string;
+    role: MessageRole;
+    content?: string;
+    timestamp: number;
+    // Assistant response metadata
+    traceId?: string;
+    tokens?: { prompt?: number; completion?: number } | null;
+    // Delegation
+    workItemId?: string;
+    matchedPattern?: string;
+    // Errors
+    errorKind?: ErrorKind;
+    errorReason?: string;
+    retryAfterSec?: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════════════════════════
+
+function genId(): string {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+marked.setOptions({ gfm: true, breaks: true });
+
+function renderMarkdown(src: string): string {
     try {
-        return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+        return marked.parse(src, { async: false }) as string;
     } catch {
-        return [];
+        return src;
     }
 }
 
-function saveHistory(entries: HistoryEntry[]) {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, MAX_HISTORY)));
+function eventIcon(type: string): string {
+    switch (type) {
+        case 'RUN_STARTED':        return '▸';
+        case 'TOOL_START':         return '◆';
+        case 'TOOL_RESULT':        return '◇';
+        case 'ACTION_REQUIRED':    return '!';
+        case 'ACTION_RESPONSE':    return '✓';
+        case 'RUN_COMPLETED':      return '●';
+        case 'RUN_FAILED':         return '×';
+        case 'RUN_CANCELLED':      return '⊘';
+        default:                   return '·';
+    }
 }
 
-export default function PlaygroundPage() {
-    const { toast } = useToast();
+function eventLabel(type: string): string {
+    switch (type) {
+        case 'RUN_STARTED':        return 'Execução iniciada';
+        case 'TOOL_START':         return 'Ferramenta invocada';
+        case 'TOOL_RESULT':        return 'Resultado recebido';
+        case 'ACTION_REQUIRED':    return 'Aguardando aprovação';
+        case 'ACTION_RESPONSE':    return 'Ação resolvida';
+        case 'RUN_COMPLETED':      return 'Execução concluída';
+        case 'RUN_FAILED':         return 'Execução falhou';
+        case 'RUN_CANCELLED':      return 'Execução cancelada';
+        default:                   return type;
+    }
+}
 
-    const [assistants, setAssistants] = useState<Assistant[]>([]);
-    const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
-    const [models, setModels] = useState<Model[]>([]);
+function classifyError(err: any): { kind: ErrorKind; reason: string; retryAfterSec?: number } {
+    const status = err?.response?.status;
+    const data = err?.response?.data ?? {};
+    const reason: string = data.error || data.reason || data.message || err?.message || 'Erro inesperado';
+    if (status === 429) {
+        const retry = parseInt(err?.response?.headers?.['retry-after'] ?? '60', 10);
+        return { kind: 'rate_limit', reason, retryAfterSec: isNaN(retry) ? 60 : retry };
+    }
+    if (status === 402 || /quota|cap/i.test(reason)) {
+        return { kind: 'quota_exceeded', reason };
+    }
+    if (status === 403 && /dlp/i.test(reason)) {
+        return { kind: 'dlp_block', reason };
+    }
+    if (status === 403) {
+        return { kind: 'policy_block', reason };
+    }
+    if (status === 502 || status === 503 || status === 504) {
+        return { kind: 'service_unavailable', reason };
+    }
+    if (status === 202 && data.status === 'PENDING_APPROVAL') {
+        return { kind: 'hitl_pending', reason: data.reason || reason };
+    }
+    return { kind: 'generic', reason };
+}
 
-    const [selectedAssistant, setSelectedAssistant] = useState('');
-    const [selectedModel, setSelectedModel] = useState('');
-    const [selectedKeyPrefix, setSelectedKeyPrefix] = useState('');
-    const [rawApiKey, setRawApiKey] = useState('');
-    const [message, setMessage] = useState('');
-    const [result, setResult] = useState<ExecutionResult>({ status: 'idle' });
-    const [loadingData, setLoadingData] = useState(true);
-    const [history, setHistory] = useState<HistoryEntry[]>([]);
-    const [showHistory, setShowHistory] = useState(false);
+const SUGGESTIONS: Record<string, string[]> = {
+    'Assistente Jurídico': [
+        'Explique cláusulas de rescisão no direito brasileiro.',
+        '[OPENCLAUDE] Gere um relatório de conformidade LGPD.',
+        'Analise os riscos de um contrato de confidencialidade.',
+    ],
+    'FAQ Interno RH': [
+        'Qual a política de férias da empresa?',
+        'Como funciona o plano de saúde corporativo?',
+        'Quantos dias de licença paternidade tenho direito?',
+    ],
+    'Análise de Crédito': [
+        'Quais são os critérios para aprovação de crédito?',
+        'Como é calculado o score de risco?',
+        'Liste os documentos necessários para abertura de conta.',
+    ],
+};
 
-    const fetchData = useCallback(async () => {
-        setLoadingData(true);
-        try {
-            const [astRes, keyRes, modelsRes] = await Promise.all([
-                api.get(ENDPOINTS.ASSISTANTS),
-                api.get(ENDPOINTS.API_KEYS),
-                api.get(ENDPOINTS.MODELS_LIST).catch(() => ({ data: { models: [] } })),
-            ]);
-            const published = (astRes.data as Assistant[]).filter(a => a.status === 'published');
-            setAssistants(published);
-            setApiKeys(keyRes.data as ApiKey[]);
-            setModels((modelsRes.data as { models: Model[] }).models ?? []);
-            if (published.length > 0) setSelectedAssistant(published[0].id);
-        } catch {
-            toast('Erro ao carregar dados do playground.', 'error');
-        } finally {
-            setLoadingData(false);
-        }
-    }, [toast]);
+function getSuggestions(name: string): string[] {
+    return SUGGESTIONS[name] ?? [
+        'Me dê uma visão geral das suas capacidades.',
+        'Quais tópicos você cobre?',
+        '[OPENCLAUDE] Analise o repositório e gere um relatório.',
+    ];
+}
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Small presentational components
+// ═══════════════════════════════════════════════════════════════════════════
+
+function TypingIndicator() {
+    return (
+        <div className="flex items-center gap-1.5 px-1 py-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[bounce_1.2s_ease-in-out_infinite]" style={{ animationDelay: '0ms' }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[bounce_1.2s_ease-in-out_infinite]" style={{ animationDelay: '150ms' }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[bounce_1.2s_ease-in-out_infinite]" style={{ animationDelay: '300ms' }} />
+        </div>
+    );
+}
+
+function CopyButton({
+    text, className = '',
+}: { text: string; className?: string }) {
+    const [copied, setCopied] = useState(false);
+    return (
+        <button
+            type="button"
+            onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                    await navigator.clipboard.writeText(text);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1600);
+                } catch { /* ignore */ }
+            }}
+            title={copied ? 'Copiado' : 'Copiar'}
+            className={`rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ${className}`}
+        >
+            {copied ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+        </button>
+    );
+}
+
+function Markdown({ content }: { content: string }) {
+    const html = useMemo(() => renderMarkdown(content), [content]);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    // Post-render: decorate <pre> blocks with copy buttons. Avoids SSR markdown
+    // libs and keeps the render synchronous.
     useEffect(() => {
-        fetchData();
-        setHistory(loadHistory());
-    }, [fetchData]);
-
-    const handleExecute = async () => {
-        if (!selectedAssistant) { toast('Selecione um assistente publicado.', 'error'); return; }
-        if (!rawApiKey.trim()) { toast('Informe a API Key para execução.', 'error'); return; }
-        if (!message.trim()) { toast('Digite uma mensagem para enviar.', 'error'); return; }
-
-        setResult({ status: 'loading' });
-        const startTime = Date.now();
-
-        try {
-            const res = await axios.post(
-                `${API_BASE}/v1/execute/${selectedAssistant}`,
-                selectedModel ? { message, model: selectedModel } : { message },
-                {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${rawApiKey.trim()}`,
-                    },
-                    validateStatus: () => true,
-                }
-            );
-
-            const latencyMs = Date.now() - startTime;
-            const data = res.data as any;
-            const traceId = data?.traceId || data?._govai?.traceId;
-            const model = data?.model || data?._govai?.model || undefined;
-
-            let newResult: ExecutionResult;
-
-            if (res.status === 200) {
-                const content = data?.choices?.[0]?.message?.content
-                    || data?.response
-                    || JSON.stringify(data, null, 2);
-                newResult = { status: 'success', response: content, traceId, latencyMs, model };
-
-            } else if (res.status === 202) {
-                newResult = {
-                    status: 'hitl',
-                    reason: data.reason || data.message,
-                    approvalId: data.approvalId,
-                    traceId,
-                    rawStatus: res.status,
-                    latencyMs,
-                };
-
-            } else if (res.status === 403) {
-                newResult = {
-                    status: 'blocked',
-                    reason: data.error || 'Política violada',
-                    traceId,
-                    rawStatus: res.status,
-                    latencyMs,
-                };
-
-            } else {
-                newResult = {
-                    status: 'error',
-                    reason: data.error || data.details || `HTTP ${res.status}`,
-                    traceId,
-                    rawStatus: res.status,
-                    latencyMs,
-                };
-            }
-
-            setResult(newResult);
-
-            // Save to history
-            const astName = assistants.find(a => a.id === selectedAssistant)?.name || selectedAssistant;
-            const entry: HistoryEntry = {
-                timestamp: new Date().toISOString(),
-                assistantId: selectedAssistant,
-                assistantName: astName,
-                message,
-                result: newResult,
-            };
-            const updated = [entry, ...history].slice(0, MAX_HISTORY);
-            setHistory(updated);
-            saveHistory(updated);
-
-        } catch (e: unknown) {
-            const err = e as { message?: string };
-            const latencyMs = Date.now() - startTime;
-            setResult({ status: 'error', reason: err.message || 'Erro de rede', latencyMs });
-        }
-    };
-
-    const handleClear = () => {
-        setResult({ status: 'idle' });
-        setMessage('');
-    };
-
-    const restoreFromHistory = (entry: HistoryEntry) => {
-        setSelectedAssistant(entry.assistantId);
-        setMessage(entry.message);
-        setResult(entry.result);
-        setShowHistory(false);
-    };
-
-    const statusConfig: Record<ExecutionStatus, { label: string; color: string; icon: React.ReactNode }> = {
-        idle: { label: '', color: '', icon: null },
-        loading: { label: 'Processando…', color: 'text-muted-foreground', icon: <Loader2 className="w-5 h-5 animate-spin" /> },
-        success: { label: 'Resposta da IA', color: 'text-emerald-400', icon: <CheckCircle2 className="w-5 h-5" /> },
-        blocked: { label: 'BLOQUEADO — Política violada', color: 'text-red-400', icon: <ShieldAlert className="w-5 h-5" /> },
-        hitl: { label: 'AGUARDANDO APROVAÇÃO HUMANA', color: 'text-amber-400', icon: <Clock className="w-5 h-5" /> },
-        error: { label: 'Erro', color: 'text-red-400', icon: <AlertTriangle className="w-5 h-5" /> },
-    };
-
-    const statusBadge: Record<ExecutionStatus, string> = {
-        idle: '',
-        loading: '',
-        success: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-        blocked: 'bg-red-500/10 text-red-400 border-red-500/20',
-        hitl: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-        error: 'bg-red-500/10 text-red-400 border-red-500/20',
-    };
+        const root = containerRef.current;
+        if (!root) return;
+        const pres = root.querySelectorAll('pre');
+        pres.forEach(pre => {
+            const el = pre as HTMLElement;
+            if (el.dataset.enhanced === 'true') return;
+            el.dataset.enhanced = 'true';
+            el.classList.add('group', 'relative');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent bg-card/80 border border-border/60';
+            btn.title = 'Copiar';
+            btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const code = pre.querySelector('code');
+                const text = code?.textContent ?? pre.textContent ?? '';
+                try {
+                    await navigator.clipboard.writeText(text);
+                    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--color-primary)"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                    setTimeout(() => {
+                        btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+                    }, 1600);
+                } catch { /* ignore */ }
+            });
+            pre.appendChild(btn);
+        });
+    }, [html]);
 
     return (
-        <div className="flex-1 overflow-auto p-4 sm:p-6">
-            <div className="max-w-4xl mx-auto space-y-6">
+        <div
+            ref={containerRef}
+            className="chat-md text-[15px] leading-relaxed text-foreground"
+            dangerouslySetInnerHTML={{ __html: html }}
+        />
+    );
+}
 
-                <PageHeader
-                    title="Playground"
-                    subtitle="Teste assistentes com governança completa"
-                    icon={<Play className="w-5 h-5" />}
-                />
-
-                {/* History toggle */}
-                {history.length > 0 && (
-                    <button
-                        onClick={() => setShowHistory(v => !v)}
-                        className={cn(
-                            "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors",
-                            showHistory
-                                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                                : "bg-secondary border-border text-muted-foreground hover:text-foreground"
-                        )}
+function EventTimeline({ state }: { state: DelegationState }) {
+    const events = state.events;
+    if (events.length === 0 && state.status === 'pending') {
+        return <div className="text-xs text-muted-foreground italic px-1">Aguardando dispatch…</div>;
+    }
+    if (events.length === 0 && state.status === 'in_progress') {
+        return (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Conectando ao runtime…
+            </div>
+        );
+    }
+    return (
+        <ol className="space-y-1.5 font-mono text-[11px]">
+            {events.map(ev => (
+                <li key={ev.id} className="flex items-start gap-3">
+                    <span
+                        className={
+                            ev.type === 'RUN_COMPLETED' ? 'text-primary' :
+                            ev.type === 'RUN_FAILED' ? 'text-destructive' :
+                            ev.type === 'ACTION_REQUIRED' ? 'text-foreground' :
+                            'text-muted-foreground'
+                        }
                     >
-                        <History className="w-3.5 h-3.5" />
-                        Histórico ({history.length})
-                    </button>
-                )}
-
-                {/* History Panel */}
-                {showHistory && history.length > 0 && (
-                    <div className="bg-card border border-border rounded-xl p-4 space-y-2">
-                        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                            Últimas {history.length} execuções
-                        </h3>
-                        {history.map((entry, i) => (
-                            <button
-                                key={i}
-                                onClick={() => restoreFromHistory(entry)}
-                                className="w-full text-left flex items-start gap-3 p-3 rounded-lg hover:bg-secondary/60 transition-colors group"
-                            >
-                                <span className={cn(
-                                    "shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold border mt-0.5",
-                                    statusBadge[entry.result.status] || 'bg-secondary text-muted-foreground border-border'
-                                )}>
-                                    {entry.result.status.toUpperCase()}
-                                </span>
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                        <span className="text-foreground font-medium truncate">{entry.assistantName}</span>
-                                        <span>·</span>
-                                        <span>{new Date(entry.timestamp).toLocaleTimeString('pt-BR')}</span>
-                                        {entry.result.latencyMs && (
-                                            <><span>·</span><span className="text-emerald-400/70">{entry.result.latencyMs}ms</span></>
-                                        )}
-                                    </div>
-                                    <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{entry.message}</p>
-                                </div>
-                            </button>
-                        ))}
-                        <button
-                            onClick={() => { setHistory([]); saveHistory([]); setShowHistory(false); }}
-                            className="text-xs text-muted-foreground/50 hover:text-red-400 transition-colors mt-1"
-                        >
-                            Limpar histórico
-                        </button>
-                    </div>
-                )}
-
-                {loadingData ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="bg-card border border-border rounded-xl p-6 space-y-4">
-                            <div className="h-5 bg-secondary/60 rounded animate-pulse w-1/2" />
-                            <div className="h-10 bg-secondary/60 rounded animate-pulse" />
-                            <div className="h-10 bg-secondary/60 rounded animate-pulse" />
-                            <div className="h-32 bg-secondary/60 rounded animate-pulse" />
-                        </div>
-                        <div className="bg-card border border-border rounded-xl p-6 space-y-4">
-                            <div className="h-5 bg-secondary/60 rounded animate-pulse w-1/3" />
-                            <div className="h-48 bg-secondary/60 rounded animate-pulse" />
-                        </div>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                        {/* ── Configuração ─────────────────────────────────── */}
-                        <div className="space-y-5 bg-card border border-border rounded-xl p-6">
-                            <h3 className="font-semibold text-base flex items-center gap-2 text-foreground">
-                                <Bot className="w-4 h-4 text-emerald-400" /> Configuração
-                            </h3>
-
-                            {/* Selecionar assistente */}
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                    Assistente Publicado
-                                </label>
-                                {assistants.length === 0 ? (
-                                    <p className="text-sm text-amber-400">Nenhum assistente publicado. Publique um primeiro.</p>
-                                ) : (
-                                    <div className="relative">
-                                        <select
-                                            value={selectedAssistant}
-                                            onChange={e => setSelectedAssistant(e.target.value)}
-                                            className="w-full appearance-none bg-secondary border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 pr-10"
-                                        >
-                                            {assistants.map(a => (
-                                                <option key={a.id} value={a.id}>{a.name}</option>
-                                            ))}
-                                        </select>
-                                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Model override selector */}
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                                    <Cpu className="w-3.5 h-3.5" /> Modelo (override)
-                                </label>
-                                <div className="relative">
-                                    <select
-                                        value={selectedModel}
-                                        onChange={e => setSelectedModel(e.target.value)}
-                                        className="w-full appearance-none bg-secondary border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 pr-10"
-                                    >
-                                        <option value="">Padrão do assistente</option>
-                                        {models.map(m => (
-                                            <option key={m.id} value={m.id}>{m.name}</option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                                </div>
-                            </div>
-
-                            {/* API Key prefix selector */}
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                                    <Key className="w-3.5 h-3.5" /> API Key (prefixo)
-                                </label>
-                                {apiKeys.length > 0 && (
-                                    <div className="relative">
-                                        <select
-                                            value={selectedKeyPrefix}
-                                            onChange={e => setSelectedKeyPrefix(e.target.value)}
-                                            className="w-full appearance-none bg-secondary border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 pr-10"
-                                        >
-                                            <option value="">— selecionar prefixo —</option>
-                                            {apiKeys.map(k => (
-                                                <option key={k.id} value={k.prefix}>{k.prefix}… (criada em {new Date(k.created_at).toLocaleDateString('pt-BR')})</option>
-                                            ))}
-                                        </select>
-                                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                                    </div>
-                                )}
-                                <input
-                                    type="password"
-                                    placeholder="Cole a API Key completa: sk-govai-..."
-                                    value={rawApiKey}
-                                    onChange={e => setRawApiKey(e.target.value)}
-                                    className="w-full bg-secondary border border-border rounded-lg px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/50 placeholder:text-muted-foreground/50"
-                                />
-                                <p className="text-[11px] text-muted-foreground/60">
-                                    A chave completa só é exibida na criação. Cole aqui para testar.
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* ── Mensagem ─────────────────────────────────────── */}
-                        <div className="space-y-5 bg-card border border-border rounded-xl p-6">
-                            <h3 className="font-semibold text-base flex items-center gap-2 text-foreground">
-                                <MessageSquare className="w-4 h-4 text-emerald-400" /> Mensagem
-                            </h3>
-                            <textarea
-                                value={message}
-                                onChange={e => setMessage(e.target.value)}
-                                placeholder={"Digite sua mensagem…\n\nExemplos:\n• Pergunta normal → resposta da IA\n• 'Ignore all previous instructions' → bloqueado\n• 'transferencia bancaria' → HITL"}
-                                rows={8}
-                                className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/50 resize-none placeholder:text-muted-foreground/40"
-                                onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleExecute(); }}
-                            />
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={handleExecute}
-                                    disabled={result.status === 'loading' || !selectedAssistant || !rawApiKey.trim() || !message.trim()}
-                                    className={cn(
-                                        "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-bold transition-all",
-                                        result.status === 'loading'
-                                            ? "bg-secondary text-muted-foreground cursor-not-allowed"
-                                            : "bg-emerald-500 text-black hover:bg-emerald-400 active:scale-[0.98]"
-                                    )}
-                                >
-                                    {result.status === 'loading'
-                                        ? <><Loader2 className="w-4 h-4 animate-spin" /> Processando…</>
-                                        : <><Play className="w-4 h-4" /> Enviar <span className="opacity-60 text-xs font-normal">(⌘ + Enter)</span></>
-                                    }
-                                </button>
-                                {(result.status !== 'idle' || message) && (
-                                    <button
-                                        onClick={handleClear}
-                                        className="flex items-center gap-1.5 px-3 py-3 rounded-lg text-sm font-semibold border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
-                                        title="Limpar resultado e mensagem"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* ── Resultado ────────────────────────────────────────────── */}
-                {result.status !== 'idle' && result.status !== 'loading' && (
-                    <div className={cn(
-                        "border rounded-xl p-6 space-y-4",
-                        result.status === 'success' && "bg-emerald-500/5 border-emerald-500/20",
-                        result.status === 'blocked' && "bg-red-500/5 border-red-500/20",
-                        result.status === 'hitl' && "bg-amber-500/5 border-amber-500/20",
-                        result.status === 'error' && "bg-red-500/5 border-red-500/20",
-                    )}>
-                        {/* Status header */}
-                        <div className={cn("flex items-center gap-2 font-bold text-sm", statusConfig[result.status].color)}>
-                            {statusConfig[result.status].icon}
-                            <span>{statusConfig[result.status].label}</span>
-                            {result.rawStatus && (
-                                <span className="ml-auto font-mono text-xs opacity-60">HTTP {result.rawStatus}</span>
+                        {eventIcon(ev.type)}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2 flex-wrap">
+                            <span className="text-foreground/90">{eventLabel(ev.type)}</span>
+                            {ev.tool_name && (
+                                <span className="text-muted-foreground">{ev.tool_name}</span>
                             )}
                         </div>
-
-                        {/* Latency + Model badges */}
-                        {(result.latencyMs !== undefined || result.model) && (
-                            <div className="flex items-center gap-3 flex-wrap">
-                                {result.latencyMs !== undefined && (
-                                    <span className="flex items-center gap-1.5 bg-background/60 border border-border/40 rounded-full px-3 py-1 text-xs font-mono text-muted-foreground">
-                                        <Zap className="w-3 h-3 text-emerald-400" />
-                                        {result.latencyMs}ms
-                                    </span>
-                                )}
-                                {result.model && (
-                                    <span className="flex items-center gap-1.5 bg-background/60 border border-border/40 rounded-full px-3 py-1 text-xs font-mono text-muted-foreground">
-                                        <Cpu className="w-3 h-3 text-blue-400" />
-                                        {result.model}
-                                    </span>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Response text */}
-                        {result.status === 'success' && result.response && (
-                            <div className="bg-background/60 rounded-lg p-4 text-sm text-foreground font-mono leading-relaxed whitespace-pre-wrap border border-border/40">
-                                {result.response}
-                            </div>
-                        )}
-
-                        {/* Blocked / HITL / Error reason */}
-                        {result.reason && (
-                            <div className="bg-background/60 rounded-lg p-4 text-sm border border-border/40">
-                                <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">Motivo: </span>
-                                <span className="text-foreground">{result.reason}</span>
-                            </div>
-                        )}
-
-                        {/* HITL Approval ID */}
-                        {result.status === 'hitl' && result.approvalId && (
-                            <div className="text-xs text-muted-foreground font-mono">
-                                Approval ID: <span className="text-amber-400">{result.approvalId}</span>
-                                <span className="ml-2 text-muted-foreground/60">— revise em /approvals</span>
-                            </div>
-                        )}
-
-                        {/* Trace ID */}
-                        {result.traceId && (
-                            <div className="text-xs text-muted-foreground/60 font-mono border-t border-border/30 pt-3">
-                                Trace ID: {result.traceId}
+                        {ev.metadata?.question && (
+                            <div className="text-muted-foreground mt-0.5 italic truncate">
+                                &quot;{ev.metadata.question}&quot;
                             </div>
                         )}
                     </div>
+                    <span className="text-muted-foreground/60 shrink-0">
+                        {new Date(ev.timestamp).toLocaleTimeString('pt-BR', { hour12: false })}
+                    </span>
+                </li>
+            ))}
+        </ol>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Main page
+// ═══════════════════════════════════════════════════════════════════════════
+
+export default function GovAIChatPage() {
+    const { role } = useAuth();
+    void role;
+
+    // ── Data ─────────────────────────────────────────────────────────────────
+    const [assistants, setAssistants] = useState<Assistant[]>([]);
+    const [models, setModels] = useState<LlmModel[]>([]);
+    const [sessions, setSessions] = useState<ChatSession[]>([]);
+    const [loadingInit, setLoadingInit] = useState(true);
+
+    // ── Selection ────────────────────────────────────────────────────────────
+    const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null);
+    const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+    const [forceDelegate, setForceDelegate] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+
+    // ── Conversation ─────────────────────────────────────────────────────────
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [input, setInput] = useState('');
+    const [sending, setSending] = useState(false);
+    const [sessionId] = useState<string>(() => genId());
+
+    // ── Delegation polling ───────────────────────────────────────────────────
+    const [delegationStates, setDelegationStates] = useState<Record<string, DelegationState>>({});
+    const pollingTimers = useRef<Record<string, NodeJS.Timeout>>({});
+
+    // ── Refs ─────────────────────────────────────────────────────────────────
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLTextAreaElement>(null);
+
+    const selectedAssistant = useMemo(
+        () => assistants.find(a => a.id === selectedAssistantId) ?? null,
+        [assistants, selectedAssistantId]
+    );
+    const selectedModel = useMemo(
+        () => models.find(m => m.id === selectedModelId) ?? models.find(m => m.default) ?? models[0] ?? null,
+        [models, selectedModelId]
+    );
+
+    // ── Load catalogs on mount ───────────────────────────────────────────────
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const [aRes, mRes, sRes] = await Promise.all([
+                    api.get(ENDPOINTS.ASSISTANTS_AVAILABLE),
+                    api.get(ENDPOINTS.LLM_MODELS),
+                    api.get(ENDPOINTS.CHAT_SESSIONS).catch(() => ({ data: [] })),
+                ]);
+                if (cancelled) return;
+                setAssistants(aRes.data || []);
+                setModels(mRes.data || []);
+                setSessions(sRes.data || []);
+                const defModel = (mRes.data || []).find((m: LlmModel) => m.default) || (mRes.data || [])[0];
+                if (defModel) setSelectedModelId(defModel.id);
+            } finally {
+                if (!cancelled) setLoadingInit(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
+    // ── Draft persistence per assistant ──────────────────────────────────────
+    useEffect(() => {
+        if (!selectedAssistantId) {
+            setInput('');
+            return;
+        }
+        const saved = sessionStorage.getItem(`govai-draft-${selectedAssistantId}`);
+        setInput(saved ?? '');
+    }, [selectedAssistantId]);
+
+    useEffect(() => {
+        if (!selectedAssistantId) return;
+        if (input) {
+            sessionStorage.setItem(`govai-draft-${selectedAssistantId}`, input);
+        } else {
+            sessionStorage.removeItem(`govai-draft-${selectedAssistantId}`);
+        }
+    }, [input, selectedAssistantId]);
+
+    // ── Auto-scroll to bottom on new messages ────────────────────────────────
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, [messages, delegationStates]);
+
+    // ── Auto-resize textarea ─────────────────────────────────────────────────
+    useEffect(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 220) + 'px';
+    }, [input]);
+
+    // ── Cleanup polling on unmount ───────────────────────────────────────────
+    useEffect(() => {
+        return () => {
+            Object.values(pollingTimers.current).forEach(clearInterval);
+            pollingTimers.current = {};
+        };
+    }, []);
+
+    // ── Delegation polling ───────────────────────────────────────────────────
+    const stopPolling = useCallback((workItemId: string) => {
+        const t = pollingTimers.current[workItemId];
+        if (t) {
+            clearInterval(t);
+            delete pollingTimers.current[workItemId];
+        }
+    }, []);
+
+    const pollWorkItem = useCallback(async (workItemId: string) => {
+        try {
+            const res = await api.get(ENDPOINTS.ARCHITECT_WORK_ITEM_EVENTS(workItemId));
+            const wi = res.data?.work_item;
+            const evs: WorkItemEvent[] = res.data?.events || [];
+            if (!wi) return;
+
+            const pending = [...evs].reverse().find(e => e.type === 'ACTION_REQUIRED');
+            const pendingApproval = pending && wi.status === 'awaiting_approval'
+                ? {
+                    prompt_id: pending.prompt_id ?? '',
+                    tool_name: pending.tool_name ?? 'unknown',
+                    question: (pending.metadata?.question as string) ?? 'Aprovar ferramenta?',
+                }
+                : null;
+
+            setDelegationStates(prev => ({
+                ...prev,
+                [workItemId]: {
+                    work_item_id: workItemId,
+                    status: wi.status,
+                    events: evs,
+                    pendingApproval,
+                    fullText: wi.execution_context?.output?.fullText ?? null,
+                    tokens: wi.execution_context?.tokens ?? null,
+                    toolCount: Array.isArray(wi.execution_context?.output?.toolEvents)
+                        ? wi.execution_context.output.toolEvents.length : 0,
+                },
+            }));
+
+            if (['done', 'cancelled', 'blocked'].includes(wi.status)) {
+                stopPolling(workItemId);
+                if (wi.status === 'done' && wi.execution_context?.output?.fullText) {
+                    setMessages(prev => {
+                        if (prev.some(m => m.role === 'delegation_result' && m.workItemId === workItemId)) {
+                            return prev;
+                        }
+                        return [...prev, {
+                            id: genId(),
+                            role: 'delegation_result',
+                            content: wi.execution_context.output.fullText,
+                            workItemId,
+                            tokens: wi.execution_context.tokens,
+                            timestamp: Date.now(),
+                        }];
+                    });
+                }
+            }
+        } catch {
+            // polling errors are non-fatal — keep trying until terminal
+        }
+    }, [stopPolling]);
+
+    const startPolling = useCallback((workItemId: string) => {
+        if (pollingTimers.current[workItemId]) return;
+        pollWorkItem(workItemId);
+        pollingTimers.current[workItemId] = setInterval(() => pollWorkItem(workItemId), 2_000);
+    }, [pollWorkItem]);
+
+    // ── Send handler ─────────────────────────────────────────────────────────
+    const handleSend = useCallback(async () => {
+        if (!selectedAssistantId) return;
+        const trimmed = input.trim();
+        if (!trimmed || sending) return;
+
+        const userMsg: ChatMessage = {
+            id: genId(),
+            role: 'user',
+            content: trimmed,
+            timestamp: Date.now(),
+        };
+        setMessages(prev => [...prev, userMsg]);
+        setInput('');
+        sessionStorage.removeItem(`govai-draft-${selectedAssistantId}`);
+        setSending(true);
+
+        try {
+            const res = await api.post(ENDPOINTS.CHAT_SEND, {
+                assistant_id: selectedAssistantId,
+                message: trimmed,
+                session_id: sessionId,
+                model: selectedModelId ?? undefined,
+                force_delegate: forceDelegate,
+            });
+
+            const data = res.data;
+            if (res.status === 202 && data.status === 'PENDING_APPROVAL') {
+                setMessages(prev => [...prev, {
+                    id: genId(),
+                    role: 'error',
+                    errorKind: 'hitl_pending',
+                    errorReason: data.reason || 'Ação de alto risco detectada.',
+                    timestamp: Date.now(),
+                }]);
+                return;
+            }
+            if (data?._govai?.delegated === true && data._govai.workItemId) {
+                const workItemId: string = data._govai.workItemId;
+                setMessages(prev => [...prev, {
+                    id: genId(),
+                    role: 'delegation',
+                    workItemId,
+                    matchedPattern: data._govai.matchedPattern,
+                    traceId: data._govai.traceId,
+                    timestamp: Date.now(),
+                }]);
+                setDelegationStates(prev => ({
+                    ...prev,
+                    [workItemId]: {
+                        work_item_id: workItemId,
+                        status: 'pending',
+                        events: [],
+                        pendingApproval: null,
+                        fullText: null,
+                        tokens: null,
+                        toolCount: 0,
+                    },
+                }));
+                startPolling(workItemId);
+                return;
+            }
+            const content = data?.choices?.[0]?.message?.content ?? '(sem resposta)';
+            const tokens = data?.usage
+                ? { prompt: data.usage.prompt_tokens, completion: data.usage.completion_tokens }
+                : null;
+            const traceId = data?._govai?.traceId ?? data?.trace_id;
+            setMessages(prev => [...prev, {
+                id: genId(),
+                role: 'assistant',
+                content,
+                tokens,
+                traceId,
+                timestamp: Date.now(),
+            }]);
+        } catch (err: any) {
+            const { kind, reason, retryAfterSec } = classifyError(err);
+            setMessages(prev => [...prev, {
+                id: genId(),
+                role: 'error',
+                errorKind: kind,
+                errorReason: reason,
+                retryAfterSec,
+                timestamp: Date.now(),
+            }]);
+        } finally {
+            setSending(false);
+            inputRef.current?.focus();
+        }
+    }, [input, sending, selectedAssistantId, sessionId, selectedModelId, forceDelegate, startPolling]);
+
+    // ── Approval handler ─────────────────────────────────────────────────────
+    const handleApproval = useCallback(async (workItemId: string, promptId: string, approved: boolean) => {
+        try {
+            await api.post(ENDPOINTS.ARCHITECT_WORK_ITEM_APPROVE_ACTION(workItemId), {
+                prompt_id: promptId,
+                approved,
+            });
+            setDelegationStates(prev => ({
+                ...prev,
+                [workItemId]: prev[workItemId]
+                    ? { ...prev[workItemId], pendingApproval: null, status: 'in_progress' }
+                    : prev[workItemId],
+            }));
+        } catch {
+            // keep the approval banner; user can retry
+        }
+    }, []);
+
+    const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSend();
+        }
+    }, [handleSend]);
+
+    // ── Render ───────────────────────────────────────────────────────────────
+    return (
+        <div className="flex-1 flex min-h-0 min-w-0 relative">
+            {/* Mobile sidebar backdrop */}
+            {sidebarOpen && (
+                <div
+                    className="lg:hidden fixed inset-0 z-30 bg-background/70 backdrop-blur-sm"
+                    onClick={() => setSidebarOpen(false)}
+                />
+            )}
+
+            {/* Sidebar */}
+            <aside
+                className={`
+                    w-72 shrink-0 border-r border-border/60 bg-card/40 flex flex-col min-h-0
+                    lg:static lg:translate-x-0
+                    fixed inset-y-0 left-0 z-40 transition-transform duration-200
+                    ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+                `}
+            >
+                <div className="px-5 py-5 border-b border-border/60 flex items-center justify-between">
+                    <div>
+                        <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
+                            GovAI
+                        </div>
+                        <div className="text-lg font-semibold tracking-tight text-foreground">
+                            Chat Governado
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setSidebarOpen(false)}
+                        className="lg:hidden p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+                    {/* Assistants */}
+                    <section>
+                        <div className="px-2 mb-2 flex items-center justify-between">
+                            <h3 className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
+                                Assistentes
+                            </h3>
+                            {loadingInit && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+                        </div>
+                        <div className="space-y-1">
+                            {assistants.length === 0 && !loadingInit && (
+                                <div className="px-2 text-xs text-muted-foreground italic">Nenhum assistente publicado.</div>
+                            )}
+                            {assistants.map(a => {
+                                const active = a.id === selectedAssistantId;
+                                return (
+                                    <button
+                                        key={a.id}
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedAssistantId(a.id);
+                                            setSidebarOpen(false);
+                                        }}
+                                        className={`w-full text-left px-3 py-2.5 rounded-md border transition-colors ${
+                                            active
+                                                ? 'bg-primary/10 border-primary/30 text-foreground'
+                                                : 'border-transparent hover:bg-accent hover:border-border/60 text-foreground/80'
+                                        }`}
+                                    >
+                                        <div className="flex items-start gap-2">
+                                            <Bot className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${active ? 'text-primary' : 'text-muted-foreground'}`} />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-sm font-medium truncate">{a.name}</div>
+                                                <div className="flex items-center gap-1.5 mt-0.5 text-[10px]">
+                                                    {a.delegation_enabled && (
+                                                        <span className="inline-flex items-center gap-0.5 text-primary">
+                                                            <Zap className="w-2.5 h-2.5" /> delegação
+                                                        </span>
+                                                    )}
+                                                    {a.skill_count > 0 && (
+                                                        <span className="inline-flex items-center gap-0.5 text-muted-foreground">
+                                                            <Sparkles className="w-2.5 h-2.5" /> {a.skill_count} skills
+                                                        </span>
+                                                    )}
+                                                    {a.lifecycle_state === 'draft' && (
+                                                        <span className="uppercase tracking-wider text-muted-foreground">rascunho</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </section>
+
+                    {/* Model selector */}
+                    <section>
+                        <h3 className="px-2 mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
+                            Modelo
+                        </h3>
+                        <div className="relative">
+                            <select
+                                value={selectedModelId ?? ''}
+                                onChange={e => setSelectedModelId(e.target.value || null)}
+                                className="w-full appearance-none bg-muted/40 border border-border/60 rounded-md pl-3 pr-8 py-2 text-sm text-foreground focus:outline-none focus:border-primary/60 transition-colors"
+                            >
+                                {models.map(m => (
+                                    <option key={m.id} value={m.id}>
+                                        {m.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                        </div>
+                        {selectedModel && (
+                            <div className="mt-1.5 px-2 text-[10px] text-muted-foreground font-mono">
+                                {selectedModel.provider}
+                            </div>
+                        )}
+                    </section>
+
+                    {/* Recent sessions */}
+                    <section>
+                        <h3 className="px-2 mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
+                            Sessões recentes
+                        </h3>
+                        <div className="space-y-1">
+                            {sessions.length === 0 && (
+                                <div className="px-2 text-xs text-muted-foreground italic">Nenhuma sessão.</div>
+                            )}
+                            {sessions.slice(0, 8).map(s => (
+                                <div
+                                    key={s.session_id}
+                                    className="px-2.5 py-1.5 rounded-md text-xs text-muted-foreground flex items-center gap-2 hover:bg-accent hover:text-foreground transition-colors cursor-default"
+                                    title={new Date(s.last_at).toLocaleString('pt-BR')}
+                                >
+                                    <History className="w-3 h-3 shrink-0" />
+                                    <span className="truncate flex-1">{s.assistant_name ?? 'Sessão'}</span>
+                                    {s.has_delegation && <Zap className="w-2.5 h-2.5 text-primary shrink-0" />}
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+
+                    {/* Governance footer */}
+                    <section className="px-2 pt-4 border-t border-border/50">
+                        <div className="flex items-start gap-2 text-[11px] text-muted-foreground leading-relaxed">
+                            <ShieldCheck className="w-3.5 h-3.5 text-primary shrink-0 mt-px" />
+                            <span>
+                                Toda mensagem passa pelo pipeline de governança:
+                                política, DLP, cota, trilha de auditoria.
+                            </span>
+                        </div>
+                    </section>
+                </div>
+            </aside>
+
+            {/* Main chat column */}
+            <main className="flex-1 flex flex-col min-w-0 min-h-0">
+
+                {/* Header */}
+                <header className="h-14 border-b border-border/60 flex items-center gap-3 px-4 lg:px-6 shrink-0 bg-card/30">
+                    <button
+                        type="button"
+                        onClick={() => setSidebarOpen(v => !v)}
+                        className="lg:hidden p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+                    >
+                        <Menu className="w-5 h-5" />
+                    </button>
+                    {selectedAssistant ? (
+                        <>
+                            <div className="flex items-center gap-2 min-w-0">
+                                <div className="w-8 h-8 rounded-md bg-primary/15 border border-primary/25 flex items-center justify-center shrink-0">
+                                    <Bot className="w-4 h-4 text-primary" />
+                                </div>
+                                <div className="min-w-0">
+                                    <div className="text-sm font-semibold text-foreground truncate leading-tight">
+                                        {selectedAssistant.name}
+                                    </div>
+                                    <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
+                                        {selectedAssistant.lifecycle_state}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex-1" />
+                            {selectedModel && (
+                                <div className="hidden md:flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                                    {selectedModel.name}
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <MessageSquareText className="w-4 h-4 text-muted-foreground" />
+                            <div className="text-sm font-medium text-foreground">Chat Governado</div>
+                            <div className="flex-1" />
+                        </>
+                    )}
+                </header>
+
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto min-h-0">
+                    <div className="max-w-3xl mx-auto px-4 lg:px-8 py-8">
+                        {messages.length === 0 ? (
+                            <EmptyState
+                                assistant={selectedAssistant}
+                                onSuggestion={(s) => {
+                                    setInput(s);
+                                    setTimeout(() => inputRef.current?.focus(), 0);
+                                }}
+                            />
+                        ) : (
+                            <div className="space-y-8">
+                                {messages.map(msg => (
+                                    <MessageRow
+                                        key={msg.id}
+                                        msg={msg}
+                                        delegationState={msg.workItemId ? delegationStates[msg.workItemId] : undefined}
+                                        onApprove={handleApproval}
+                                    />
+                                ))}
+                                {sending && (
+                                    <div className="pt-1">
+                                        <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-2 font-semibold">
+                                            Assistente
+                                        </div>
+                                        <TypingIndicator />
+                                    </div>
+                                )}
+                                <div ref={messagesEndRef} />
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Input bar */}
+                <div className="border-t border-border/60 bg-card/20 shrink-0">
+                    <div className="max-w-3xl mx-auto px-4 lg:px-8 py-4">
+                        <div className={`
+                            relative rounded-xl border bg-card/70 transition-colors
+                            ${selectedAssistant
+                                ? 'border-border/80 focus-within:border-primary/60'
+                                : 'border-border/40 opacity-60'}
+                        `}>
+                            <textarea
+                                ref={inputRef}
+                                value={input}
+                                onChange={e => setInput(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                disabled={!selectedAssistant || sending}
+                                rows={1}
+                                placeholder={
+                                    selectedAssistant
+                                        ? `Mensagem para ${selectedAssistant.name}…`
+                                        : 'Selecione um assistente para começar…'
+                                }
+                                className="w-full bg-transparent resize-none px-4 pt-3.5 pb-12 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none"
+                                style={{ minHeight: '56px', maxHeight: '220px' }}
+                            />
+                            <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setForceDelegate(v => !v)}
+                                        disabled={!selectedAssistant?.delegation_enabled}
+                                        title={
+                                            selectedAssistant?.delegation_enabled
+                                                ? 'Forçar execução autônoma via OpenClaude'
+                                                : 'Delegação não habilitada para este assistente'
+                                        }
+                                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                                            forceDelegate
+                                                ? 'bg-primary/15 text-primary border border-primary/30'
+                                                : 'text-muted-foreground hover:text-foreground hover:bg-accent border border-transparent'
+                                        } disabled:opacity-40 disabled:cursor-not-allowed`}
+                                    >
+                                        <Zap className="w-3 h-3" />
+                                        Autônomo
+                                    </button>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleSend}
+                                    disabled={!selectedAssistant || !input.trim() || sending}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    {sending ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                        <Send className="w-3 h-3" />
+                                    )}
+                                    Enviar
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between mt-2 px-1 text-[10px] text-muted-foreground font-mono">
+                            <span>⏎ enviar · ⇧⏎ nova linha</span>
+                            <span className="flex items-center gap-1.5">
+                                <Shield className="w-2.5 h-2.5" />
+                                governança ativa
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Empty state
+// ═══════════════════════════════════════════════════════════════════════════
+
+function EmptyState({
+    assistant, onSuggestion,
+}: {
+    assistant: Assistant | null;
+    onSuggestion: (s: string) => void;
+}) {
+    if (!assistant) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+                <div className="w-14 h-14 rounded-xl bg-card border border-border/80 flex items-center justify-center mb-6">
+                    <Shield className="w-6 h-6 text-primary" />
+                </div>
+                <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight text-foreground mb-2">
+                    Selecione um assistente
+                </h1>
+                <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
+                    Cada assistente tem sua própria política, base de conhecimento e
+                    conjunto de ferramentas. Toda conversa aqui passa pelo pipeline
+                    completo de governança.
+                </p>
+                <div className="mt-8 flex items-center gap-6 text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
+                    <span className="flex items-center gap-1.5">
+                        <Shield className="w-3 h-3 text-primary" /> DLP
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                        <ShieldCheck className="w-3 h-3 text-primary" /> Política
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                        <Zap className="w-3 h-3 text-primary" /> Delegação
+                    </span>
+                </div>
+            </div>
+        );
+    }
+
+    const suggestions = getSuggestions(assistant.name);
+    return (
+        <div className="flex flex-col min-h-[60vh] pt-10">
+            <div className="mb-10">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold mb-3">
+                    Assistente ativo
+                </div>
+                <h1 className="text-3xl lg:text-4xl font-semibold tracking-tight text-foreground mb-3">
+                    {assistant.name}
+                </h1>
+                {assistant.description && (
+                    <p className="text-[15px] text-muted-foreground leading-relaxed max-w-2xl">
+                        {assistant.description}
+                    </p>
                 )}
+                <div className="mt-5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground font-mono">
+                    {assistant.delegation_enabled && (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/10 text-primary border border-primary/25">
+                            <Zap className="w-3 h-3" /> delegação habilitada
+                        </span>
+                    )}
+                    {assistant.skill_count > 0 && (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-card border border-border/60">
+                            <Sparkles className="w-3 h-3 text-muted-foreground" /> {assistant.skill_count} skills aplicadas
+                        </span>
+                    )}
+                    {assistant.risk_level && (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-card border border-border/60 uppercase tracking-wider">
+                            risco {assistant.risk_level}
+                        </span>
+                    )}
+                </div>
+            </div>
+
+            <div>
+                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold mb-3">
+                    Comece por uma destas
+                </div>
+                <div className="grid gap-2.5">
+                    {suggestions.map((s, i) => (
+                        <button
+                            key={i}
+                            type="button"
+                            onClick={() => onSuggestion(s)}
+                            className="group flex items-start gap-3 text-left px-4 py-3 rounded-lg bg-card/60 border border-border/60 hover:border-primary/30 hover:bg-card transition-colors"
+                        >
+                            <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary mt-0.5 shrink-0 transition-colors" />
+                            <span className="text-sm text-foreground/90 group-hover:text-foreground">
+                                {s}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Message row
+// ═══════════════════════════════════════════════════════════════════════════
+
+function MessageRow({
+    msg, delegationState, onApprove,
+}: {
+    msg: ChatMessage;
+    delegationState?: DelegationState;
+    onApprove: (workItemId: string, promptId: string, approved: boolean) => void;
+}) {
+    if (msg.role === 'user') {
+        return (
+            <div>
+                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-2 font-semibold text-right">
+                    Você
+                </div>
+                <div className="flex justify-end">
+                    <div className="max-w-[85%] rounded-xl bg-primary/10 border border-primary/20 px-4 py-3 text-[15px] text-foreground whitespace-pre-wrap leading-relaxed">
+                        {msg.content}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (msg.role === 'assistant') {
+        return (
+            <div className="group">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-2 font-semibold">
+                    Assistente
+                </div>
+                <div className="relative">
+                    <Markdown content={msg.content ?? ''} />
+                    <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <CopyButton text={msg.content ?? ''} />
+                    </div>
+                </div>
+                <GovernanceFooter tokens={msg.tokens} traceId={msg.traceId} />
+            </div>
+        );
+    }
+
+    if (msg.role === 'delegation') {
+        return (
+            <DelegationCard
+                msg={msg}
+                state={delegationState}
+                onApprove={onApprove}
+            />
+        );
+    }
+
+    if (msg.role === 'delegation_result') {
+        return (
+            <div>
+                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-2 font-semibold flex items-center gap-2">
+                    <Zap className="w-3 h-3 text-primary" /> Resultado da execução
+                </div>
+                <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+                    <Markdown content={msg.content ?? ''} />
+                </div>
+                {msg.tokens && (
+                    <div className="mt-2 flex gap-3 text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
+                        {msg.tokens.prompt !== undefined && <span>in {msg.tokens.prompt}</span>}
+                        {msg.tokens.completion !== undefined && <span>out {msg.tokens.completion}</span>}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    if (msg.role === 'error') {
+        return <ErrorCard msg={msg} />;
+    }
+
+    return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Delegation card + timeline
+// ═══════════════════════════════════════════════════════════════════════════
+
+function DelegationCard({
+    msg, state, onApprove,
+}: {
+    msg: ChatMessage;
+    state: DelegationState | undefined;
+    onApprove: (workItemId: string, promptId: string, approved: boolean) => void;
+}) {
+    const status = state?.status ?? 'pending';
+    const isTerminal = ['done', 'cancelled', 'blocked'].includes(status);
+    const workItemId = msg.workItemId!;
+
+    return (
+        <div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-2 font-semibold flex items-center gap-2">
+                <Zap className="w-3 h-3 text-primary" />
+                Delegação autônoma
+            </div>
+            <div className="rounded-xl border border-border bg-card">
+                <div className="px-4 py-3 border-b border-border/60 flex items-center gap-3">
+                    <div className="flex items-center gap-1.5 text-xs font-mono">
+                        {!isTerminal && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
+                        {status === 'done' && <Check className="w-3 h-3 text-primary" />}
+                        {status === 'blocked' && <Ban className="w-3 h-3 text-destructive" />}
+                        {status === 'cancelled' && <PauseCircle className="w-3 h-3 text-muted-foreground" />}
+                        <span className="uppercase tracking-wider text-foreground">{status}</span>
+                    </div>
+                    <div className="flex-1" />
+                    <div className="text-[10px] font-mono text-muted-foreground truncate max-w-[50%]">
+                        {workItemId.slice(0, 8)}
+                    </div>
+                </div>
+
+                {msg.matchedPattern && (
+                    <div className="px-4 py-2 border-b border-border/60 text-[11px] text-muted-foreground">
+                        Padrão detectado: <code className="font-mono text-foreground/80">{msg.matchedPattern}</code>
+                    </div>
+                )}
+
+                <div className="px-4 py-3">
+                    <EventTimeline state={state ?? {
+                        work_item_id: workItemId,
+                        status, events: [], pendingApproval: null, fullText: null, tokens: null, toolCount: 0,
+                    }} />
+                </div>
+
+                {state?.pendingApproval && (
+                    <div className="px-4 py-3 border-t border-border/60 bg-muted/30">
+                        <div className="flex items-start gap-2 mb-2">
+                            <AlertCircle className="w-4 h-4 text-foreground mt-0.5 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                                <div className="text-xs font-semibold text-foreground">
+                                    Ferramenta requer aprovação
+                                </div>
+                                <div className="text-[11px] text-muted-foreground mt-0.5">
+                                    {state.pendingApproval.tool_name}
+                                </div>
+                                {state.pendingApproval.question && (
+                                    <div className="text-[11px] text-muted-foreground italic mt-1">
+                                        &quot;{state.pendingApproval.question}&quot;
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => onApprove(workItemId, state.pendingApproval!.prompt_id, true)}
+                                className="px-3 py-1 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                            >
+                                Aprovar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onApprove(workItemId, state.pendingApproval!.prompt_id, false)}
+                                className="px-3 py-1 text-xs font-semibold rounded-md bg-destructive/80 text-destructive-foreground hover:bg-destructive transition-colors"
+                            >
+                                Negar
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {status === 'blocked' && (
+                    <div className="px-4 py-3 border-t border-border/60 bg-destructive/5 text-[11px] text-destructive">
+                        Execução bloqueada após tentativas de dispatch.
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Governance footer
+// ═══════════════════════════════════════════════════════════════════════════
+
+function GovernanceFooter({
+    tokens, traceId,
+}: {
+    tokens?: { prompt?: number; completion?: number } | null;
+    traceId?: string;
+}) {
+    return (
+        <div className="mt-3 flex items-center gap-3 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+            <span className="flex items-center gap-1">
+                <Shield className="w-2.5 h-2.5 text-primary" />
+                governado
+            </span>
+            {tokens?.prompt !== undefined && (
+                <span>in {tokens.prompt}</span>
+            )}
+            {tokens?.completion !== undefined && (
+                <span>out {tokens.completion}</span>
+            )}
+            {traceId && (
+                <span className="truncate max-w-[180px]" title={traceId}>
+                    {String(traceId).slice(0, 8)}
+                </span>
+            )}
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Error card
+// ═══════════════════════════════════════════════════════════════════════════
+
+function ErrorCard({ msg }: { msg: ChatMessage }) {
+    const [countdown, setCountdown] = useState(msg.retryAfterSec ?? 0);
+
+    useEffect(() => {
+        if (msg.errorKind !== 'rate_limit' || !msg.retryAfterSec) return;
+        const t = setInterval(() => {
+            setCountdown(prev => (prev > 0 ? prev - 1 : 0));
+        }, 1000);
+        return () => clearInterval(t);
+    }, [msg.errorKind, msg.retryAfterSec]);
+
+    const meta = (() => {
+        switch (msg.errorKind) {
+            case 'rate_limit':
+                return { icon: Clock, label: 'Limite de requisições', tone: 'border-border bg-card' };
+            case 'policy_block':
+                return { icon: Ban, label: 'Política violada', tone: 'border-destructive/30 bg-destructive/5' };
+            case 'dlp_block':
+                return { icon: FileWarning, label: 'DLP bloqueou', tone: 'border-destructive/30 bg-destructive/5' };
+            case 'quota_exceeded':
+                return { icon: AlertTriangle, label: 'Cota excedida', tone: 'border-destructive/30 bg-destructive/5' };
+            case 'service_unavailable':
+                return { icon: WifiOff, label: 'Serviço indisponível', tone: 'border-border bg-card' };
+            case 'hitl_pending':
+                return { icon: ShieldAlert, label: 'Aguardando aprovação humana', tone: 'border-border bg-card' };
+            default:
+                return { icon: AlertCircle, label: 'Erro', tone: 'border-destructive/30 bg-destructive/5' };
+        }
+    })();
+    const Icon = meta.icon;
+
+    return (
+        <div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-2 font-semibold">
+                Sistema
+            </div>
+            <div className={`rounded-xl border px-4 py-3 ${meta.tone}`}>
+                <div className="flex items-start gap-3">
+                    <Icon className="w-4 h-4 text-foreground mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                        <div className="text-xs font-semibold text-foreground uppercase tracking-wider mb-1">
+                            {meta.label}
+                        </div>
+                        <div className="text-[13px] text-foreground/90 leading-relaxed">
+                            {msg.errorReason}
+                        </div>
+                        {msg.errorKind === 'rate_limit' && countdown > 0 && (
+                            <div className="mt-2 text-[11px] text-muted-foreground font-mono">
+                                Tente novamente em {countdown}s
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
         </div>
     );

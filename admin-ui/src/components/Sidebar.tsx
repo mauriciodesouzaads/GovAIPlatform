@@ -181,7 +181,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         {(isAdmin || showAll) && <SectionLabel label="Técnico" />}
                         <NavItem href="/"           label="Dashboard"        Icon={LayoutDashboard}  isActive={pathname === '/'}           accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                         <NavItem href="/assistants" label="Assistants & RAG" Icon={MessageSquareText} isActive={pathname === '/assistants'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
-                        <NavItem href="/playground" label="Playground"       Icon={Play}             isActive={pathname === '/playground'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        <NavItem href="/playground" label="Chat"             Icon={MessageSquareText} isActive={pathname === '/playground'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                         <NavItem href="/api-keys"   label="API Keys"         Icon={Key}              isActive={pathname === '/api-keys'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                         <NavItem href="/architect"  label="Arquiteto"        Icon={BrainCircuit}     isActive={pathname === '/architect'}  accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                         <NavItem href="/webhooks"   label="Webhooks"         Icon={Bell}             isActive={pathname === '/webhooks'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
