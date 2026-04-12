@@ -560,6 +560,7 @@ export async function architectRoutes(
                 `SELECT id, status, execution_hint, title, description, item_type,
                         execution_context, dispatch_attempts, dispatch_error,
                         worker_session_id, worker_runtime, runtime_profile_slug,
+                        runtime_claim_level,
                         run_started_at, dispatched_at, last_event_at, cancelled_at,
                         cancellation_requested_at, completed_at, created_at, updated_at
                  FROM architect_work_items

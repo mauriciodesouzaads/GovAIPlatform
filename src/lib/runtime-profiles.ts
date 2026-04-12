@@ -26,7 +26,8 @@
  * querying, which this module does internally for each function.
  */
 
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
+import { redisCache } from './redis';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -88,12 +89,22 @@ export type ResolutionSource =
     | 'user_selected'
     | 'assistant_default'
     | 'tenant_default'
-    | 'system_default';
+    | 'system_default'
+    // FASE 8 additions:
+    | 'explicit_request'
+    | 'case_selected'
+    | 'template_fixed'
+    | 'global_fallback';
 
 export interface RuntimeResolution {
     profile: RuntimeProfile;
     source: ResolutionSource;
     claim_level: string;
+    /** FASE 8: true when the resolver could not honor the preferred/higher-priority
+     *  binding and fell through to a lower-priority layer. Always false for
+     *  explicit_request (which throws instead of falling back). */
+    fallbackApplied?: boolean;
+    fallbackReason?: string;
 }
 
 /**
@@ -386,4 +397,198 @@ export function isRuntimeAvailable(profile: RuntimeProfile): boolean {
     // runtimes that don't use unix sockets (e.g. external providers).
     const host = process.env[profile.config.grpc_host_env];
     return Boolean(host && host.trim());
+}
+
+// ── FASE 8 — Cached health + 5-layer resolver ─────────────────────────────
+
+/**
+ * Cached wrapper around isRuntimeAvailable with a 30-second Redis TTL.
+ * Falls back to the synchronous probe when Redis is unavailable.
+ */
+export async function isRuntimeAvailableCached(profile: RuntimeProfile): Promise<boolean> {
+    const cacheKey = `runtime:health:${profile.slug}`;
+    try {
+        if (redisCache.status === 'ready') {
+            const cached = await redisCache.get(cacheKey);
+            if (cached !== null) return cached === 'true';
+        }
+    } catch { /* Redis down → probe directly */ }
+
+    const available = isRuntimeAvailable(profile);
+
+    try {
+        if (redisCache.status === 'ready') {
+            await redisCache.set(cacheKey, available ? 'true' : 'false', 'EX', 30);
+        }
+    } catch { /* non-fatal — next call will re-probe */ }
+
+    return available;
+}
+
+/**
+ * Helper: fetch a profile by slug within an already-configured client
+ * (caller has already run set_config).
+ */
+async function getProfileBySlug(
+    client: PoolClient,
+    slug: string,
+    orgId: string
+): Promise<RuntimeProfile | null> {
+    const r = await client.query(
+        `SELECT * FROM runtime_profiles
+         WHERE slug = $1
+           AND (org_id = $2 OR org_id IS NULL)
+           AND status = 'active'
+         ORDER BY org_id DESC NULLS LAST
+         LIMIT 1`,
+        [slug, orgId]
+    );
+    return r.rows[0] ? rowToProfile(r.rows[0]) : null;
+}
+
+/**
+ * FASE 8 — 5-layer runtime resolution.
+ *
+ * Priority chain:
+ *   1. explicit_request  — caller passed explicitSlug (chat body)
+ *   2. case_selected     — demand_case has selected_runtime_profile_id
+ *   3. template_fixed    — workflow template with mode='fixed'
+ *   4. assistant_default — assistants.runtime_profile_slug
+ *   5. tenant_default    — runtime_profile_bindings scope_type='tenant'
+ *   6. global_fallback   — slug='openclaude' hard-coded
+ *
+ * Explicit + unavailable → throws RuntimeUnavailableError (no fallback).
+ * Implicit layers skip unavailable profiles and fall through silently.
+ */
+export async function resolveRuntimeForExecution(
+    pool: Pool,
+    orgId: string,
+    opts: {
+        explicitSlug?: string;
+        caseId?: string;
+        workflowTemplateId?: string;
+        assistantId?: string;
+    } = {}
+): Promise<RuntimeResolution> {
+    const client = await pool.connect();
+    try {
+        await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+
+        // 1. Explicit request — hard-fail if unavailable (no silent fallback).
+        if (opts.explicitSlug) {
+            const profile = await getProfileBySlug(client, opts.explicitSlug, orgId);
+            if (profile) {
+                if (profile.runtime_class === 'official' || profile.runtime_class === 'open') {
+                    const avail = await isRuntimeAvailableCached(profile);
+                    if (!avail) {
+                        throw new RuntimeUnavailableError(
+                            profile.slug,
+                            `Runtime "${profile.display_name}" não está disponível. Verifique se o container está rodando.`
+                        );
+                    }
+                }
+                return {
+                    profile,
+                    source: 'explicit_request',
+                    claim_level: profile.config.claim_level,
+                    fallbackApplied: false,
+                };
+            }
+        }
+
+        // 2. Case selected (demand_cases.selected_runtime_profile_id).
+        if (opts.caseId) {
+            const r = await client.query(
+                `SELECT rp.* FROM demand_cases dc
+                 JOIN runtime_profiles rp ON rp.id = dc.selected_runtime_profile_id
+                 WHERE dc.id = $1 AND dc.org_id = $2 AND rp.status = 'active'`,
+                [opts.caseId, orgId]
+            );
+            if (r.rows[0]) {
+                const profile = rowToProfile(r.rows[0]);
+                const avail = await isRuntimeAvailableCached(profile);
+                if (avail) {
+                    return { profile, source: 'case_selected', claim_level: profile.config.claim_level, fallbackApplied: false };
+                }
+            }
+        }
+
+        // 3. Template fixed (architect_workflow_templates with mode='fixed').
+        if (opts.workflowTemplateId) {
+            const r = await client.query(
+                `SELECT rp.* FROM architect_workflow_templates wt
+                 JOIN runtime_profiles rp ON rp.id = wt.runtime_profile_id
+                 WHERE wt.id = $1 AND wt.org_id = $2
+                   AND wt.runtime_selection_mode = 'fixed'
+                   AND rp.status = 'active'`,
+                [opts.workflowTemplateId, orgId]
+            );
+            if (r.rows[0]) {
+                const profile = rowToProfile(r.rows[0]);
+                const avail = await isRuntimeAvailableCached(profile);
+                if (avail) {
+                    return { profile, source: 'template_fixed', claim_level: profile.config.claim_level, fallbackApplied: false };
+                }
+            }
+        }
+
+        // 4. Assistant default (assistants.runtime_profile_slug JOIN runtime_profiles).
+        if (opts.assistantId) {
+            const r = await client.query(
+                `SELECT rp.* FROM assistants a
+                 JOIN runtime_profiles rp ON rp.slug = a.runtime_profile_slug
+                   AND (rp.org_id = a.org_id OR rp.org_id IS NULL)
+                 WHERE a.id = $1 AND a.org_id = $2 AND rp.status = 'active'
+                 ORDER BY rp.org_id DESC NULLS LAST
+                 LIMIT 1`,
+                [opts.assistantId, orgId]
+            );
+            if (r.rows[0]) {
+                const profile = rowToProfile(r.rows[0]);
+                const avail = await isRuntimeAvailableCached(profile);
+                if (avail) {
+                    return { profile, source: 'assistant_default', claim_level: profile.config.claim_level, fallbackApplied: false };
+                }
+            }
+        }
+
+        // 5. Tenant default (runtime_profile_bindings scope_type='tenant').
+        const tenantBinding = await client.query(
+            `SELECT rp.* FROM runtime_profile_bindings rpb
+             JOIN runtime_profiles rp ON rp.id = rpb.runtime_profile_id
+             WHERE rpb.org_id = $1
+               AND rpb.scope_type = 'tenant'
+               AND rp.status = 'active'
+             ORDER BY rpb.priority ASC
+             LIMIT 1`,
+            [orgId]
+        );
+        if (tenantBinding.rows[0]) {
+            const profile = rowToProfile(tenantBinding.rows[0]);
+            const avail = await isRuntimeAvailableCached(profile);
+            if (avail) {
+                return { profile, source: 'tenant_default', claim_level: profile.config.claim_level, fallbackApplied: false };
+            }
+        }
+
+        // 6. Global fallback → openclaude.
+        const fallback = await client.query(
+            `SELECT * FROM runtime_profiles WHERE slug = 'openclaude' AND status = 'active' LIMIT 1`
+        );
+        if (fallback.rows[0]) {
+            const profile = rowToProfile(fallback.rows[0]);
+            return {
+                profile,
+                source: 'global_fallback',
+                claim_level: profile.config.claim_level,
+                fallbackApplied: true,
+                fallbackReason: 'no_explicit_binding',
+            };
+        }
+
+        throw new Error('No runtime profile available (missing openclaude seed)');
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
 }

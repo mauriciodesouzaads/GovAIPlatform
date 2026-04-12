@@ -1,12 +1,13 @@
 /**
- * Runtime Routes — FASE 7
+ * Runtime Routes — FASE 7 + FASE 8
  * ---------------------------------------------------------------------------
  * Endpoints:
- *   GET  /v1/admin/runtimes         List available runtime profiles + availability
- *   POST /v1/admin/runtime-switch   Record a runtime switch (assistant/tenant/...)
+ *   GET  /v1/admin/runtimes                             List profiles + availability
+ *   POST /v1/admin/runtime-switch                       Record a runtime switch
+ *   GET  /v1/admin/runtime-resolution/:scopeType/:scopeId  Effective runtime + source
+ *   POST /v1/admin/runtime-binding                      UPSERT binding + audit trail
  *
- * Both endpoints are org-scoped via JWT. RLS ensures tenants can't see each
- * other's overrides. Global rows (org_id IS NULL) are always visible.
+ * All endpoints are org-scoped via JWT + RLS.
  */
 
 import { FastifyInstance } from 'fastify';
@@ -14,8 +15,10 @@ import { Pool } from 'pg';
 import {
     listRuntimeProfiles,
     recordRuntimeSwitch,
-    isRuntimeAvailable,
+    isRuntimeAvailableCached,
+    resolveRuntimeForExecution,
     RuntimeProfile,
+    RuntimeUnavailableError,
 } from '../lib/runtime-profiles';
 
 export async function runtimeRoutes(
@@ -38,8 +41,11 @@ export async function runtimeRoutes(
         if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
 
         const profiles = await listRuntimeProfiles(pgPool, orgId);
-        return reply.send(
-            profiles.map((p: RuntimeProfile) => ({
+        // FASE 8: use cached availability (Redis 30s TTL) instead of
+        // the sync probe so the list endpoint doesn't block on slow
+        // filesystem checks for every profile on every request.
+        const enriched = await Promise.all(
+            profiles.map(async (p: RuntimeProfile) => ({
                 slug: p.slug,
                 display_name: p.display_name,
                 runtime_class: p.runtime_class,
@@ -49,9 +55,10 @@ export async function runtimeRoutes(
                 capabilities: p.config.capabilities,
                 approval: p.config.approval,
                 is_default: p.is_default,
-                available: isRuntimeAvailable(p),
+                available: await isRuntimeAvailableCached(p),
             }))
         );
+        return reply.send(enriched);
     });
 
     // ── POST /v1/admin/runtime-switch ────────────────────────────────────────
@@ -150,6 +157,120 @@ export async function runtimeRoutes(
             to: body.runtime_slug,
             scope_type: body.scope_type,
             scope_id: body.scope_id,
+        });
+    });
+
+    // ── GET /v1/admin/runtime-resolution/:scopeType/:scopeId ────────────
+    // FASE 8: resolves which runtime would be used for a given scope and
+    // WHY (the source layer that won). Used by the settings pages and the
+    // debugging panel to show operators exactly where the binding came from.
+    fastify.get('/v1/admin/runtime-resolution/:scopeType/:scopeId', {
+        preHandler: readRoles,
+    }, async (request: any, reply) => {
+        const { orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const { scopeType, scopeId } = request.params as { scopeType: string; scopeId: string };
+
+        try {
+            const resolution = await resolveRuntimeForExecution(pgPool, orgId, {
+                assistantId: scopeType === 'assistant' ? scopeId : undefined,
+                caseId: scopeType === 'case' ? scopeId : undefined,
+                workflowTemplateId: scopeType === 'workflow_template' ? scopeId : undefined,
+            });
+            return reply.send({
+                runtime_slug: resolution.profile.slug,
+                display_name: resolution.profile.display_name,
+                claim_level: resolution.claim_level,
+                source: resolution.source,
+                fallback_applied: resolution.fallbackApplied ?? false,
+                fallback_reason: resolution.fallbackReason ?? null,
+                available: true,
+            });
+        } catch (err: any) {
+            if (err instanceof RuntimeUnavailableError) {
+                return reply.status(503).send({
+                    error: 'RUNTIME_UNAVAILABLE',
+                    message: err.message,
+                    requested_runtime: err.runtimeSlug,
+                });
+            }
+            throw err;
+        }
+    });
+
+    // ── POST /v1/admin/runtime-binding ──────────────────────────────────
+    // FASE 8: UPSERT a scoped binding + audit trail. The canonical way
+    // for the settings page to persist "this assistant always uses X" or
+    // "this tenant defaults to Y". Replaces the direct UPDATE that the
+    // /runtime-switch route did.
+    fastify.post('/v1/admin/runtime-binding', {
+        preHandler: writeRoles,
+    }, async (request: any, reply) => {
+        const { orgId, userId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        if (!userId) return reply.status(401).send({ error: 'userId ausente no token.' });
+
+        const body = (request.body ?? {}) as {
+            scope_type?: string;
+            scope_id?: string;
+            runtime_profile_slug?: string;
+            reason?: string;
+        };
+        if (!body.scope_type || !body.scope_id || !body.runtime_profile_slug) {
+            return reply.status(400).send({ error: 'scope_type, scope_id e runtime_profile_slug são obrigatórios.' });
+        }
+        if (!['tenant', 'assistant', 'workflow_template', 'case'].includes(body.scope_type)) {
+            return reply.status(400).send({ error: `scope_type inválido: ${body.scope_type}` });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+
+            // Resolve profile id from slug
+            const rp = await client.query(
+                `SELECT id, slug FROM runtime_profiles
+                 WHERE slug = $1 AND (org_id = $2 OR org_id IS NULL) AND status = 'active'
+                 ORDER BY org_id DESC NULLS LAST LIMIT 1`,
+                [body.runtime_profile_slug, orgId]
+            );
+            if (!rp.rows[0]) return reply.status(404).send({ error: `Runtime slug não encontrado: ${body.runtime_profile_slug}` });
+
+            // UPSERT binding
+            await client.query(
+                `INSERT INTO runtime_profile_bindings (org_id, scope_type, scope_id, runtime_profile_id, created_by)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (org_id, scope_type, scope_id)
+                 DO UPDATE SET runtime_profile_id = EXCLUDED.runtime_profile_id,
+                               created_by = EXCLUDED.created_by`,
+                [orgId, body.scope_type, body.scope_id, rp.rows[0].id, userId]
+            );
+
+            // Also update the denormalized column when scope is assistant
+            if (body.scope_type === 'assistant') {
+                await client.query(
+                    `UPDATE assistants SET runtime_profile_slug = $1, updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $2 AND org_id = $3`,
+                    [body.runtime_profile_slug, body.scope_id, orgId]
+                );
+            }
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+
+        // Audit trail
+        await recordRuntimeSwitch(
+            pgPool, orgId, userId,
+            body.scope_type as any, body.scope_id,
+            null, body.runtime_profile_slug, body.reason
+        );
+
+        return reply.send({
+            bound: true,
+            scope_type: body.scope_type,
+            scope_id: body.scope_id,
+            runtime_slug: body.runtime_profile_slug,
         });
     });
 }

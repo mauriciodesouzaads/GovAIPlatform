@@ -122,6 +122,7 @@ type ErrorKind =
     | 'dlp_block'
     | 'quota_exceeded'
     | 'service_unavailable'
+    | 'runtime_unavailable'  // FASE 8: explicit runtime unavailable (503)
     | 'hitl_pending'
     | 'generic';
 
@@ -209,6 +210,11 @@ function classifyError(err: any): { kind: ErrorKind; reason: string; retryAfterS
     }
     if (status === 403) {
         return { kind: 'policy_block', reason };
+    }
+    // FASE 8: runtime explicitly unavailable → typed error
+    if (status === 503 && (data?.error?.code === 'RUNTIME_UNAVAILABLE' || data?.error === 'RUNTIME_UNAVAILABLE')) {
+        const msg = data?.error?.message || data?.message || reason;
+        return { kind: 'runtime_unavailable', reason: `${msg}. Selecione outro runtime na barra lateral.` };
     }
     if (status === 502 || status === 503 || status === 504) {
         return { kind: 'service_unavailable', reason };
@@ -1872,6 +1878,8 @@ function ErrorCard({ msg }: { msg: ChatMessage }) {
                 return { icon: AlertTriangle, label: 'Cota excedida', tone: 'border-destructive/30 bg-destructive/5' };
             case 'service_unavailable':
                 return { icon: WifiOff, label: 'Serviço indisponível', tone: 'border-border bg-card' };
+            case 'runtime_unavailable':
+                return { icon: WifiOff, label: 'Runtime indisponível', tone: 'border-border bg-card' };
             case 'hitl_pending':
                 return { icon: ShieldAlert, label: 'Aguardando aprovação humana', tone: 'border-border bg-card' };
             default:

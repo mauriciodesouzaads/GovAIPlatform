@@ -354,8 +354,12 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
 
                     if (runtimeProfile && runtimeProfile.trim()) {
                         try {
-                            const { resolveRuntimeProfile: resolveRT } = await import('../lib/runtime-profiles');
-                            await resolveRT(pgPool, orgId, { explicitSlug: resolvedRuntimeSlug });
+                            // FASE 8: use the 5-layer resolver for pre-flight
+                            const { resolveRuntimeForExecution: resolveRT } = await import('../lib/runtime-profiles');
+                            await resolveRT(pgPool, orgId, {
+                                explicitSlug: resolvedRuntimeSlug,
+                                assistantId,
+                            });
                         } catch (rtErr: any) {
                             if (rtErr?.code === 'RUNTIME_UNAVAILABLE') {
                                 return {

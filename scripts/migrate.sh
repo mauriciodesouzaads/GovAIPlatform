@@ -130,6 +130,7 @@ MIGRATIONS=(
     "076_architect_runtime_tracking.sql"
     "077_architect_work_item_events.sql"
     "078_runtime_profiles.sql"
+    "079_runtime_scoped_bindings.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

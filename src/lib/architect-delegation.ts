@@ -21,6 +21,7 @@ import { createWorkspace, cleanupWorkspace } from './workspace-manager';
 import { registerStream, unregisterStream } from './architect-stream-registry';
 import {
     resolveRuntimeProfile,
+    resolveRuntimeForExecution,
     resolveRuntimeTarget,
     RuntimeTarget,
     RuntimeUnavailableError,
@@ -510,6 +511,18 @@ function parseToolNameFromQuestion(question: string | undefined): string {
 }
 
 // ── Adapter: gRPC runtime (openclaude + claude_code_official) ───────────────
+// Event grammar (FASE 8 — see ADR-010):
+//   RUN_STARTED      — emitted at step 5 below
+//   TOOL_START        — emitted on emitter.tool_start
+//   TOOL_RESULT       — emitted on emitter.tool_result
+//   ACTION_REQUIRED   — emitted when decision.action === 'requires_approval'
+//   ACTION_RESPONSE   — emitted after approval (auto_all, auto_safe, allow, deny)
+//   RUN_COMPLETED     — emitted on emitter.done
+//   RUN_FAILED        — emitted on emitter.error
+//   TEXT_CHUNK        — deliberately NOT stored as events (too high-frequency for
+//                       the event store; accumulated into fullText in the done handler)
+//   RUN_CANCELLED     — recorded as status='cancelled' on the work item row; no
+//                       dedicated event row (the cancel-run job sets the column).
 // FASE 7: a single adapter now serves BOTH the open OpenClaude runtime and
 // the Official Claude Code runtime. Both containers speak the same
 // openclaude.proto — the only thing that changes between them is the gRPC
@@ -1126,7 +1139,9 @@ export async function dispatchWorkItem(
 
         let runtimeCtx: RuntimeAdapterContext;
         try {
-            const resolution = await resolveRuntimeProfile(pool, orgId, {
+            // FASE 8: use the 5-layer resolver (explicit → case → template
+            // → assistant → tenant → global) with cached availability checks.
+            const resolution = await resolveRuntimeForExecution(pool, orgId, {
                 explicitSlug,
                 assistantId: ctxAssistantId,
             });
@@ -1135,6 +1150,31 @@ export async function dispatchWorkItem(
                 target: resolveRuntimeTarget(resolution.profile),
                 claimLevel: resolution.claim_level,
             };
+
+            // FASE 8: persist claim_level + source on the work item at dispatch
+            // so every run's governance claim is frozen at execution time.
+            const persistCl = await pool.connect();
+            try {
+                await persistCl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                await persistCl.query(
+                    `UPDATE architect_work_items
+                     SET runtime_claim_level = $1,
+                         execution_context = COALESCE(execution_context, '{}'::jsonb) || $2::jsonb
+                     WHERE id = $3 AND org_id = $4`,
+                    [
+                        resolution.claim_level,
+                        JSON.stringify({
+                            runtime_source: resolution.source,
+                            runtime_fallback_applied: resolution.fallbackApplied ?? false,
+                        }),
+                        workItemId,
+                        orgId,
+                    ]
+                );
+            } finally {
+                await persistCl.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+                persistCl.release();
+            }
         } catch (e) {
             // FIX 3 (FASE 7-fix): when the user explicitly requested a
             // runtime that isn't available, we do NOT silently fallback.
