@@ -55,7 +55,14 @@ export interface RuntimeConfig {
         supported_modes: string[];
         default_mode: string;
     };
-    /** 'exact_governed' for official Anthropic runtime, 'open_governed' for OpenClaude. */
+    /**
+     * Claim levels:
+     * - 'official_cli_governed': Claude Code CLI in print mode, governed by GovAI.
+     *   Functional but not equivalent to the full interactive runtime.
+     * - 'exact_governed': RESERVED for future implementation via Claude Agent SDK.
+     *   Do NOT use until the SDK adapter is implemented and tested.
+     * - 'open_governed': OpenClaude runtime, multi-provider, compatible.
+     */
     claim_level: string;
     container_service: string;
     grpc_host_env: string;
@@ -135,6 +142,25 @@ function rowToProfile(row: Record<string, unknown>): RuntimeProfile {
     };
 }
 
+// ── Errors ─────────────────────────────────────────────────────────────────
+
+/**
+ * Thrown when the caller explicitly requests a runtime that exists in the
+ * catalog but whose container / socket is not reachable. The dispatch
+ * pipeline converts this into an HTTP 503 with code RUNTIME_UNAVAILABLE
+ * instead of silently falling back to a different runtime.
+ */
+export class RuntimeUnavailableError extends Error {
+    public readonly runtimeSlug: string;
+    public readonly code = 'RUNTIME_UNAVAILABLE' as const;
+
+    constructor(slug: string, message: string) {
+        super(message);
+        this.runtimeSlug = slug;
+        this.name = 'RuntimeUnavailableError';
+    }
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────
 
 /**
@@ -158,6 +184,12 @@ export async function resolveRuntimeProfile(
         await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
 
         // 1. Explicit selection wins.
+        //    FIX 3 (FASE 7-fix): when the user explicitly requests a
+        //    runtime, we check availability BEFORE returning. If the
+        //    container is down we throw RuntimeUnavailableError instead
+        //    of silently falling through to the system default, which
+        //    would let the user think they're on Official when they're
+        //    actually on Open — unacceptable in a production product.
         if (options.explicitSlug) {
             const r = await client.query(
                 `SELECT * FROM runtime_profiles
@@ -170,6 +202,17 @@ export async function resolveRuntimeProfile(
             );
             if (r.rows[0]) {
                 const profile = rowToProfile(r.rows[0]);
+                // Availability gate: only for runtimes that require an
+                // external container (official, open). Human and internal
+                // adapters don't have a container dependency.
+                if (profile.runtime_class === 'official' || profile.runtime_class === 'open') {
+                    if (!isRuntimeAvailable(profile)) {
+                        throw new RuntimeUnavailableError(
+                            options.explicitSlug,
+                            `Runtime "${profile.display_name}" não está disponível. Verifique se o container está rodando.`
+                        );
+                    }
+                }
                 return { profile, source: 'user_selected', claim_level: profile.config.claim_level };
             }
         }
@@ -329,9 +372,18 @@ export function isRuntimeAvailable(profile: RuntimeProfile): boolean {
             fs.accessSync(socketPath.trim());
             return true;
         } catch {
-            // Socket file missing → fall through to TCP probe below.
+            // Socket path is CONFIGURED but the file doesn't exist →
+            // the container is expected but not running. Return false
+            // immediately — do NOT fall through to the TCP probe, which
+            // would return true just because the host env var is set
+            // (CLAUDE_CODE_GRPC_HOST is always present in docker-compose
+            // even when the sidecar isn't up). This prevents the UI from
+            // showing "available" for a runtime whose container is down.
+            return false;
         }
     }
+    // No socket configured — check for TCP host. This path is only hit by
+    // runtimes that don't use unix sockets (e.g. external providers).
     const host = process.env[profile.config.grpc_host_env];
     return Boolean(host && host.trim());
 }

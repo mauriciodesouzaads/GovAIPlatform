@@ -1119,11 +1119,11 @@ export default function GovAIChatPage() {
                                     const active = selectedRuntime === rt.slug;
                                     const isOfficial = rt.runtime_class === 'official';
                                     const icon = isOfficial ? '🔒' : '🌐';
-                                    const claimLabel = rt.claim_level === 'exact_governed'
-                                        ? 'Exact Governed'
-                                        : rt.claim_level === 'open_governed'
-                                            ? 'Open Governed'
-                                            : rt.claim_level;
+                                    const claimLabel = ({
+                                        official_cli_governed: 'CLI Governed',
+                                        exact_governed: 'Exact Governed',
+                                        open_governed: 'Open Governed',
+                                    } as Record<string, string>)[rt.claim_level] || rt.claim_level;
                                     return (
                                         <button
                                             key={rt.slug}
@@ -1132,20 +1132,12 @@ export default function GovAIChatPage() {
                                             onClick={() => {
                                                 if (!rt.available) return;
                                                 setSelectedRuntime(rt.slug);
-                                                // FASE 7 — audit every runtime pick.
-                                                // Only call runtime-switch when an
-                                                // assistant is selected; tenant-level
-                                                // switches are recorded via assistant
-                                                // settings page instead. Silent on
-                                                // failure: the send will still work.
-                                                if (selectedAssistantId) {
-                                                    api.post(ENDPOINTS.RUNTIME_SWITCH, {
-                                                        scope_type: 'assistant',
-                                                        scope_id: selectedAssistantId,
-                                                        runtime_slug: rt.slug,
-                                                        reason: 'Chat selector (playground)',
-                                                    }).catch(() => { /* non-fatal */ });
-                                                }
+                                                // FIX 1 (FASE 7-fix): the playground
+                                                // selector is SESSION-SCOPED only.
+                                                // selectedRuntime is sent as
+                                                // runtime_profile in /chat/send body;
+                                                // the assistant's persisted preference
+                                                // is only changed via /assistants page.
                                             }}
                                             title={
                                                 rt.available
@@ -1265,7 +1257,7 @@ export default function GovAIChatPage() {
                                                 ? 'bg-primary/10 text-primary border-primary/30'
                                                 : 'bg-muted/40 text-muted-foreground border-border/60'
                                         }`}
-                                        title={isOfficial ? 'Claude Code (Official) — Exact Governed' : 'OpenClaude — Open Governed'}
+                                        title={isOfficial ? 'Claude Code (Official) — CLI Governed' : 'OpenClaude — Open Governed'}
                                     >
                                         <span aria-hidden>{isOfficial ? '🔒' : '🌐'}</span>
                                         {isOfficial ? 'Official' : 'Open'}
@@ -1712,7 +1704,7 @@ function DelegationCard({
                             }`}
                             title={
                                 state.runtimeProfileSlug === 'claude_code_official'
-                                    ? 'Claude Code (Official) · Exact Governed'
+                                    ? 'Claude Code (Official) · CLI Governed'
                                     : 'OpenClaude · Open Governed'
                             }
                         >

@@ -8,7 +8,7 @@
 -- selection layer so the same governance pipeline (DLP, policy, audit,
 -- approval bridge, workspace isolation, RLS) can route a work item to EITHER:
 --
---   - Claude Code Official (runtime_class='official', claim_level=exact_governed):
+--   - Claude Code Official (runtime_class='official', claim_level=official_cli_governed):
 --       the real Anthropic Claude Code CLI, run inside a sidecar container that
 --       speaks the same openclaude.proto so the adapter code is unchanged.
 --       Requires a valid ANTHROPIC_API_KEY in the runner's env. Available when
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS runtime_profiles (
     --     "transport":      {mode: "grpc", proto: "openclaude.proto"},
     --     "security":       {requires_vault_secrets, requires_workspace_isolation},
     --     "approval":       {supported_modes: [...], default_mode: "auto_safe"},
-    --     "claim_level":    "exact_governed" | "open_governed",
+    --     "claim_level":    "official_cli_governed" | "open_governed" | "exact_governed"(reserved),
     --     "container_service": "claude-code-runner" | "openclaude-runner",
     --     "grpc_host_env":  "CLAUDE_CODE_GRPC_HOST" | "OPENCLAUDE_GRPC_HOST",
     --     "socket_path_env":"CLAUDE_CODE_SOCKET_PATH" | "OPENCLAUDE_SOCKET_PATH"
@@ -192,7 +192,7 @@ VALUES
             'supported_modes', jsonb_build_array('auto_safe', 'single'),
             'default_mode', 'auto_safe'
         ),
-        'claim_level',        'exact_governed',
+        'claim_level',        'official_cli_governed',
         'container_service',  'claude-code-runner',
         'grpc_host_env',      'CLAUDE_CODE_GRPC_HOST',
         'socket_path_env',    'CLAUDE_CODE_SOCKET_PATH'
@@ -231,5 +231,13 @@ VALUES
     true  -- system default until an org overrides it
 )
 ON CONFLICT DO NOTHING;
+
+-- FASE 7-fix: if the migration was already applied with the old
+-- 'exact_governed' value, this UPDATE corrects it in place. Idempotent:
+-- runs as a no-op on fresh seeds that already have the correct value.
+UPDATE runtime_profiles
+SET config = jsonb_set(config, '{claim_level}', '"official_cli_governed"')
+WHERE slug = 'claude_code_official'
+  AND config->>'claim_level' = 'exact_governed';
 
 COMMIT;

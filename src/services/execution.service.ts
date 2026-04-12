@@ -342,6 +342,37 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                     const workItemId = randomUUID();
                     const titleSnippet = message.length > 100 ? message.substring(0, 97) + '...' : message;
 
+                    // FIX 3 (FASE 7-fix): pre-flight availability check. If the
+                    // user explicitly requested a runtime (e.g. claude_code_official)
+                    // that isn't reachable, fail fast with HTTP 503 instead of
+                    // creating a work item that will immediately get blocked in
+                    // the dispatch worker. This gives the user an instant error
+                    // card instead of a delayed "blocked" poll result.
+                    const resolvedRuntimeSlug = runtimeProfile && runtimeProfile.trim()
+                        ? runtimeProfile.trim()
+                        : 'openclaude';
+
+                    if (runtimeProfile && runtimeProfile.trim()) {
+                        try {
+                            const { resolveRuntimeProfile: resolveRT } = await import('../lib/runtime-profiles');
+                            await resolveRT(pgPool, orgId, { explicitSlug: resolvedRuntimeSlug });
+                        } catch (rtErr: any) {
+                            if (rtErr?.code === 'RUNTIME_UNAVAILABLE') {
+                                return {
+                                    statusCode: 503,
+                                    body: {
+                                        error: {
+                                            code: 'RUNTIME_UNAVAILABLE',
+                                            message: rtErr.message,
+                                            requested_runtime: resolvedRuntimeSlug,
+                                        },
+                                    },
+                                };
+                            }
+                            // Other errors: fall through, let dispatch handle it
+                        }
+                    }
+
                     // Insert work item for the runtime gRPC adapter.
                     //
                     // FASE 7: the resolved runtime_profile_slug lands on the
@@ -351,9 +382,6 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                     // profile is 'openclaude' (back-compat) and flips to
                     // 'claude_code' for the Official runtime so legacy
                     // SELECTs filtering by hint still work.
-                    const resolvedRuntimeSlug = runtimeProfile && runtimeProfile.trim()
-                        ? runtimeProfile.trim()
-                        : 'openclaude';
                     const executionHint = resolvedRuntimeSlug === 'claude_code_official'
                         ? 'claude_code'
                         : 'openclaude';

@@ -23,6 +23,7 @@ import {
     resolveRuntimeProfile,
     resolveRuntimeTarget,
     RuntimeTarget,
+    RuntimeUnavailableError,
 } from './runtime-profiles';
 
 // ── Tool grant resolution (FASE 5-hardening) ─────────────────────────────────
@@ -1135,6 +1136,35 @@ export async function dispatchWorkItem(
                 claimLevel: resolution.claim_level,
             };
         } catch (e) {
+            // FIX 3 (FASE 7-fix): when the user explicitly requested a
+            // runtime that isn't available, we do NOT silently fallback.
+            // The work item is marked 'blocked' with a clear error so the
+            // UI can render it and the user knows to either start the
+            // container or pick a different runtime.
+            if (e instanceof RuntimeUnavailableError) {
+                const cl = await pool.connect();
+                try {
+                    await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                    await cl.query(
+                        `UPDATE architect_work_items
+                         SET status = 'blocked', dispatch_error = $1
+                         WHERE id = $2 AND org_id = $3`,
+                        [e.message, workItemId, orgId]
+                    );
+                } finally {
+                    await cl.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+                    cl.release();
+                }
+                return {
+                    workItemId,
+                    adapter: e.runtimeSlug,
+                    success: false,
+                    output: {},
+                    error: e.message,
+                };
+            }
+            // Other resolution errors (missing seed, DB issue) still
+            // fallback to OpenClaude so the platform degrades gracefully.
             console.warn('[Architect] runtime resolution failed, falling back to openclaude defaults:', (e as Error).message);
             runtimeCtx = {
                 runtimeProfileSlug: 'openclaude',
