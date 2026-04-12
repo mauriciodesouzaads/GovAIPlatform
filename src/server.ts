@@ -317,6 +317,7 @@ fastify.post('/v1/execute/:assistantId', {
         orgId,
         message: parseResult.data.message,
         model: parseResult.data.model,
+        runtimeProfile: parseResult.data.runtime_profile,
         traceId: request.auditContext!.traceId,
         log: request.log,
     });
@@ -542,6 +543,7 @@ import { notificationChannelsRoutes } from './routes/notification-channels.route
 import { skillsRoutes } from './routes/skills.routes';
 import { workflowTemplatesRoutes } from './routes/workflow-templates.routes';
 import { chatRoutes } from './routes/chat.routes';
+import { runtimeRoutes } from './routes/runtime.routes';
 import { runRetentionArchiving } from './jobs/retention-archive.job';
 
 fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, requireRole: requireTenantRole, requirePlatformAdmin });
@@ -562,6 +564,7 @@ fastify.register(notificationChannelsRoutes, { pgPool, requireRole: requireTenan
 fastify.register(skillsRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(workflowTemplatesRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(chatRoutes, { pgPool, requireRole: requireTenantRole });
+fastify.register(runtimeRoutes, { pgPool, requireRole: requireTenantRole });
 
 // ---------------------------------------------------------------------------
 // Global error handler — captures unhandled 500s to Sentry

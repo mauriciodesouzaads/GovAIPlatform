@@ -19,6 +19,11 @@ import { recordEvidence } from './evidence';
 import { executeOpenClaudeRun, resolveOpenClaudeTarget } from './openclaude-client';
 import { createWorkspace, cleanupWorkspace } from './workspace-manager';
 import { registerStream, unregisterStream } from './architect-stream-registry';
+import {
+    resolveRuntimeProfile,
+    resolveRuntimeTarget,
+    RuntimeTarget,
+} from './runtime-profiles';
 
 // ── Tool grant resolution (FASE 5-hardening) ─────────────────────────────────
 
@@ -503,16 +508,49 @@ function parseToolNameFromQuestion(question: string | undefined): string {
     return m?.[1] || 'unknown';
 }
 
-// ── Adapter: openclaude ───────────────────────────────────────────────────────
+// ── Adapter: gRPC runtime (openclaude + claude_code_official) ───────────────
+// FASE 7: a single adapter now serves BOTH the open OpenClaude runtime and
+// the Official Claude Code runtime. Both containers speak the same
+// openclaude.proto — the only thing that changes between them is the gRPC
+// target (host / unix socket). The caller passes either:
+//
+//   1. An explicit RuntimeProfileContext with a pre-resolved target (what
+//      dispatchWorkItem() does now after running resolveRuntimeProfile()).
+//   2. Nothing — the adapter falls back to resolveOpenClaudeTarget() + the
+//      'openclaude' slug. This branch is kept so existing callers (tests,
+//      internal jobs that haven't been migrated) continue to work.
+//
+// The public function name `runOpenClaudeAdapter` is preserved for backward
+// compatibility; a named export `runGrpcRuntimeAdapter` is added as the
+// canonical alias going forward.
+
+export interface RuntimeAdapterContext {
+    /** Runtime profile slug persisted on the work item. */
+    runtimeProfileSlug: string;
+    /** gRPC target (host + optional unix socket) for this runtime. */
+    target: RuntimeTarget;
+    /** Human-readable claim level for observability ('exact_governed' | 'open_governed'). */
+    claimLevel?: string;
+}
 
 export async function runOpenClaudeAdapter(
     pool: Pool,
     orgId: string,
-    workItemId: string
+    workItemId: string,
+    runtimeCtx?: RuntimeAdapterContext
 ): Promise<AdapterResult> {
     const client = await pool.connect();
     let workspacePath: string | null = null;
     let streamRegistered = false;
+
+    // Default runtime — keeps the pre-FASE-7 behaviour for callers that
+    // don't pass an explicit context. Named `runtime` (not `ctx`) to avoid
+    // shadowing the existing `const ctx = item.execution_context` at step 3.
+    const runtime: RuntimeAdapterContext = runtimeCtx ?? {
+        runtimeProfileSlug: 'openclaude',
+        target: resolveOpenClaudeTarget(),
+        claimLevel: 'open_governed',
+    };
 
     try {
         await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
@@ -527,23 +565,32 @@ export async function runOpenClaudeAdapter(
         }
         const item = wiRes.rows[0];
 
-        if (item.execution_hint !== 'openclaude') {
+        // Execution hint determines which adapter claims this item. FASE 7
+        // accepts both 'openclaude' and 'claude_code' (official) hints —
+        // both flow through the same gRPC adapter, routed to the container
+        // identified by runtimeCtx.target.
+        if (item.execution_hint !== 'openclaude' && item.execution_hint !== 'claude_code') {
             return { success: false, output: {}, error: 'Wrong adapter for this item' };
         }
         if (item.status !== 'pending' && item.status !== 'in_progress') {
             return { success: false, output: {}, error: 'Work item not in dispatchable state' };
         }
 
-        // 2. Mark in_progress + record session + worker_runtime
+        // 2. Mark in_progress + record session + worker_runtime + runtime_profile_slug
+        // worker_runtime keeps the legacy 'openclaude' value for backward
+        // compat with every existing audit report; runtime_profile_slug is
+        // the new FASE-7 field that distinguishes 'openclaude' from
+        // 'claude_code_official'.
         const sessionId = randomUUID();
         await client.query(
             `UPDATE architect_work_items
              SET status = 'in_progress', dispatched_at = now(),
                  dispatch_attempts = dispatch_attempts + 1,
                  worker_session_id = $2, run_started_at = now(),
-                 worker_runtime = 'openclaude', last_event_at = now()
+                 worker_runtime = 'openclaude', last_event_at = now(),
+                 runtime_profile_slug = $3
              WHERE id = $1`,
-            [workItemId, sessionId]
+            [workItemId, sessionId, runtime.runtimeProfileSlug]
         );
 
         // 3. Resolve skill instructions if delegated from an assistant (FASE 5-hardening)
@@ -585,14 +632,25 @@ export async function runOpenClaudeAdapter(
             eventType: 'OPENCLAUDE_RUN_STARTED',
             resourceType: 'architect_work_item',
             resourceId: workItemId,
-            metadata: { sessionId, adapter: 'openclaude', title: item.title },
+            metadata: {
+                sessionId,
+                adapter: 'openclaude',
+                runtime_profile: runtime.runtimeProfileSlug,
+                claim_level: runtime.claimLevel ?? 'open_governed',
+                title: item.title,
+            },
         });
         await insertWorkItemEvent(pool, orgId, workItemId, 'RUN_STARTED', {
-            sessionId, title: item.title, hasSkills: Boolean(skillInstructions),
+            sessionId,
+            title: item.title,
+            hasSkills: Boolean(skillInstructions),
+            runtimeProfile: runtime.runtimeProfileSlug,
         });
 
-        // 6. Resolve gRPC target (prefers unix socket via OPENCLAUDE_SOCKET_PATH)
-        const target = resolveOpenClaudeTarget();
+        // 6. gRPC target already resolved by the caller via resolveRuntimeProfile()
+        //    + resolveRuntimeTarget() (pre-FASE-7 callers fall back to the
+        //    default runtime above which points at the OpenClaude socket/host).
+        const target: RuntimeTarget = runtime.target;
         const timeoutMs = parseInt(process.env.OPENCLAUDE_TIMEOUT_MS || '300000', 10);
 
         // 7. Create per-(org, work_item) workspace under the shared volume
@@ -1031,8 +1089,17 @@ export async function dispatchWorkItem(
         throw new Error('Max dispatch attempts reached');
     }
 
-    // 5. Route by execution_hint (adapter opens its own connection)
+    // 5. Route by execution_hint (adapter opens its own connection).
+    //
+    // FASE 7: both 'openclaude' and 'claude_code' hints flow through the
+    // unified gRPC runtime adapter. The runtime profile is resolved here
+    // (priority: explicit slug on the work item → assistant default →
+    // system default → hard-coded 'openclaude' fallback) and the resolved
+    // { target, slug, claim_level } is passed down so the adapter talks to
+    // the right container without any adapter-side routing code.
     const hint = item.execution_hint as string | null;
+    const existingSlug = (item.runtime_profile_slug as string | null) ?? null;
+
     let adapterName: string;
     let result: AdapterResult;
 
@@ -1045,9 +1112,38 @@ export async function dispatchWorkItem(
     } else if (hint === 'human') {
         adapterName = 'human';
         result = await runHumanAdapter(pool, orgId, workItemId);
-    } else if (hint === 'openclaude') {
-        adapterName = 'openclaude';
-        result = await runOpenClaudeAdapter(pool, orgId, workItemId);
+    } else if (hint === 'openclaude' || hint === 'claude_code') {
+        // Figure out which runtime slug to use. Priority:
+        //   1. runtime_profile_slug already persisted on the work item
+        //      (set by the chat wrapper or the resolve-approval path).
+        //   2. For hint='claude_code' default to 'claude_code_official'.
+        //   3. Otherwise 'openclaude'.
+        const explicitSlug = existingSlug
+            || (hint === 'claude_code' ? 'claude_code_official' : 'openclaude');
+        const ctxAssistantId = ((item.execution_context as Record<string, unknown> | null)?.assistant_id
+            ?? (item.execution_context as Record<string, unknown> | null)?.assistantId) as string | undefined;
+
+        let runtimeCtx: RuntimeAdapterContext;
+        try {
+            const resolution = await resolveRuntimeProfile(pool, orgId, {
+                explicitSlug,
+                assistantId: ctxAssistantId,
+            });
+            runtimeCtx = {
+                runtimeProfileSlug: resolution.profile.slug,
+                target: resolveRuntimeTarget(resolution.profile),
+                claimLevel: resolution.claim_level,
+            };
+        } catch (e) {
+            console.warn('[Architect] runtime resolution failed, falling back to openclaude defaults:', (e as Error).message);
+            runtimeCtx = {
+                runtimeProfileSlug: 'openclaude',
+                target: resolveOpenClaudeTarget(),
+                claimLevel: 'open_governed',
+            };
+        }
+        adapterName = runtimeCtx.runtimeProfileSlug;
+        result = await runOpenClaudeAdapter(pool, orgId, workItemId, runtimeCtx);
     } else {
         // No hint or unknown — default to human adapter
         adapterName = 'human';

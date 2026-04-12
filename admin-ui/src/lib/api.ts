@@ -203,6 +203,9 @@ export const ENDPOINTS = {
     CHAT_SESSION_MESSAGES:            (id: string) => `/v1/admin/chat/sessions/${id}/messages`,
     ASSISTANTS_AVAILABLE:             '/v1/admin/assistants/available',
     LLM_MODELS:                       '/v1/admin/llm/models',
+    // FASE 7 — Dual governed runtime
+    RUNTIMES:                         '/v1/admin/runtimes',
+    RUNTIME_SWITCH:                   '/v1/admin/runtime-switch',
 };
 
 export default api;

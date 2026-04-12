@@ -137,6 +137,14 @@ services:
       # respond loop with auto_all easily exceeds 5 min on the bigger
       # model variants. .env can still override either direction.
       OPENCLAUDE_TIMEOUT_MS: ${OPENCLAUDE_TIMEOUT_MS:-600000}
+      # --- Claude Code Official transport (FASE 7) ---
+      # Same socket/TCP pattern as OpenClaude. The `claude-code-runner`
+      # service only comes up under the 'official' profile — these env
+      # vars let the runtime resolver and isRuntimeAvailable() see that
+      # the target is configured, and map 'claude_code_official' to the
+      # sidecar socket when it IS running.
+      CLAUDE_CODE_SOCKET_PATH: ${CLAUDE_CODE_SOCKET_PATH:-/var/run/govai/claude-code.sock}
+      CLAUDE_CODE_GRPC_HOST: ${CLAUDE_CODE_GRPC_HOST:-claude-code-runner:50051}
       GOVAI_WORKSPACE_BASE: /tmp/govai-workspaces
       GOVAI_WORKSPACE_MAX_AGE_HOURS: ${GOVAI_WORKSPACE_MAX_AGE_HOURS:-24}
       # --- Chat wrapper (FASE 6) ---
@@ -234,6 +242,46 @@ services:
           memory: 1g
     healthcheck:
       test: ["CMD-SHELL", "bun -e \"const net=require('net');const c=net.connect(50051,'127.0.0.1',()=>{c.end();process.exit(0)});c.on('error',()=>process.exit(1))\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── claude-code-runner (FASE 7 — Official Governed Runtime) ─────────────
+  # Sidecar that runs the REAL Anthropic Claude Code CLI behind the same
+  # gRPC protocol the OpenClaude runner uses. The adapter speaks the same
+  # openclaude.proto to both containers — only the target host changes.
+  #
+  # Profile: 'official' — NOT started by default. Opt in with:
+  #   docker compose --profile official up -d claude-code-runner
+  # Requires a real ANTHROPIC_API_KEY in the environment. Without one the
+  # CLI 401s and the runtime profile resolver falls back to openclaude.
+  claude-code-runner:
+    profiles: ["official"]
+    build:
+      context: ./claude-code-runner
+      dockerfile: Dockerfile
+    environment:
+      GRPC_HOST: "0.0.0.0"
+      GRPC_PORT: "50051"
+      GRPC_SOCKET_PATH: /var/run/govai/claude-code.sock
+      CLAUDE_CLI_PATH: claude
+      CLAUDE_CODE_MAX_TURNS: "30"
+      # Real Anthropic key — NOT the LiteLLM proxy key. Without this the
+      # CLI will 401 and the adapter surfaces the error.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - govai_sockets:/var/run/govai
+      - govai_workspaces:/tmp/govai-workspaces
+    networks:
+      - govai-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const n=require('net');const c=n.connect(50051,'127.0.0.1',()=>{c.end();process.exit(0)});c.on('error',()=>process.exit(1))\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

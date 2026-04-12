@@ -55,6 +55,21 @@ interface LlmModel {
     default?: boolean;
 }
 
+// FASE 7 — Dual governed runtime
+// Shape returned by GET /v1/admin/runtimes.
+interface RuntimeOption {
+    slug: string;
+    display_name: string;
+    runtime_class: 'official' | 'open' | 'human' | 'internal';
+    engine_vendor: string;
+    engine_family: string;
+    claim_level: string;
+    capabilities: Record<string, boolean>;
+    approval: { supported_modes: string[]; default_mode: string };
+    is_default: boolean;
+    available: boolean;
+}
+
 interface ChatSession {
     session_id: string;
     assistant_id: string;
@@ -87,6 +102,9 @@ interface DelegationState {
     // Surfaces the "⚡ Aprovação automática ativa" badge on the card so the
     // user knows they won't be asked again for this run.
     approvalMode: 'single' | 'auto_all' | 'auto_safe' | null;
+    // FASE 7: which governed runtime is executing this work item. Used to
+    // render the 🔒 Official / 🌐 Open pill on the delegation card header.
+    runtimeProfileSlug: string | null;
 }
 
 type ApproveMode = 'single' | 'auto_all' | 'auto_safe';
@@ -412,11 +430,17 @@ export default function GovAIChatPage() {
     const [assistants, setAssistants] = useState<Assistant[]>([]);
     const [models, setModels] = useState<LlmModel[]>([]);
     const [sessions, setSessions] = useState<ChatSession[]>([]);
+    // FASE 7 — governed runtime catalog
+    const [runtimes, setRuntimes] = useState<RuntimeOption[]>([]);
     const [loadingInit, setLoadingInit] = useState(true);
 
     // ── Selection ────────────────────────────────────────────────────────────
     const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null);
     const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+    // FASE 7 — user's current runtime pick. 'openclaude' default matches the
+    // system seed; the resolver on the backend falls back to the same slug
+    // if an invalid one comes in, so this stays consistent.
+    const [selectedRuntime, setSelectedRuntime] = useState<string>('openclaude');
     const [forceDelegate, setForceDelegate] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -455,17 +479,33 @@ export default function GovAIChatPage() {
         let cancelled = false;
         (async () => {
             try {
-                const [aRes, mRes, sRes] = await Promise.all([
+                const [aRes, mRes, sRes, rRes] = await Promise.all([
                     api.get(ENDPOINTS.ASSISTANTS_AVAILABLE),
                     api.get(ENDPOINTS.LLM_MODELS),
                     api.get(ENDPOINTS.CHAT_SESSIONS).catch(() => ({ data: [] })),
+                    // FASE 7 — runtime catalog. Failure is non-fatal: the
+                    // sidebar hides the runtime selector and the backend
+                    // resolver still picks the system default.
+                    api.get(ENDPOINTS.RUNTIMES).catch(() => ({ data: [] })),
                 ]);
                 if (cancelled) return;
                 setAssistants(aRes.data || []);
                 setModels(mRes.data || []);
                 setSessions(sRes.data || []);
+                setRuntimes(rRes.data || []);
                 const defModel = (mRes.data || []).find((m: LlmModel) => m.default) || (mRes.data || [])[0];
                 if (defModel) setSelectedModelId(defModel.id);
+                // Pick a runtime default that is ACTUALLY available — we
+                // never want to land on 'claude_code_official' by default
+                // when the sidecar isn't up. Priority:
+                //   1. first runtime with is_default=true AND available
+                //   2. first available runtime
+                //   3. hard-coded 'openclaude' fallback
+                const opts = rRes.data || [];
+                const defAvailable = opts.find((r: RuntimeOption) => r.is_default && r.available);
+                const firstAvailable = opts.find((r: RuntimeOption) => r.available);
+                const pick = defAvailable || firstAvailable || opts[0];
+                if (pick) setSelectedRuntime(pick.slug);
             } finally {
                 if (!cancelled) setLoadingInit(false);
             }
@@ -577,6 +617,12 @@ export default function GovAIChatPage() {
                     approvalMode: (wi.approval_mode
                         ?? wi.execution_context?.approval_mode
                         ?? null) as DelegationState['approvalMode'],
+                    // FASE 7 — which governed runtime this work item is
+                    // executing in. Falls back to execution_context for
+                    // older rows that predate the column.
+                    runtimeProfileSlug: (wi.runtime_profile_slug
+                        ?? wi.execution_context?.runtime_profile
+                        ?? null) as string | null,
                 },
             }));
 
@@ -645,6 +691,10 @@ export default function GovAIChatPage() {
             assistantName: aname,
             timestamp: Date.now(),
         }]);
+        // FASE 7: use the runtime slug echoed back by the chat wrapper
+        // (_govai.runtimeProfile) so the card badge is accurate on the
+        // very first render, before the first /events poll returns.
+        const initialRuntime: string | null = (data?._govai?.runtimeProfile as string | undefined) || null;
         setDelegationStates(prev => ({
             ...prev,
             [workItemId]: {
@@ -656,6 +706,7 @@ export default function GovAIChatPage() {
                 tokens: null,
                 toolCount: 0,
                 approvalMode: null,
+                runtimeProfileSlug: initialRuntime,
             },
         }));
         startPolling(workItemId);
@@ -700,6 +751,10 @@ export default function GovAIChatPage() {
             session_id: sessionId,
             model: selectedModelId ?? undefined,
             force_delegate: forceDelegate,
+            // FASE 7 — runtime slug the backend routes the delegated
+            // work item to. Ignored for non-delegated (plain chat) turns
+            // but always sent so the backend logs it in audit.
+            runtime_profile: selectedRuntime || undefined,
         };
 
         const token = getAuthToken();
@@ -888,7 +943,7 @@ export default function GovAIChatPage() {
         }
     }, [
         input, sending, selectedAssistantId, sessionId, selectedModelId, forceDelegate,
-        assistants, appendAssistantResponse, appendDelegationMessage, appendErrorFromPayload,
+        selectedRuntime, assistants, appendAssistantResponse, appendDelegationMessage, appendErrorFromPayload,
     ]);
 
     // ── Approval handler ─────────────────────────────────────────────────────
@@ -1053,6 +1108,84 @@ export default function GovAIChatPage() {
                         )}
                     </section>
 
+                    {/* Runtime selector (FASE 7 — dual governed runtime) */}
+                    {runtimes.length > 0 && (
+                        <section>
+                            <h3 className="px-2 mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
+                                Runtime
+                            </h3>
+                            <div className="grid grid-cols-2 gap-1.5">
+                                {runtimes.map(rt => {
+                                    const active = selectedRuntime === rt.slug;
+                                    const isOfficial = rt.runtime_class === 'official';
+                                    const icon = isOfficial ? '🔒' : '🌐';
+                                    const claimLabel = rt.claim_level === 'exact_governed'
+                                        ? 'Exact Governed'
+                                        : rt.claim_level === 'open_governed'
+                                            ? 'Open Governed'
+                                            : rt.claim_level;
+                                    return (
+                                        <button
+                                            key={rt.slug}
+                                            type="button"
+                                            disabled={!rt.available}
+                                            onClick={() => {
+                                                if (!rt.available) return;
+                                                setSelectedRuntime(rt.slug);
+                                                // FASE 7 — audit every runtime pick.
+                                                // Only call runtime-switch when an
+                                                // assistant is selected; tenant-level
+                                                // switches are recorded via assistant
+                                                // settings page instead. Silent on
+                                                // failure: the send will still work.
+                                                if (selectedAssistantId) {
+                                                    api.post(ENDPOINTS.RUNTIME_SWITCH, {
+                                                        scope_type: 'assistant',
+                                                        scope_id: selectedAssistantId,
+                                                        runtime_slug: rt.slug,
+                                                        reason: 'Chat selector (playground)',
+                                                    }).catch(() => { /* non-fatal */ });
+                                                }
+                                            }}
+                                            title={
+                                                rt.available
+                                                    ? `${rt.display_name} — ${claimLabel}`
+                                                    : `${rt.display_name} — container indisponível`
+                                            }
+                                            className={`text-left px-2 py-2 rounded-md border transition-colors ${
+                                                active
+                                                    ? 'bg-primary/10 border-primary/30 text-foreground'
+                                                    : rt.available
+                                                        ? 'border-border/60 hover:bg-accent hover:border-border text-foreground/80'
+                                                        : 'border-border/30 text-muted-foreground/60 cursor-not-allowed opacity-60'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-1 text-[11px] font-medium truncate">
+                                                <span aria-hidden>{icon}</span>
+                                                <span className="truncate">
+                                                    {isOfficial ? 'Official' : 'Open'}
+                                                </span>
+                                            </div>
+                                            <div className="text-[9px] text-muted-foreground font-mono truncate mt-0.5">
+                                                {claimLabel}
+                                            </div>
+                                            {!rt.available && (
+                                                <div className="text-[9px] text-destructive/80 mt-0.5">
+                                                    Indisponível
+                                                </div>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <div className="mt-1.5 px-2 text-[10px] text-muted-foreground leading-snug">
+                                {selectedRuntime === 'claude_code_official'
+                                    ? 'Runtime oficial Anthropic. Requer ANTHROPIC_API_KEY.'
+                                    : 'Runtime aberto multi-provider (LiteLLM + failover).'}
+                            </div>
+                        </section>
+                    )}
+
                     {/* Recent sessions */}
                     <section>
                         <h3 className="px-2 mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
@@ -1117,6 +1250,28 @@ export default function GovAIChatPage() {
                                 </div>
                             </div>
                             <div className="flex-1" />
+                            {/* FASE 7 — runtime badge (header). Shows which
+                                governed runtime the next delegation will land
+                                on. Clicking the runtime pill is a no-op here —
+                                the sidebar is the authoritative selector. */}
+                            {runtimes.length > 0 && (() => {
+                                const rt = runtimes.find(r => r.slug === selectedRuntime);
+                                if (!rt) return null;
+                                const isOfficial = rt.runtime_class === 'official';
+                                return (
+                                    <span
+                                        className={`hidden md:inline-flex items-center gap-1 text-[10px] font-mono font-medium px-2 py-0.5 rounded border ${
+                                            isOfficial
+                                                ? 'bg-primary/10 text-primary border-primary/30'
+                                                : 'bg-muted/40 text-muted-foreground border-border/60'
+                                        }`}
+                                        title={isOfficial ? 'Claude Code (Official) — Exact Governed' : 'OpenClaude — Open Governed'}
+                                    >
+                                        <span aria-hidden>{isOfficial ? '🔒' : '🌐'}</span>
+                                        {isOfficial ? 'Official' : 'Open'}
+                                    </span>
+                                );
+                            })()}
                             {selectedModel && (
                                 <div className="hidden md:flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
                                     <span className="w-1.5 h-1.5 rounded-full bg-primary" />
@@ -1543,7 +1698,28 @@ function DelegationCard({
                         <span className="uppercase tracking-wider text-foreground">{status}</span>
                     </div>
                     <div className="flex-1" />
-                    <div className="text-[10px] font-mono text-muted-foreground truncate max-w-[50%]">
+                    {/* FASE 7 — runtime badge. Which governed runtime is
+                        actually executing this work item. Renders from
+                        state.runtimeProfileSlug which is set the moment
+                        the delegation card is created (from _govai) and
+                        refreshed on every poll (from the column). */}
+                    {state?.runtimeProfileSlug && (
+                        <span
+                            className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded border ${
+                                state.runtimeProfileSlug === 'claude_code_official'
+                                    ? 'bg-primary/10 text-primary border-primary/30'
+                                    : 'bg-muted/40 text-muted-foreground border-border/60'
+                            }`}
+                            title={
+                                state.runtimeProfileSlug === 'claude_code_official'
+                                    ? 'Claude Code (Official) · Exact Governed'
+                                    : 'OpenClaude · Open Governed'
+                            }
+                        >
+                            {state.runtimeProfileSlug === 'claude_code_official' ? '🔒 Official' : '🌐 Open'}
+                        </span>
+                    )}
+                    <div className="text-[10px] font-mono text-muted-foreground truncate max-w-[40%]">
                         {workItemId.slice(0, 8)}
                     </div>
                 </div>
@@ -1558,6 +1734,7 @@ function DelegationCard({
                     <EventTimeline state={state ?? {
                         work_item_id: workItemId,
                         status, events: [], pendingApproval: null, fullText: null, tokens: null, toolCount: 0, approvalMode: null,
+                        runtimeProfileSlug: null,
                     }} />
                     {/* FASE 6c: tool counter — how many were approved vs executed so far */}
                     {state?.events && state.events.length > 0 && (() => {

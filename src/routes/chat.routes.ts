@@ -24,6 +24,12 @@ interface SendBody {
     session_id?: string;
     model?: string;
     force_delegate?: boolean;
+    /**
+     * FASE 7: explicit runtime selection. Passed through to /v1/execute,
+     * where it ends up on the delegated work item if the request triggers
+     * delegation. 'openclaude' | 'claude_code_official' today.
+     */
+    runtime_profile?: string;
 }
 
 export async function chatRoutes(
@@ -68,6 +74,7 @@ export async function chatRoutes(
                     message,
                     ...(body.session_id ? { sessionId: body.session_id } : {}),
                     ...(body.model ? { model: body.model } : {}),
+                    ...(body.runtime_profile ? { runtime_profile: body.runtime_profile } : {}),
                 },
                 {
                     headers: {
@@ -83,9 +90,16 @@ export async function chatRoutes(
             // FASE 6b multi-agent: annotate the response with the assistant
             // that handled it so the UI can render distinct avatars/names
             // when the user switches assistants mid-conversation.
+            //
+            // FASE 7: also echo back the runtime_profile slug the client
+            // requested (when present) so the UI can render the Official /
+            // Open badge without having to re-query /runtimes.
             if (result.data && typeof result.data === 'object') {
                 if (!result.data._govai) result.data._govai = {};
                 result.data._govai.assistantId = body.assistant_id;
+                if (body.runtime_profile) {
+                    result.data._govai.runtimeProfile = body.runtime_profile;
+                }
                 try {
                     const nameRes = await client.query(
                         `SELECT name FROM assistants WHERE id = $1 AND org_id = $2`,
@@ -147,6 +161,7 @@ export async function chatRoutes(
                         message: `[OPENCLAUDE] ${body.message}`,
                         ...(body.session_id ? { sessionId: body.session_id } : {}),
                         ...(body.model ? { model: body.model } : {}),
+                        ...(body.runtime_profile ? { runtime_profile: body.runtime_profile } : {}),
                     },
                     {
                         headers: {
@@ -203,6 +218,7 @@ export async function chatRoutes(
                     message: body.message,
                     ...(body.session_id ? { sessionId: body.session_id } : {}),
                     ...(body.model ? { model: body.model } : {}),
+                    ...(body.runtime_profile ? { runtime_profile: body.runtime_profile } : {}),
                 },
                 {
                     headers: {

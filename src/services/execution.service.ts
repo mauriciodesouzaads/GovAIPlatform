@@ -42,6 +42,15 @@ export interface ExecutionParams {
     traceId: string;
     userId?: string;
     model?: string;
+    /**
+     * FASE 7: optional runtime profile slug. When this request is going to
+     * be delegated (shouldDelegate matches the pattern), the work item is
+     * created with this slug persisted in `runtime_profile_slug` so the
+     * dispatcher routes the gRPC call to the matching runner container.
+     * Valid values today: 'openclaude' | 'claude_code_official'. If absent,
+     * falls back to resolveRuntimeProfile's system-default chain.
+     */
+    runtimeProfile?: string;
     log: FastifyBaseLogger;
 }
 
@@ -103,7 +112,7 @@ export async function captureOrReusePolicySnapshot(
 }
 
 export async function executeAssistant(params: ExecutionParams): Promise<ExecutionResult> {
-    const { assistantId, orgId, message, traceId, userId, model: modelOverride, log } = params;
+    const { assistantId, orgId, message, traceId, userId, model: modelOverride, runtimeProfile, log } = params;
     const execStart = Date.now();
     // Single model resolution: request override > env default > built-in fallback
     const aiModel = modelOverride || process.env.AI_MODEL || 'govai-llm';
@@ -333,12 +342,27 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                     const workItemId = randomUUID();
                     const titleSnippet = message.length > 100 ? message.substring(0, 97) + '...' : message;
 
-                    // Insert work item for OpenClaude
+                    // Insert work item for the runtime gRPC adapter.
+                    //
+                    // FASE 7: the resolved runtime_profile_slug lands on the
+                    // row itself so dispatchWorkItem's routing can read it
+                    // back without having to re-run resolveRuntimeProfile.
+                    // execution_hint stays 'openclaude' for every row whose
+                    // profile is 'openclaude' (back-compat) and flips to
+                    // 'claude_code' for the Official runtime so legacy
+                    // SELECTs filtering by hint still work.
+                    const resolvedRuntimeSlug = runtimeProfile && runtimeProfile.trim()
+                        ? runtimeProfile.trim()
+                        : 'openclaude';
+                    const executionHint = resolvedRuntimeSlug === 'claude_code_official'
+                        ? 'claude_code'
+                        : 'openclaude';
+
                     await client.query(
                         `INSERT INTO architect_work_items
                             (id, org_id, workflow_graph_id, node_id, item_type, title, description,
-                             execution_hint, status, execution_context)
-                         VALUES ($1, $2, $3, $4, 'compliance_check', $5, $6, 'openclaude', 'pending', $7)`,
+                             execution_hint, status, execution_context, runtime_profile_slug)
+                         VALUES ($1, $2, $3, $4, 'compliance_check', $5, $6, $8, 'pending', $7, $9)`,
                         [
                             workItemId,
                             orgId,
@@ -354,7 +378,10 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                                 traceId,
                                 matchedPattern: delegationDecision.matchedPattern,
                                 instructions: safeMessage,
+                                runtime_profile: resolvedRuntimeSlug,
                             }),
+                            executionHint,
+                            resolvedRuntimeSlug,
                         ]
                     );
 

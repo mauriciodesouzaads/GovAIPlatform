@@ -55,18 +55,51 @@ export default function AssistantsPage() {
     const [savingDelegation, setSavingDelegation] = useState(false);
     const [loadingDelegation, setLoadingDelegation] = useState(false);
 
+    // FASE 7: runtime preference on the delegation modal. Populated from
+    // GET /v1/admin/runtimes the first time the modal opens; persisted by
+    // POST /v1/admin/runtime-switch on save. Starts empty so the first
+    // render shows the default (openclaude).
+    const [runtimeOptions, setRuntimeOptions] = useState<Array<{
+        slug: string;
+        display_name: string;
+        runtime_class: string;
+        claim_level: string;
+        is_default: boolean;
+        available: boolean;
+    }>>([]);
+    const [delegationRuntimeSlug, setDelegationRuntimeSlug] = useState<string>('openclaude');
+    const [initialRuntimeSlug, setInitialRuntimeSlug] = useState<string>('openclaude');
+
     const openDelegationModal = async (ast: Assistant) => {
         setDelegationAst(ast);
         setLoadingDelegation(true);
         try {
-            const res = await api.get(ENDPOINTS.ASSISTANT_DELEGATION(ast.id));
-            const cfg = res.data.delegation_config || {
+            // Load delegation config + runtime catalog in parallel. The
+            // runtime_profile_slug comes from the /delegation endpoint when
+            // we extend it server-side (FASE 7). If it's not there yet we
+            // fall back to the openclaude system default — the dropdown
+            // still works, it just starts pre-selected on open.
+            const [cfgRes, rtRes] = await Promise.all([
+                api.get(ENDPOINTS.ASSISTANT_DELEGATION(ast.id)),
+                api.get(ENDPOINTS.RUNTIMES).catch(() => ({ data: [] })),
+            ]);
+            const cfg = cfgRes.data.delegation_config || {
                 enabled: false,
                 auto_delegate_patterns: [],
                 max_duration_seconds: 300,
             };
             setDelegationConfig(cfg);
             setDelegationPatternsRaw((cfg.auto_delegate_patterns || []).join('\n'));
+            setRuntimeOptions(rtRes.data || []);
+            // Prefer the slug returned by the delegation endpoint; fall
+            // back to the row field (if we've already extended the GET)
+            // and finally to 'openclaude'.
+            const currentSlug: string =
+                cfgRes.data?.runtime_profile_slug
+                || (ast as any)?.runtime_profile_slug
+                || 'openclaude';
+            setDelegationRuntimeSlug(currentSlug);
+            setInitialRuntimeSlug(currentSlug);
         } catch {
             toast('Erro ao carregar configuração de delegação', 'error');
         } finally {
@@ -97,6 +130,22 @@ export default function AssistantsPage() {
                 auto_delegate_patterns: patterns,
                 max_duration_seconds: delegationConfig.max_duration_seconds,
             });
+            // FASE 7 — if the runtime slug changed, persist it via
+            // /v1/admin/runtime-switch which (a) updates the assistant row
+            // and (b) writes the switch to runtime_switch_audit so the
+            // compliance page can render "who switched what, when, why".
+            if (delegationRuntimeSlug !== initialRuntimeSlug) {
+                try {
+                    await api.post(ENDPOINTS.RUNTIME_SWITCH, {
+                        scope_type: 'assistant',
+                        scope_id: delegationAst.id,
+                        runtime_slug: delegationRuntimeSlug,
+                        reason: 'Assistant delegation settings',
+                    });
+                } catch {
+                    toast('Falha ao trocar runtime — configuração de delegação foi salva.', 'error');
+                }
+            }
             toast('Configuração de delegação salva', 'success');
             setDelegationAst(null);
         } catch {
@@ -603,6 +652,38 @@ export default function AssistantsPage() {
                                                 Tempo máximo para execução do OpenClaude. Padrão: 300s (5 min).
                                             </p>
                                         </div>
+
+                                        {/* FASE 7 — Runtime preference selector */}
+                                        {runtimeOptions.length > 0 && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-foreground mb-1">
+                                                    Runtime preferido
+                                                </label>
+                                                <select
+                                                    value={delegationRuntimeSlug}
+                                                    onChange={e => setDelegationRuntimeSlug(e.target.value)}
+                                                    className="w-full bg-secondary border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500/50"
+                                                >
+                                                    {runtimeOptions.map(rt => {
+                                                        const icon = rt.runtime_class === 'official' ? '🔒' : '🌐';
+                                                        const suffix = rt.available ? '' : ' — indisponível';
+                                                        const claim = rt.claim_level === 'exact_governed' ? 'Exact Governed'
+                                                            : rt.claim_level === 'open_governed' ? 'Open Governed'
+                                                                : rt.claim_level;
+                                                        return (
+                                                            <option key={rt.slug} value={rt.slug} disabled={!rt.available}>
+                                                                {icon} {rt.display_name} ({claim}){suffix}
+                                                            </option>
+                                                        );
+                                                    })}
+                                                </select>
+                                                <p className="text-[10px] text-muted-foreground mt-1">
+                                                    {delegationRuntimeSlug === 'claude_code_official'
+                                                        ? 'Runtime oficial Anthropic. Requer ANTHROPIC_API_KEY com créditos e o container claude-code-runner ativo.'
+                                                        : 'Runtime aberto multi-provider. Usa LiteLLM com failover automático (Groq, Cerebras, Gemini, Ollama).'}
+                                                </p>
+                                            </div>
+                                        )}
                                     </>
                                 )}
                             </div>

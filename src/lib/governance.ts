@@ -23,6 +23,11 @@ export type ActionType = z.infer<typeof ActionType>;
 export const GovernanceRequestSchema = z.object({
     message: z.string().min(1, "O input não pode estar vazio").max(10000, "O input excede o limite máximo permitido"),
     model: z.string().optional(),
+    // FASE 7: optional runtime selection. Ignored for non-delegated runs.
+    // Valid slugs live in runtime_profiles (seeded: 'openclaude',
+    // 'claude_code_official'). Any other value is passed through and
+    // the resolver will fall back to the system default if unknown.
+    runtime_profile: z.string().min(1).max(100).optional(),
 });
 
 export type GovernanceRequest = z.infer<typeof GovernanceRequestSchema>;
