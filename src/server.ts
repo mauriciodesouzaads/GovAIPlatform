@@ -597,6 +597,26 @@ const start = async () => {
         fastify.log.warn('OPA WASM policy not found — using native fallback rules only');
     }
 
+    // FASE 9: subscribe to the distributed stream registry control channel
+    // so this instance can handle cancel/respond for streams it owns even
+    // when the BullMQ job lands on a different replica. The feature flag
+    // defaults to 'local' (no pub/sub overhead in single-instance dev).
+    if (process.env.STREAM_REGISTRY_MODE !== 'local') {
+        try {
+            const { subscribeToControl, shutdownStreamRegistryRedis } = await import('./lib/architect-stream-registry-redis');
+            await subscribeToControl();
+            // Graceful shutdown — close pub/sub connections on termination
+            const cleanup = async () => {
+                fastify.log.info('Shutting down stream registry Redis connections...');
+                try { await shutdownStreamRegistryRedis(); } catch { /* ignore */ }
+            };
+            process.on('SIGTERM', cleanup);
+            process.on('SIGINT', cleanup);
+        } catch (err) {
+            fastify.log.warn(err, 'Failed to subscribe to stream registry control channel');
+        }
+    }
+
     try {
         const port = parseInt(process.env.PORT || '3000', 10);
         await fastify.listen({ port, host: '0.0.0.0' });

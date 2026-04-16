@@ -24,6 +24,7 @@ import IORedis from 'ioredis';
 import { Pool } from 'pg';
 import { dispatchWorkItem } from '../lib/architect-delegation';
 import { getStream } from '../lib/architect-stream-registry';
+import { publishControl } from '../lib/architect-stream-registry-redis';
 import { cleanupOrphanedWorkspaces } from '../lib/workspace-manager';
 import { recordEvidence } from '../lib/evidence';
 
@@ -84,10 +85,19 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                 const { orgId, workItemId } = job.data as CancelRunPayload;
                 console.log(`[Architect Worker] cancel-run for ${workItemId}`);
 
+                // FASE 9: try local stream first; if not found and distributed
+                // mode is enabled, broadcast via Redis pub/sub to all replicas.
                 const stream = getStream(workItemId);
                 if (stream) {
                     try { stream.cancel(); } catch (err) {
                         console.warn(`[Architect Worker] cancel() threw:`, (err as Error).message);
+                    }
+                } else if (process.env.STREAM_REGISTRY_MODE !== 'local') {
+                    try {
+                        await publishControl({ type: 'cancel', workItemId });
+                        console.log(`[Architect Worker] published cancel via pub/sub for ${workItemId}`);
+                    } catch (err) {
+                        console.warn(`[Architect Worker] publishControl(cancel) failed:`, (err as Error).message);
                     }
                 }
 
@@ -127,17 +137,32 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                 const mode = approveMode ?? 'single';
                 console.log(`[Architect Worker] resolve-approval for ${workItemId} promptId=${promptId} approved=${approved} mode=${mode}`);
 
+                // FASE 9: try local stream first; if not found and distributed
+                // mode is enabled, broadcast via Redis pub/sub.
                 const stream = getStream(workItemId);
-                if (!stream) {
-                    console.warn(`[Architect Worker] resolve-approval: no active stream for ${workItemId}`);
+                if (stream) {
+                    try {
+                        stream.respond(promptId, approved ? 'yes' : 'no');
+                    } catch (err) {
+                        console.warn(`[Architect Worker] respond() threw:`, (err as Error).message);
+                        return { resolved: false, reason: 'respond_failed' };
+                    }
+                } else if (process.env.STREAM_REGISTRY_MODE !== 'local') {
+                    try {
+                        await publishControl({
+                            type: 'respond',
+                            workItemId,
+                            promptId,
+                            reply: approved ? 'yes' : 'no',
+                        });
+                        console.log(`[Architect Worker] published respond via pub/sub for ${workItemId} promptId=${promptId}`);
+                    } catch (err) {
+                        console.warn(`[Architect Worker] publishControl(respond) failed:`, (err as Error).message);
+                        return { resolved: false, reason: 'publish_failed' };
+                    }
+                } else {
+                    console.warn(`[Architect Worker] resolve-approval: no active stream for ${workItemId} (local mode)`);
                     return { resolved: false, reason: 'no_active_stream' };
-                }
-
-                try {
-                    stream.respond(promptId, approved ? 'yes' : 'no');
-                } catch (err) {
-                    console.warn(`[Architect Worker] respond() threw:`, (err as Error).message);
-                    return { resolved: false, reason: 'respond_failed' };
                 }
 
                 // FASE 6c: OpenClaude can emit multiple ACTION_REQUIRED events
@@ -171,7 +196,13 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                             for (const row of pendingRes.rows) {
                                 const otherPromptId = row.prompt_id as string;
                                 try {
-                                    stream.respond(otherPromptId, 'yes');
+                                    // FASE 9: use local stream if available,
+                                    // otherwise broadcast via pub/sub.
+                                    if (stream) {
+                                        stream.respond(otherPromptId, 'yes');
+                                    } else if (process.env.STREAM_REGISTRY_MODE !== 'local') {
+                                        await publishControl({ type: 'respond', workItemId, promptId: otherPromptId, reply: 'yes' });
+                                    }
                                     console.log(`[Architect Worker] auto_all broadcast respond for ${otherPromptId}`);
                                     await other.query(
                                         `INSERT INTO architect_work_item_events

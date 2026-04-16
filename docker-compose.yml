@@ -145,6 +145,10 @@ services:
       # sidecar socket when it IS running.
       CLAUDE_CODE_SOCKET_PATH: ${CLAUDE_CODE_SOCKET_PATH:-/var/run/govai/claude-code.sock}
       CLAUDE_CODE_GRPC_HOST: ${CLAUDE_CODE_GRPC_HOST:-claude-code-runner:50051}
+      # --- Stream registry mode (FASE 9) ---
+      # - local: single-instance only (default, dev)
+      # - distributed: Redis pub/sub for multi-replica (required for k8s >1 replica)
+      STREAM_REGISTRY_MODE: ${STREAM_REGISTRY_MODE:-local}
       GOVAI_WORKSPACE_BASE: /tmp/govai-workspaces
       GOVAI_WORKSPACE_MAX_AGE_HOURS: ${GOVAI_WORKSPACE_MAX_AGE_HOURS:-24}
       # --- Chat wrapper (FASE 6) ---

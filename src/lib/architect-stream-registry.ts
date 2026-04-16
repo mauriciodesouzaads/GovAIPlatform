@@ -1,21 +1,27 @@
 /**
- * Architect Stream Registry — FASE 5-hardening
+ * Architect Stream Registry — FASE 5-hardening + FASE 9 distributed
  *
- * Process-local map of active OpenClaude gRPC streams keyed by work_item_id.
- * The adapter (architect-delegation.ts) registers itself when it starts a
- * run; the worker (architect.worker.ts) reads from it when processing
- * `cancel-run` or `resolve-approval` jobs so it can call cancel() / respond()
- * on the live stream.
+ * Process-local map of active OpenClaude/Claude Code gRPC streams keyed by
+ * work_item_id. The adapter (architect-delegation.ts) registers itself when
+ * it starts a run; the worker (architect.worker.ts) reads from it when
+ * processing `cancel-run` or `resolve-approval` jobs so it can call
+ * cancel() / respond() on the live stream.
  *
  * This file exists as a separate module so the adapter and the worker can
  * both import it without creating a circular dependency.
  *
- * NOTE: this is process-local. In a multi-instance deployment we would need
- * to broadcast cancel/approve via Redis pub/sub or sticky-route the work
- * item to the same instance that owns its stream. For v1 the BullMQ worker
- * concurrency is 2 per process and approvals are short-lived, so a single
- * in-memory map is fine.
+ * For multi-instance deployments (k8s with >1 replica), see
+ * architect-stream-registry-redis.ts which broadcasts cancel/respond via
+ * Redis pub/sub so any replica can resolve an approval or cancel a run
+ * regardless of which replica owns the stream. Feature flag:
+ *   STREAM_REGISTRY_MODE=distributed   (default: local)
  */
+
+import { randomBytes } from 'crypto';
+
+/** Unique id per process lifetime. Used by the Redis pub/sub layer to
+ *  identify which instance published a control message. */
+export const INSTANCE_ID: string = process.env.GOVAI_INSTANCE_ID || randomBytes(6).toString('hex');
 
 export interface RegisteredStream {
     cancel: () => void;

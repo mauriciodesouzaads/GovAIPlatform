@@ -192,3 +192,56 @@ Para produção com dados sensíveis, adote estas práticas:
 
 4. **Monitore uso por key** via /v1/admin/audit-logs —
    filtre por api_key_id para detectar uso anômalo.
+
+---
+
+## Running the Official Claude Code Runner (FASE 9)
+
+The Official runtime (`claude_code_official`) uses the real Anthropic
+Claude Code CLI. To enable it:
+
+1. **Export a valid ANTHROPIC_API_KEY:**
+   ```bash
+   export ANTHROPIC_API_KEY=sk-ant-...
+   ```
+
+2. **Start the sidecar container:**
+   ```bash
+   docker compose --profile official up -d claude-code-runner
+   ```
+
+3. **Verify availability:**
+   ```bash
+   curl -s http://localhost:3000/v1/admin/runtimes -H "Authorization: Bearer $TOKEN" \
+     -H "x-org-id: $ORG" | jq '.[] | select(.slug=="claude_code_official")'
+   ```
+   Should show `available: true`.
+
+4. **Run the E2E validation:**
+   ```bash
+   ANTHROPIC_API_KEY=sk-ant-... bash tests/integration/test-claude-code-official-e2e.sh
+   ```
+
+If ANTHROPIC_API_KEY has no credits or the CLI changes its output format,
+the E2E test will fail with a clear message showing what's missing.
+
+---
+
+## Multi-Replica Deployments (FASE 9)
+
+For k8s or any deployment with >1 API replica, set:
+
+```yaml
+STREAM_REGISTRY_MODE: distributed
+```
+
+This enables Redis pub/sub for the architect approval bridge so that
+cancel/respond messages reach the replica that owns the live gRPC stream,
+regardless of which replica processed the HTTP request or BullMQ job.
+
+Without this flag, approvals and cancellations only work when the BullMQ
+worker that picks up the job is the same process that owns the stream
+(which is always true in single-instance dev but never guaranteed in
+multi-replica production).
+
+See `docs/ADR-012-distributed-stream-registry.md` for the full design.
