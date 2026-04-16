@@ -1,0 +1,95 @@
+# ============================================================================
+# GovAI GRC Platform — Prometheus Alert Rules (FASE 10)
+# ----------------------------------------------------------------------------
+# Deploy alongside Prometheus. AlertManager routes alerts to
+# Slack/PagerDuty/email. These are additional to in-app alerting via
+# the notification_channels pipeline (alerting.worker.ts).
+#
+# Metric names match src/lib/sre-metrics.ts.
+# ============================================================================
+
+groups:
+  - name: govai_gateway
+    interval: 30s
+    rules:
+      - alert: GatewayHighLatency
+        expr: histogram_quantile(0.95, rate(govai_gateway_latency_ms_bucket[5m])) > 5000
+        for: 5m
+        labels:
+          severity: warning
+          component: gateway
+        annotations:
+          summary: "Gateway p95 latency > 5s"
+          description: "The governance gateway is taking more than 5s at p95 for the last 5 minutes. Current: {{ $value }}ms"
+
+      - alert: GatewayHighErrorRate
+        expr: rate(govai_http_requests_total{status="blocked"}[5m]) / rate(govai_http_requests_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: gateway
+        annotations:
+          summary: "Gateway block rate > 10%"
+          description: "More than 10% of requests are being blocked by policy/DLP for the last 5 minutes."
+
+      - alert: QuotaExceededSpike
+        expr: rate(govai_quota_exceeded_total[5m]) > 1
+        for: 2m
+        labels:
+          severity: warning
+          component: finops
+        annotations:
+          summary: "Quota exceeded rate > 1/sec for 2 minutes"
+
+      - alert: DlpDetectionSpike
+        expr: rate(govai_dlp_detections_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: info
+          component: dlp
+        annotations:
+          summary: "DLP detection rate > 10/sec"
+          description: "Unusually high PII detection rate — may indicate bulk data leakage attempt."
+
+      - alert: RedisConnectionError
+        expr: govai_node_redis_errors_total > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+
+  - name: govai_runtime
+    interval: 30s
+    rules:
+      - alert: OpenClaudeRunnerDown
+        expr: absent(up{job="openclaude-runner"}) or up{job="openclaude-runner"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: runtime
+        annotations:
+          summary: "OpenClaude runner is down"
+          description: "The primary open runtime is unreachable. Delegated work items will fail."
+
+      - alert: ClaudeCodeOfficialDown
+        expr: absent(up{job="claude-code-runner"}) or up{job="claude-code-runner"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: runtime
+        annotations:
+          summary: "Claude Code Official runner is down"
+          description: "The official runtime sidecar is unreachable. Users selecting Official will get HTTP 503."
+
+  - name: govai_crypto
+    interval: 60s
+    rules:
+      - alert: DEKRotationFailing
+        expr: rate(govai_dek_rotation_errors_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: crypto
+        annotations:
+          summary: "DEK rotation failing — encryption pipeline at risk"
+          description: "Data encryption key rotation has been failing for >5 minutes."

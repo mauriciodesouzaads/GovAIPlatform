@@ -1,3 +1,9 @@
+// OpenTelemetry — MUST be imported before any instrumented module
+// (fastify, pg, ioredis, grpc) so the auto-instrumentation patches apply.
+// No-op when OTEL_ENABLED !== 'true' (default). See src/lib/tracing.ts.
+import { initTracing, shutdownTracing } from './lib/tracing';
+initTracing();
+
 import 'dotenv/config';
 import { initMonitoring, captureError } from './lib/monitoring';
 // initMonitoring must be called before any route, worker, or plugin registration
@@ -33,6 +39,7 @@ import { initApiKeyRotationJob } from './jobs/api-key-rotation.job';
 import { startShieldWorker } from './workers/shield.worker';
 import { startShieldSchedule } from './jobs/shield-schedule.job';
 import { initArchitectWorker, architectQueue } from './workers/architect.worker';
+import { initAlertingWorker } from './workers/alerting.worker';
 
 // ---------------------------------------------------------------------------
 // Fail-fast guards — must run before anything else
@@ -59,6 +66,7 @@ initNotificationWorker(pgPool);
 initTelemetryWorker();
 startShieldWorker();
 initArchitectWorker(pgPool);
+initAlertingWorker(pgPool);
 
 // ---------------------------------------------------------------------------
 // Jobs — scheduled tasks (run after server startup via internal delay)
@@ -72,11 +80,35 @@ startShieldSchedule();
 // ---------------------------------------------------------------------------
 const isProduction = process.env.NODE_ENV === 'production';
 
+const logLevel = process.env.LOG_LEVEL || 'info';
+
 const fastify: FastifyInstance = Fastify({
     logger: isProduction
-        ? { level: process.env.LOG_LEVEL || 'info' }
+        ? {
+            level: logLevel,
+            // FASE 10: structured JSON in production — queryable in Loki/Elastic
+            formatters: {
+                level: (label: string) => ({ level: label }),
+                bindings: (bindings: Record<string, unknown>) => ({
+                    pid: bindings.pid,
+                    hostname: bindings.hostname,
+                    service: process.env.OTEL_SERVICE_NAME || 'govai-api',
+                }),
+            },
+            timestamp: () => `,"time":"${new Date().toISOString()}"`,
+            // Redact sensitive headers/body fields in all log output
+            redact: {
+                paths: [
+                    'req.headers.authorization',
+                    'req.headers.cookie',
+                    'req.body.password',
+                    'req.body.api_key',
+                ],
+                censor: '[REDACTED]',
+            },
+        }
         : {
-            level: process.env.LOG_LEVEL || 'info',
+            level: logLevel,
             transport: {
                 target: 'pino-pretty',
                 options: { translateTime: 'HH:MM:ss Z', ignore: 'pid,hostname' },
@@ -607,8 +639,9 @@ const start = async () => {
             await subscribeToControl();
             // Graceful shutdown — close pub/sub connections on termination
             const cleanup = async () => {
-                fastify.log.info('Shutting down stream registry Redis connections...');
+                fastify.log.info('Shutting down gracefully...');
                 try { await shutdownStreamRegistryRedis(); } catch { /* ignore */ }
+                try { await shutdownTracing(); } catch { /* ignore */ }
             };
             process.on('SIGTERM', cleanup);
             process.on('SIGINT', cleanup);

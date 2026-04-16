@@ -145,6 +145,12 @@ services:
       # sidecar socket when it IS running.
       CLAUDE_CODE_SOCKET_PATH: ${CLAUDE_CODE_SOCKET_PATH:-/var/run/govai/claude-code.sock}
       CLAUDE_CODE_GRPC_HOST: ${CLAUDE_CODE_GRPC_HOST:-claude-code-runner:50051}
+      # --- OpenTelemetry tracing (FASE 10) ---
+      # Opt-in: set OTEL_ENABLED=true + run the otel-collector profile
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-govai-api}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318/v1/traces}
+      OTEL_ENVIRONMENT: ${OTEL_ENVIRONMENT:-development}
       # --- Stream registry mode (FASE 9) ---
       # - local: single-instance only (default, dev)
       # - distributed: Redis pub/sub for multi-replica (required for k8s >1 replica)
@@ -290,6 +296,24 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  # ── otel-collector (FASE 10 — Observability) ──────────────────────────────
+  # OpenTelemetry Collector for receiving and exporting traces.
+  # Profile: 'observability' — NOT started by default.
+  # Start with: docker compose --profile observability up -d otel-collector
+  # Also requires OTEL_ENABLED=true in the api service env.
+  otel-collector:
+    profiles: ["observability"]
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./deploy/otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    networks:
+      - govai-net
+    restart: unless-stopped
 
 volumes:
   pgdata:

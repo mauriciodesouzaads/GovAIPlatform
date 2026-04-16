@@ -1,0 +1,86 @@
+{
+  "annotations": { "list": [] },
+  "description": "GovAI GRC Platform — Runtime Operations (FASE 10)",
+  "editable": true,
+  "panels": [
+    {
+      "title": "Work Items by Status",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "rawSql": "SELECT status, COUNT(*)::int AS count FROM architect_work_items WHERE created_at > NOW() - INTERVAL '24 hours' GROUP BY status",
+          "format": "table",
+          "datasource": { "type": "postgres" }
+        }
+      ]
+    },
+    {
+      "title": "Work Items by Runtime Profile",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(runtime_profile_slug, 'unset') AS runtime, COUNT(*)::int AS count FROM architect_work_items WHERE created_at > NOW() - INTERVAL '24 hours' GROUP BY runtime_profile_slug",
+          "format": "table",
+          "datasource": { "type": "postgres" }
+        }
+      ]
+    },
+    {
+      "title": "Work Items Created (24h timeline)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "targets": [
+        {
+          "rawSql": "SELECT date_trunc('hour', created_at) AS time, COUNT(*)::int AS count FROM architect_work_items WHERE created_at > NOW() - INTERVAL '24 hours' GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "datasource": { "type": "postgres" }
+        }
+      ]
+    },
+    {
+      "title": "Approval Wait Duration (last 24h)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "rawSql": "SELECT AVG(EXTRACT(EPOCH FROM (last_event_at - run_started_at)))::int AS avg_seconds FROM architect_work_items WHERE status = 'done' AND created_at > NOW() - INTERVAL '24 hours' AND run_started_at IS NOT NULL",
+          "format": "table",
+          "datasource": { "type": "postgres" }
+        }
+      ]
+    },
+    {
+      "title": "Runtime Claim Levels (24h)",
+      "type": "table",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 8 },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(runtime_claim_level, 'unset') AS claim_level, COUNT(*)::int AS count FROM architect_work_items WHERE created_at > NOW() - INTERVAL '24 hours' GROUP BY runtime_claim_level ORDER BY count DESC",
+          "format": "table",
+          "datasource": { "type": "postgres" }
+        }
+      ]
+    },
+    {
+      "title": "Compliance Consented Orgs",
+      "type": "gauge",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 8 },
+      "targets": [
+        { "expr": "govai_compliance_consented_orgs", "legendFormat": "Consented Orgs" }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["govai", "runtime", "operations"],
+  "templating": {
+    "list": [
+      { "name": "datasource", "type": "datasource", "query": "prometheus" },
+      { "name": "pg_datasource", "type": "datasource", "query": "postgres" }
+    ]
+  },
+  "time": { "from": "now-24h", "to": "now" },
+  "title": "GovAI — Runtime Operations",
+  "uid": "govai-runtime-operations"
+}

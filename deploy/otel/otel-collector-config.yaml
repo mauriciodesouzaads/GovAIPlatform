@@ -1,0 +1,50 @@
+# ============================================================================
+# GovAI GRC Platform — OpenTelemetry Collector Configuration (FASE 10)
+# ----------------------------------------------------------------------------
+# Default: receives OTLP traces and exports to stdout (logging).
+# For production, replace the `logging` exporter with your backend:
+#   - Jaeger:  otlphttp/jaeger with endpoint http://jaeger:4318
+#   - Tempo:   otlphttp/tempo  with endpoint http://tempo:4318
+#   - Datadog: datadog with api.key=${DD_API_KEY}
+#   - Elastic: elasticsearch with endpoint http://es:9200
+# ============================================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+
+exporters:
+  # Default: stdout (for local dev visibility)
+  logging:
+    loglevel: info
+
+  # ── Production examples (uncomment one) ──────────────────────────────
+  # otlphttp/jaeger:
+  #   endpoint: http://jaeger:4318
+  #
+  # otlphttp/tempo:
+  #   endpoint: http://tempo:4318
+  #
+  # datadog:
+  #   api:
+  #     key: ${DD_API_KEY}
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [logging]
