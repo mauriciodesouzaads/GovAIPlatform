@@ -132,6 +132,7 @@ MIGRATIONS=(
     "078_runtime_profiles.sql"
     "079_runtime_scoped_bindings.sql"
     "080_notification_channels_siem.sql"
+    "081_bias_assessments.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

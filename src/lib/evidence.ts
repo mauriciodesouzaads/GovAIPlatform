@@ -19,7 +19,8 @@ export type EvidenceCategory =
   | 'policy_exception'
   | 'oidc_session'
   | 'api_key_lifecycle'
-  | 'data_access';
+  | 'data_access'
+  | 'bias_assessment';
 
 export interface EvidencePayload {
   orgId: string;

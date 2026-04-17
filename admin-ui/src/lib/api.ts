@@ -206,6 +206,12 @@ export const ENDPOINTS = {
     // FASE 7 — Dual governed runtime
     RUNTIMES:                         '/v1/admin/runtimes',
     RUNTIME_SWITCH:                   '/v1/admin/runtime-switch',
+
+    // FASE 13.1 — Bias Detection
+    BIAS_SUBMIT:                      '/v1/admin/bias-assessments',
+    BIAS_BY_VERSION:                  (versionId: string) => `/v1/admin/bias-assessments/version/${versionId}`,
+    BIAS_ONE:                         (id: string) => `/v1/admin/bias-assessments/${id}`,
+    BIAS_EVIDENCE:                    (id: string) => `/v1/admin/bias-assessments/${id}/evidence`,
 };
 
 export default api;
