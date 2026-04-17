@@ -73,7 +73,8 @@
         "consultant": "Consultant Panel",
         "organizations": "Organizations",
         "settings": "Settings",
-        "notifications": "Notifications"
+        "notifications": "Notifications",
+        "developers": "Developer Portal"
     },
     "chat": {
         "title": "Chat",

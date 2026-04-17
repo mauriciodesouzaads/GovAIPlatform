@@ -199,7 +199,15 @@ fastify.register(rateLimit, {
     redis: redisCache,
     skipOnError: true,
     keyGenerator: (request: FastifyRequest) => request.headers.authorization as string || request.ip,
-    addHeaders: { 'retry-after': true },
+    addHeaders: {
+        // FASE 13.4: emit the canonical triad so SDK consumers can implement
+        // backoff without probing every route. `retry-after` stays for
+        // 429 responses specifically.
+        'x-ratelimit-limit': true,
+        'x-ratelimit-remaining': true,
+        'x-ratelimit-reset': true,
+        'retry-after': true,
+    },
     errorResponseBuilder: (_request, context) => ({
         statusCode: 429,
         error: 'Rate limit exceeded',
@@ -721,6 +729,12 @@ const start = async () => {
     setInterval(checkExpiringExceptions, ONE_DAY_MS).unref();
 };
 
-start();
+// `GOVAI_SKIP_LISTEN=true` lets tooling (e.g., scripts/export-openapi.ts)
+// import this module to access the registered Fastify instance without
+// binding a port or spinning up workers. Same behavior we want in tests
+// that introspect the plugin graph.
+if (process.env.GOVAI_SKIP_LISTEN !== 'true') {
+    start();
+}
 
 export { fastify };

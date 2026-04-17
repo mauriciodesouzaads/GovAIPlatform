@@ -1,0 +1,40 @@
+{
+    "name": "@govai/sdk",
+    "version": "1.0.0",
+    "description": "Official TypeScript client for the GovAI Platform API",
+    "license": "Apache-2.0",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "files": [
+        "dist/"
+    ],
+    "scripts": {
+        "build": "tsc",
+        "typecheck": "tsc --noEmit",
+        "generate:types": "openapi-typescript ../../docs/api/openapi.yaml -o src/schema.ts",
+        "test": "vitest run"
+    },
+    "keywords": [
+        "govai",
+        "ai-governance",
+        "grc",
+        "compliance",
+        "openapi"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/mauriciodesouzaads/GovAIPlatform",
+        "directory": "sdk/typescript"
+    },
+    "dependencies": {
+        "openapi-fetch": "^0.12.0"
+    },
+    "devDependencies": {
+        "openapi-typescript": "^7.4.0",
+        "typescript": "^5.0.0",
+        "vitest": "^3.0.0"
+    },
+    "publishConfig": {
+        "access": "public"
+    }
+}

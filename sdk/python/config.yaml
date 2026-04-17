@@ -1,0 +1,16 @@
+# openapi-python-client configuration — FASE 13.4
+# ---------------------------------------------------------------------------
+# Consumed by `openapi-python-client generate --config sdk/python/config.yaml`
+# to produce a typed `govai_sdk` package from docs/api/openapi.yaml.
+#
+# The generator writes into ./govai_sdk by convention; we override the
+# project name so the resulting package matches the one declared in
+# pyproject.toml.
+
+project_name_override: govai-sdk
+package_name_override: govai_sdk
+use_path_prefixes_for_title_model_names: false
+field_constraints: true
+http_timeout: 30
+post_hooks:
+  - "ruff format ."

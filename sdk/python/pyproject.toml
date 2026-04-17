@@ -1,0 +1,28 @@
+[project]
+name = "govai-sdk"
+version = "1.0.0"
+description = "Official Python client for the GovAI Platform API"
+license = { text = "Apache-2.0" }
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "GovAI Platform" }
+]
+keywords = ["govai", "ai-governance", "grc", "compliance", "openapi"]
+dependencies = [
+    "httpx >= 0.23.0, < 1.0.0",
+    "attrs >= 22.2.0",
+    "python-dateutil >= 2.8.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/mauriciodesouzaads/GovAIPlatform"
+Source = "https://github.com/mauriciodesouzaads/GovAIPlatform/tree/main/sdk/python"
+"API Reference" = "https://github.com/mauriciodesouzaads/GovAIPlatform/blob/main/docs/api/openapi.yaml"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["govai_sdk"]

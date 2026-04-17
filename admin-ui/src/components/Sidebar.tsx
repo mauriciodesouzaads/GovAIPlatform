@@ -6,7 +6,7 @@ import {
     LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck,
     ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2, X, Bell,
     ScrollText, AlertTriangle, Settings, ClipboardCheck, ShieldEllipsis, BellRing, Sparkles,
-    Scale, BadgeCheck,
+    Scale, BadgeCheck, Terminal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
@@ -211,6 +211,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         {isAdmin && (
                             <NavItem href="/settings/notifications" label={t('notifications')} Icon={BellRing}  isActive={pathname === '/settings/notifications'} accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
                         )}
+                        <NavItem href="/developers" label={t('developers')} Icon={Terminal} isActive={pathname === '/developers'} accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
                     </>
                 )}
             </div>
