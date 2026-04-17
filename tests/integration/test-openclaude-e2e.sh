@@ -76,24 +76,72 @@ else
     echo "     Hint: docker compose --profile dev up -d openclaude-runner"
 fi
 
-# ── Step 2: Trigger delegation ───────────────────────────────────────────────
+# ── Step 2: Trigger delegation (with idempotent retry — FASE 11) ─────────────
+#
+# The LLM backends (Groq/Gemini/Cerebras/Ollama) occasionally return empty
+# responses or hit transient rate limits. One failed attempt used to flake
+# this test; we retry up to 2 times before concluding the run is broken.
 echo ""
 echo "═══ Step 2: Trigger delegation via /v1/execute ═══"
-# NOTE on message choice: we need a prompt that (a) triggers delegation via a
-# seeded pattern and (b) does NOT make OpenClaude request any tools, because
-# when the hardened resolveToolDecision catches a dangerous tool it flips the
-# work item to `awaiting_approval` and the test would time out waiting.
-# "analise o repositório..." matches but makes the agent call sub-tools;
-# the simple "[OPENCLAUDE]" prefix below matches the escape pattern and
-# lets the agent answer in one shot.
-EXEC_RESULT=$(curl -s -X POST "$API/v1/execute/$DEMO_ASSISTANT" \
-    -H "Authorization: Bearer $DEMO_API_KEY" \
-    -H "Content-Type: application/json" \
-    -d '{"message":"[OPENCLAUDE] Responda exatamente a frase: pronto"}')
 
-DELEGATED=$(echo "$EXEC_RESULT" | jq -r '._govai.delegated // false')
-WORK_ITEM_ID=$(echo "$EXEC_RESULT" | jq -r '._govai.workItemId // empty')
-MATCHED_PATTERN=$(echo "$EXEC_RESULT" | jq -r '._govai.matchedPattern // empty')
+MAX_ATTEMPTS=2
+DELEGATED="false"
+WORK_ITEM_ID=""
+MATCHED_PATTERN=""
+FINAL_STATUS="unknown"
+FINAL_EVENT_COUNT=0
+
+for attempt in $(seq 1 $MAX_ATTEMPTS); do
+    if [ "$attempt" -gt 1 ]; then
+        echo ""
+        echo "→ Attempt $attempt/$MAX_ATTEMPTS: previous attempt ended in status=$FINAL_STATUS"
+        echo "  Re-dispatching after 10s cooldown..."
+        sleep 10
+    fi
+
+    EXEC_RESULT=$(curl -s -X POST "$API/v1/execute/$DEMO_ASSISTANT" \
+        -H "Authorization: Bearer $DEMO_API_KEY" \
+        -H "Content-Type: application/json" \
+        -d '{"message":"[OPENCLAUDE] Responda exatamente a frase: pronto"}')
+
+    DELEGATED=$(echo "$EXEC_RESULT" | jq -r '._govai.delegated // false')
+    WORK_ITEM_ID=$(echo "$EXEC_RESULT" | jq -r '._govai.workItemId // empty')
+    MATCHED_PATTERN=$(echo "$EXEC_RESULT" | jq -r '._govai.matchedPattern // empty')
+
+    if [ -z "$WORK_ITEM_ID" ] || [ "$WORK_ITEM_ID" = "empty" ]; then
+        echo "  ⚠️  Attempt $attempt: dispatch did not return workItemId"
+        continue
+    fi
+
+    # Poll this attempt until terminal or timeout
+    echo "  Work item: $WORK_ITEM_ID"
+    for i in $(seq 1 "$MAX_POLLS"); do
+        sleep "$POLL_INTERVAL"
+        POLL=$(curl -s "$API/v1/admin/architect/work-items/$WORK_ITEM_ID/events" "${H[@]}")
+        FINAL_STATUS=$(echo "$POLL" | jq -r '.work_item.status // "unknown"')
+        FINAL_EVENT_COUNT=$(echo "$POLL" | jq -r '.events | length')
+        echo "    Poll $i/$MAX_POLLS: status=$FINAL_STATUS events=$FINAL_EVENT_COUNT"
+
+        case "$FINAL_STATUS" in
+            done|blocked|cancelled)
+                break
+                ;;
+        esac
+    done
+
+    # Check if this attempt succeeded — break out of retry loop if so
+    if [ "$FINAL_STATUS" = "done" ]; then
+        FULL_TEXT=$(echo "$POLL" | jq -r '.work_item.execution_context.output.fullText // empty')
+        if [ -n "$FULL_TEXT" ] && [ "$FULL_TEXT" != "null" ] && [ "${#FULL_TEXT}" -ge 3 ]; then
+            # Non-empty response — accept and exit retry loop
+            break
+        else
+            # done but empty fullText — retry
+            echo "  ⚠️  Attempt $attempt: done with empty fullText, will retry"
+            FINAL_STATUS="empty_response"
+        fi
+    fi
+done
 
 check "Delegation triggered" "true" "$DELEGATED"
 check_truthy "Work item ID returned" "$WORK_ITEM_ID"
@@ -102,8 +150,6 @@ check_truthy "Matched pattern returned" "$MATCHED_PATTERN"
 if [ -z "$WORK_ITEM_ID" ] || [ "$WORK_ITEM_ID" = "empty" ]; then
     echo ""
     echo "  ❌ Cannot continue without work item ID"
-    echo "  Response: $(echo "$EXEC_RESULT" | jq -c .)"
-    echo ""
     echo "  RESULTADO: $PASS/$TOTAL passaram, $FAIL falharam"
     exit 1
 fi
@@ -121,24 +167,12 @@ check_truthy "Work item exists in DB" "$INITIAL_STATUS"
 check "execution_hint == openclaude" "openclaude" "$INITIAL_HINT"
 echo "  Initial status: $INITIAL_STATUS"
 
-# ── Step 4: Poll until terminal ──────────────────────────────────────────────
+# ── Step 4: Final state already collected by retry loop (FASE 11) ────────────
+# The retry loop above already polled the final attempt — no separate Step 4.
 echo ""
-echo "═══ Step 4: Poll for completion (max $((MAX_POLLS * POLL_INTERVAL))s) ═══"
-FINAL_STATUS="unknown"
-FINAL_EVENT_COUNT=0
-for i in $(seq 1 "$MAX_POLLS"); do
-    sleep "$POLL_INTERVAL"
-    POLL=$(curl -s "$API/v1/admin/architect/work-items/$WORK_ITEM_ID/events" "${H[@]}")
-    FINAL_STATUS=$(echo "$POLL" | jq -r '.work_item.status // "unknown"')
-    FINAL_EVENT_COUNT=$(echo "$POLL" | jq -r '.events | length')
-    echo "  Poll $i/$MAX_POLLS: status=$FINAL_STATUS events=$FINAL_EVENT_COUNT"
-
-    case "$FINAL_STATUS" in
-        done|blocked|cancelled)
-            break
-            ;;
-    esac
-done
+echo "═══ Step 4: Final state collected by retry loop ═══"
+echo "  Final status: $FINAL_STATUS"
+echo "  Event count:  $FINAL_EVENT_COUNT"
 
 # ── Step 5: Evaluate result ──────────────────────────────────────────────────
 echo ""

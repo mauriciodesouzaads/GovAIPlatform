@@ -105,6 +105,28 @@ model_list:
       model: openai/gpt-4o
       api_key: os.environ/OPENAI_API_KEY
 
+  # ── OpenRouter (optional — multi-provider marketplace) ──────────────────
+  # FASE 11: OpenRouter provides access to 500+ models via a single key.
+  # Disabled by default (OPENROUTER_API_KEY not set in .env). When enabled,
+  # requests go through OpenRouter's edge network (~25-40ms latency, ~5%
+  # markup).
+  #
+  # Use this for experimentation with models NOT available via direct
+  # provider integrations. For production traffic on regulated workloads
+  # (PII, PHI, financial), prefer direct providers (Groq, Cerebras, Gemini)
+  # for lower latency, zero markup, and data sovereignty (requests don't
+  # traverse a third-party SaaS edge). The GovAI DLP layer runs BEFORE the
+  # LLM call, so data masking applies regardless of backend.
+  - model_name: govai-llm-openrouter
+    litellm_params:
+      model: openrouter/anthropic/claude-3.5-sonnet
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: govai-llm-openrouter-llama
+    litellm_params:
+      model: openrouter/meta-llama/llama-3.3-70b-instruct
+      api_key: os.environ/OPENROUTER_API_KEY
+
 router_settings:
   # Not using simple-shuffle across different providers — Groq would get
   # random large prompts and 429. Instead, govai-llm has exactly one entry

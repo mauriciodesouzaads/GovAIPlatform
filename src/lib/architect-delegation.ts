@@ -26,6 +26,7 @@ import {
     RuntimeTarget,
     RuntimeUnavailableError,
 } from './runtime-profiles';
+import { beforeCall as beforeCircuitCall, CircuitOpenError } from './circuit-breaker';
 
 // ── Tool grant resolution (FASE 5-hardening) ─────────────────────────────────
 
@@ -667,6 +668,30 @@ export async function runOpenClaudeAdapter(
         const target: RuntimeTarget = runtime.target;
         const timeoutMs = parseInt(process.env.OPENCLAUDE_TIMEOUT_MS || '300000', 10);
 
+        // 6.5. FASE 11: circuit breaker — reject if too many recent failures
+        let circuitHandle;
+        try {
+            circuitHandle = beforeCircuitCall(`runtime:${runtime.runtimeProfileSlug}`);
+        } catch (err) {
+            if (err instanceof CircuitOpenError) {
+                // Mark blocked, surface clear error, don't even try the gRPC call
+                await client.query(
+                    `UPDATE architect_work_items
+                     SET status = 'blocked',
+                         dispatch_error = $2,
+                         last_event_at = NOW()
+                     WHERE id = $1`,
+                    [workItemId, `Circuit breaker open — runtime ${runtime.runtimeProfileSlug} degraded. Retry in ~30s.`]
+                );
+                return {
+                    success: false,
+                    output: {},
+                    error: `Circuit open for runtime ${runtime.runtimeProfileSlug}`,
+                };
+            }
+            throw err;
+        }
+
         // 7. Create per-(org, work_item) workspace under the shared volume
         workspacePath = createWorkspace(orgId, workItemId);
 
@@ -884,6 +909,9 @@ export async function runOpenClaudeAdapter(
             });
 
             emitter.on('done', async (data: any) => {
+                // FASE 11: record circuit breaker success
+                try { circuitHandle.recordSuccess(); } catch { /* ignore */ }
+
                 fullText = data.full_text || fullText;
                 promptTokens = data.prompt_tokens || 0;
                 completionTokens = data.completion_tokens || 0;
@@ -944,6 +972,9 @@ export async function runOpenClaudeAdapter(
             });
 
             emitter.on('error', async (data: any) => {
+                // FASE 11: record circuit breaker failure
+                try { circuitHandle.recordFailure(); } catch { /* ignore */ }
+
                 const errorMsg = data.message || 'OpenClaude execution failed';
 
                 const cl = await pool.connect();
@@ -1272,4 +1303,62 @@ export async function dispatchPendingWorkItems(
         }
     }
     return results;
+}
+
+// ── FASE 11 — Stuck work item watchdog ──────────────────────────────────
+
+/**
+ * Detects and marks stuck work items as blocked.
+ *
+ * A work item is considered stuck if:
+ *   - status is 'in_progress' or 'awaiting_approval'
+ *   - last_event_at (or run_started_at / created_at as fallback) is older
+ *     than ARCHITECT_STUCK_THRESHOLD_MIN (default 15 minutes)
+ *
+ * Called periodically by the architect worker (every 5 min by default).
+ * Operators see `dispatch_error` with a clear "Stuck for N minutes" message
+ * and can retry the work item manually.
+ *
+ * Returns the number of items marked blocked in this sweep.
+ */
+export async function detectAndMarkStuckWorkItems(pool: Pool): Promise<number> {
+    const thresholdMin = parseInt(process.env.ARCHITECT_STUCK_THRESHOLD_MIN || '15', 10);
+    const client = await pool.connect();
+    let marked = 0;
+    try {
+        // Query WITHOUT set_config (we need a cross-org sweep). This is safe
+        // because we only SELECT + UPDATE by primary key on our own schema;
+        // no user data leaks. The UPDATE below re-sets set_config per-org to
+        // satisfy RLS on the actual write.
+        const res = await client.query(`
+            SELECT id, org_id,
+                   EXTRACT(EPOCH FROM (NOW() - COALESCE(last_event_at, run_started_at, created_at))) / 60 AS minutes_idle
+            FROM architect_work_items
+            WHERE status IN ('in_progress', 'awaiting_approval')
+              AND COALESCE(last_event_at, run_started_at, created_at) < NOW() - INTERVAL '1 minute' * $1
+            ORDER BY created_at ASC
+            LIMIT 20
+        `, [thresholdMin]);
+
+        for (const row of res.rows) {
+            try {
+                await client.query("SELECT set_config('app.current_org_id', $1, false)", [row.org_id]);
+                const mins = Math.floor(row.minutes_idle);
+                const upd = await client.query(`
+                    UPDATE architect_work_items
+                    SET status = 'blocked',
+                        dispatch_error = $3,
+                        last_event_at = NOW()
+                    WHERE id = $1 AND org_id = $2 AND status IN ('in_progress', 'awaiting_approval')
+                `, [row.id, row.org_id, `Stuck for ${mins} minutes — watchdog marked blocked`]);
+                if (upd.rowCount && upd.rowCount > 0) marked++;
+            } catch (err) {
+                console.warn(`[Architect Watchdog] failed to mark ${row.id} blocked:`, (err as Error).message);
+            }
+        }
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+    return marked;
 }

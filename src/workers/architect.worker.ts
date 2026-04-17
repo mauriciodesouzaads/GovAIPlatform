@@ -22,11 +22,12 @@
 import { Queue, Worker, Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { Pool } from 'pg';
-import { dispatchWorkItem } from '../lib/architect-delegation';
+import { dispatchWorkItem, detectAndMarkStuckWorkItems } from '../lib/architect-delegation';
 import { getStream } from '../lib/architect-stream-registry';
 import { publishControl } from '../lib/architect-stream-registry-redis';
 import { cleanupOrphanedWorkspaces } from '../lib/workspace-manager';
 import { recordEvidence } from '../lib/evidence';
+import { acquireTenantSlot, releaseTenantSlot } from '../lib/tenant-concurrency';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
@@ -273,9 +274,23 @@ export function initArchitectWorker(pgPool: Pool): Worker {
             const { orgId, workItemId } = job.data as ArchitectDispatchPayload;
             console.log(`[Architect Worker] Dispatching work item ${workItemId} for org ${orgId}`);
 
-            const result = await dispatchWorkItem(pgPool, orgId, workItemId);
-            console.log(`[Architect Worker] Completed: adapter=${result.adapter} success=${result.success}`);
-            return result;
+            // FASE 11: per-tenant concurrency — block if this tenant is at
+            // capacity so no single org starves the global 2-slot worker.
+            // BullMQ's retry mechanism re-queues the job when we throw the
+            // TENANT_LIMIT error; other tenants' jobs get a fair shot.
+            const hasSlot = await acquireTenantSlot(orgId);
+            if (!hasSlot) {
+                console.log(`[Architect Worker] tenant ${orgId} at concurrency limit, re-queuing`);
+                throw new Error('TENANT_LIMIT');
+            }
+
+            try {
+                const result = await dispatchWorkItem(pgPool, orgId, workItemId);
+                console.log(`[Architect Worker] Completed: adapter=${result.adapter} success=${result.success}`);
+                return result;
+            } finally {
+                await releaseTenantSlot(orgId);
+            }
         },
         {
             connection,
@@ -298,6 +313,50 @@ export function initArchitectWorker(pgPool: Pool): Worker {
         console.error(`[Architect Worker] Worker error:`, err?.message);
     });
 
-    console.log('[Architect Worker] Started');
+    // ── FASE 11: Periodic watchdog + workspace cleanup ──────────────────
+    // Watchdog: every 5 min, mark work items stuck > 15 min as blocked.
+    // Operators see dispatch_error with "Stuck for N minutes" message.
+    const watchdogInterval = setInterval(async () => {
+        try {
+            const marked = await detectAndMarkStuckWorkItems(pgPool);
+            if (marked > 0) {
+                console.log(`[Architect Watchdog] Marked ${marked} stuck work items as blocked`);
+            }
+        } catch (err) {
+            console.warn('[Architect Watchdog] sweep error:', (err as Error).message);
+        }
+    }, 5 * 60 * 1000);
+
+    // Workspace cleanup: every 30 min, garbage-collect orphaned dirs.
+    // Complements the on-boot cleanup so long-running processes don't
+    // leak disk over time.
+    const workspaceCleanupInterval = setInterval(() => {
+        try {
+            const cleaned = cleanupOrphanedWorkspaces();
+            if (cleaned > 0) {
+                console.log(`[Workspace Cron] Cleaned ${cleaned} orphaned workspaces`);
+            }
+        } catch (err) {
+            console.warn('[Workspace Cron] error:', (err as Error).message);
+        }
+    }, 30 * 60 * 1000);
+
+    // BLOCO 2: final cleanup on graceful shutdown
+    const shutdownArchitect = async () => {
+        console.log('[Architect Worker] Shutdown — running final workspace cleanup');
+        clearInterval(watchdogInterval);
+        clearInterval(workspaceCleanupInterval);
+        try {
+            const cleaned = cleanupOrphanedWorkspaces();
+            if (cleaned > 0) console.log(`[Architect Worker] Final cleanup: ${cleaned} workspaces`);
+        } catch (err) {
+            console.warn('[Architect Worker] cleanup error on shutdown:', (err as Error).message);
+        }
+        try { await worker.close(); } catch { /* ignore */ }
+    };
+    process.once('SIGTERM', shutdownArchitect);
+    process.once('SIGINT', shutdownArchitect);
+
+    console.log('[Architect Worker] Started (watchdog=5min, workspace cleanup=30min)');
     return worker;
 }

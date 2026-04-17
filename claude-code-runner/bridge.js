@@ -179,6 +179,19 @@ function handleChat(call) {
     call.on('data', (msg) => {
         if (msg.request) {
             const req = msg.request;
+
+            // FASE 11: probe mode. The platform sends `message="__govai_probe__"`
+            // to check health without incurring an Anthropic API call. Reply
+            // immediately with a synthetic done event so GET /v1/admin/runtimes
+            // can report availability without spending credits.
+            if (req.message === '__govai_probe__') {
+                try {
+                    call.write({ done: { full_text: 'probe_ok', prompt_tokens: 0, completion_tokens: 0 } });
+                } catch (_) { /* call already ended */ }
+                try { call.end(); } catch (_) { /* already ended */ }
+                return;
+            }
+
             const cwd = (req.working_directory && req.working_directory.trim())
                 || ('/tmp/govai-workspaces/' + crypto.randomUUID());
             try { fs.mkdirSync(cwd, { recursive: true }); } catch { /* ignore */ }
