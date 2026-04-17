@@ -212,6 +212,11 @@ export const ENDPOINTS = {
     BIAS_BY_VERSION:                  (versionId: string) => `/v1/admin/bias-assessments/version/${versionId}`,
     BIAS_ONE:                         (id: string) => `/v1/admin/bias-assessments/${id}`,
     BIAS_EVIDENCE:                    (id: string) => `/v1/admin/bias-assessments/${id}/evidence`,
+
+    // FASE 13.2 — ICP-Brasil signing
+    ICP_CERTIFICATES:                 '/v1/admin/icp-certificates',
+    ICP_CERTIFICATE_DELETE:           (id: string) => `/v1/admin/icp-certificates/${id}`,
+    ICP_CERTIFICATE_VERIFY:           (id: string) => `/v1/admin/icp-certificates/${id}/verify`,
 };
 
 export default api;

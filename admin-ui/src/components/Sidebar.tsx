@@ -6,7 +6,7 @@ import {
     LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck,
     ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2, X, Bell,
     ScrollText, AlertTriangle, Settings, ClipboardCheck, ShieldEllipsis, BellRing, Sparkles,
-    Scale,
+    Scale, BadgeCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
@@ -173,6 +173,9 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         <NavItem href="/logs"             label="Audit Logs"              Icon={ShieldAlert}     isActive={pathname === '/logs'}             accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
                         {(isAdmin || role === 'dpo') && (
                             <NavItem href="/settings/dlp" label="Proteção de Dados" Icon={ShieldEllipsis} isActive={pathname === '/settings/dlp'} accentClass="bg-amber-400" iconActiveClass="text-amber-400" onClose={onClose} />
+                        )}
+                        {(isAdmin || role === 'dpo') && (
+                            <NavItem href="/settings/icp-brasil" label="ICP-Brasil" Icon={BadgeCheck} isActive={pathname === '/settings/icp-brasil'} accentClass="bg-amber-400" iconActiveClass="text-amber-400" onClose={onClose} />
                         )}
                     </>
                 )}

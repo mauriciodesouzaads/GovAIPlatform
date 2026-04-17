@@ -10,6 +10,11 @@
 
 import { Pool, PoolClient } from 'pg';
 import { createHash } from 'crypto';
+import {
+  signWithIcpBrasil,
+  IcpNotConfiguredError,
+  type IcpSigningResult,
+} from './icp-brasil-signer';
 
 export type EvidenceCategory =
   | 'execution'
@@ -31,11 +36,24 @@ export interface EvidencePayload {
   resourceType?: string | null;
   resourceId?: string | null;
   metadata?: Record<string, unknown>;
+  /**
+   * Request an ICP-Brasil digital signature on the integrity_hash. Modes:
+   *   - 'required'  — throw IcpNotConfiguredError if no active cert
+   *   - 'optional'  — best-effort: sign if a cert exists, skip silently otherwise
+   *   - false/undefined (default) — no ICP signing
+   * When enabled, the signature is produced over the same SHA-256 hex
+   * digest used for `integrity_hash`, so one value represents both the
+   * record fingerprint and the signed payload.
+   */
+  signWithIcp?: 'required' | 'optional' | false;
 }
 
 export interface EvidenceRecord {
   id: string;
   createdAt: Date;
+  icpSignatureBase64?: string | null;
+  icpCertificateId?: string | null;
+  icpSignedAt?: Date | null;
 }
 
 type DbClient = Pool | PoolClient | { query: (...args: any[]) => Promise<any> };
@@ -49,6 +67,15 @@ type DbClient = Pool | PoolClient | { query: (...args: any[]) => Promise<any> };
  *    app.current_org_id before INSERT so the evidence_isolation RLS policy is satisfied.
  *  - If db is a PoolClient, the caller is responsible for having already called
  *    set_config('app.current_org_id', ...) on that client (e.g. inside a transaction).
+ *
+ * ICP-Brasil signing:
+ *  - Triggered by `payload.signWithIcp`. When active, we sign the
+ *    `integrity_hash` BEFORE the INSERT so all three ICP columns
+ *    (signature, cert id, signed_at) land inside the same immutable
+ *    row — the evidence_records trigger blocks any UPDATE afterwards.
+ *  - In 'optional' mode we swallow IcpNotConfiguredError and continue
+ *    without a signature. In 'required' mode we propagate so the caller
+ *    can return a 409 / 503.
  */
 export async function recordEvidence(
   db: DbClient,
@@ -66,6 +93,36 @@ export async function recordEvidence(
     )
     .digest('hex');
 
+  // ── Optional ICP-Brasil signing (pre-INSERT so columns land atomically) ──
+  let icp: IcpSigningResult | null = null;
+  if (payload.signWithIcp === 'required' || payload.signWithIcp === 'optional') {
+    // ICP signing needs a Pool (it manages its own connection + set_config).
+    // When the caller hands us a PoolClient mid-transaction we can't reuse
+    // it safely, so we require the Pool for any caller that wants signing.
+    const isPool = typeof (db as PoolClient).release !== 'function';
+    if (!isPool) {
+      if (payload.signWithIcp === 'required') {
+        throw new Error('signWithIcp=required requires a Pool (not a PoolClient)');
+      }
+      // optional → degrade to unsigned, same as "no cert"
+    } else {
+      try {
+        icp = await signWithIcpBrasil(db as Pool, {
+          orgId: payload.orgId,
+          payloadHash: integrityHash,
+        });
+      } catch (err) {
+        if (err instanceof IcpNotConfiguredError) {
+          if (payload.signWithIcp === 'required') throw err;
+          // optional: proceed unsigned
+        } else {
+          if (payload.signWithIcp === 'required') throw err;
+          // optional: log-and-proceed; callers log at a higher layer
+        }
+      }
+    }
+  }
+
   const params = [
     payload.orgId,
     payload.category,
@@ -76,12 +133,16 @@ export async function recordEvidence(
     payload.resourceId ?? null,
     JSON.stringify(metadata),
     integrityHash,
+    icp?.signatureBase64 ?? null,
+    icp?.certificateId ?? null,
+    icp?.signedAt ?? null,
   ];
   const sql = `INSERT INTO evidence_records
        (org_id, category, event_type, actor_id, actor_email,
-        resource_type, resource_id, metadata, integrity_hash)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, created_at`;
+        resource_type, resource_id, metadata, integrity_hash,
+        icp_signature_base64, icp_certificate_id, icp_signed_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       RETURNING id, created_at, icp_signature_base64, icp_certificate_id, icp_signed_at`;
 
   // Pool path: acquire a dedicated client and set app.current_org_id for RLS
   // Distinguish Pool from PoolClient by presence of .release (only PoolClient has it)
@@ -93,9 +154,14 @@ export async function recordEvidence(
       return {
         id: result.rows[0].id as string,
         createdAt: result.rows[0].created_at as Date,
+        icpSignatureBase64: result.rows[0].icp_signature_base64 ?? null,
+        icpCertificateId: result.rows[0].icp_certificate_id ?? null,
+        icpSignedAt: result.rows[0].icp_signed_at ?? null,
       };
-    } catch {
+    } catch (err) {
       // Non-fatal: evidence failure must not block execution or approvals
+      // EXCEPT when ICP signing was required — caller expects the throw.
+      if (payload.signWithIcp === 'required') throw err;
       return null;
     } finally {
       await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
@@ -109,9 +175,12 @@ export async function recordEvidence(
     return {
       id: result.rows[0].id as string,
       createdAt: result.rows[0].created_at as Date,
+      icpSignatureBase64: result.rows[0].icp_signature_base64 ?? null,
+      icpCertificateId: result.rows[0].icp_certificate_id ?? null,
+      icpSignedAt: result.rows[0].icp_signed_at ?? null,
     };
-  } catch {
-    // Non-fatal: evidence failure must not block execution or approvals
+  } catch (err) {
+    if (payload.signWithIcp === 'required') throw err;
     return null;
   }
 }

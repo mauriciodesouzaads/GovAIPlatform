@@ -570,6 +570,7 @@ import { complianceHubRoutes } from './routes/compliance-hub.routes';
 import { modelCardRoutes } from './routes/model-card.routes';
 import { riskAssessmentRoutes } from './routes/risk-assessment.routes';
 import { biasRoutes } from './routes/bias.routes';
+import { icpCertificatesRoutes } from './routes/icp-certificates.routes';
 import { monitoringRoutes } from './routes/monitoring.routes';
 import { dlpRoutes } from './routes/dlp.routes';
 import { notificationChannelsRoutes } from './routes/notification-channels.routes';
@@ -592,6 +593,7 @@ fastify.register(complianceHubRoutes, { pgPool, requireRole: requireTenantRole }
 fastify.register(modelCardRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(riskAssessmentRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(biasRoutes, { pgPool, requireRole: requireTenantRole });
+fastify.register(icpCertificatesRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(monitoringRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(dlpRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(notificationChannelsRoutes, { pgPool, requireRole: requireTenantRole });

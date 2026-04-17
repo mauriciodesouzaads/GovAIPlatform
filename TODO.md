@@ -29,6 +29,15 @@ and fail more often under full-suite parallel load.
 - `src/__tests__/assistant-versions.test.ts` — 1 failure on policy_json
   validation
 
+## Test-infra follow-ups
+
+- **`test-openclaude-e2e.sh` default timeout** (`MAX_POLLS=30` × 3s = 90s)
+  sometimes insufficient when LiteLLM routes to a slow external provider
+  (e.g., Gemini free-tier at cold-start). Runs green at `MAX_POLLS=60`.
+  Consider raising the default or adding a retry with backoff inside the
+  script itself. Not a regression from any FASE 13.x work — same behavior
+  reproduces on commit `737c54d` (FASE 12 tip).
+
 ## FASE 12 follow-ups
 
 - **Add `last_login_at` column to `users`**: SOC 2 CC6.1 access-review
