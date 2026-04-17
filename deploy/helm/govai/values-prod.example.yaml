@@ -1,0 +1,93 @@
+# ============================================================================
+# values-prod.example.yaml — realistic production values
+# ----------------------------------------------------------------------------
+# Copy this file to your own values-<customer>.yaml and adjust:
+#   - image.*.repository and tag to your registry
+#   - postgres.host / redis.host to your managed service endpoints
+#   - ingress.hosts.* to your domains
+#   - global.domain to the top-level domain
+# ============================================================================
+
+global:
+  # CHANGE: your image registry
+  imageRegistry: ""
+  imagePullSecrets:
+    - name: ghcr-pull
+  # CHANGE: your customer-facing domain
+  domain: govai.CUSTOMER.com
+  environment: production
+
+image:
+  api:
+    # CHANGE: your registry
+    repository: ghcr.io/CUSTOMER/govai-api
+    tag: "1.0.0"
+  adminUi:
+    repository: ghcr.io/CUSTOMER/govai-admin-ui
+    tag: "1.0.0"
+  openclaudeRunner:
+    repository: ghcr.io/CUSTOMER/govai-openclaude-runner
+    tag: "1.0.0"
+
+replicaCount:
+  api: 3
+  adminUi: 2
+  openclaudeRunner: 3
+
+postgres:
+  # CHANGE: your managed Postgres endpoint
+  host: "govai-prod.abc123.us-east-1.rds.amazonaws.com"
+  port: 5432
+  database: govai_platform
+  sslmode: require
+  existingSecret: govai-postgres-creds
+  deployInCluster: false
+
+redis:
+  # CHANGE: your managed Redis endpoint
+  host: "govai-prod.abc123.use1.cache.amazonaws.com"
+  port: 6379
+  existingSecret: govai-redis-creds
+  deployInCluster: false
+
+features:
+  streamRegistryMode: distributed    # REQUIRED for multi-replica API
+  otelEnabled: true
+  tenantMaxConcurrent: 3
+
+ingress:
+  enabled: true
+  className: nginx
+  tls:
+    enabled: true
+    secretName: govai-tls
+  hosts:
+    api: api.govai.CUSTOMER.com
+    adminUi: app.govai.CUSTOMER.com
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    # Optional: block direct internet access (WAF-only)
+    # nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,172.16.0.0/12"
+
+autoscaling:
+  api:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+  openclaudeRunner:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+
+networkPolicy:
+  enabled: true
+
+observability:
+  prometheus:
+    serviceMonitor:
+      enabled: true
+  otel:
+    # CHANGE: your otel-collector endpoint
+    collectorEndpoint: http://otel-collector.observability:4318/v1/traces

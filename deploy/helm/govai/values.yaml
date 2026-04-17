@@ -1,0 +1,183 @@
+# ============================================================================
+# GovAI Helm Chart — values
+# ----------------------------------------------------------------------------
+# Defaults are sensible for a production deployment on k8s 1.24+ with external
+# Postgres (RDS/Cloud SQL) and Redis (ElastiCache/MemoryStore). For dev/PoC,
+# set postgres.deployInCluster=true and redis.deployInCluster=true — NOT
+# recommended for production (no PVC retention guarantees beyond cluster).
+# ============================================================================
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  domain: govai.example.com
+  environment: production
+
+replicaCount:
+  api: 3
+  adminUi: 2
+  openclaudeRunner: 2
+  claudeCodeRunner: 1   # Official profile — start with one, scale on demand
+
+image:
+  api:
+    repository: ghcr.io/YOUR_ORG/govai-api
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  adminUi:
+    repository: ghcr.io/YOUR_ORG/govai-admin-ui
+    tag: "1.0.0"
+  openclaudeRunner:
+    repository: ghcr.io/YOUR_ORG/govai-openclaude-runner
+    tag: "1.0.0"
+  claudeCodeRunner:
+    repository: ghcr.io/YOUR_ORG/govai-claude-code-runner
+    tag: "1.0.0"
+  litellm:
+    repository: ghcr.io/berriai/litellm
+    tag: "main-stable"
+  presidio:
+    repository: ghcr.io/YOUR_ORG/govai-presidio
+    tag: "1.0.0"
+
+# ── External-by-default databases ──────────────────────────────────────────
+# For production, use managed services. deployInCluster=true is for dev/PoC.
+postgres:
+  host: ""                    # customer provides via --set
+  port: 5432
+  database: govai_platform
+  sslmode: require
+  existingSecret: govai-postgres-creds
+  # Keys expected in secret: POSTGRES_PASSWORD, DB_APP_PASSWORD
+  deployInCluster: false      # set true for dev/PoC only
+
+redis:
+  host: ""
+  port: 6379
+  existingSecret: govai-redis-creds
+  # Key expected in secret: REDIS_URL (with password embedded)
+  deployInCluster: false
+
+# ── LiteLLM (the LLM gateway inside the cluster) ───────────────────────────
+litellm:
+  enabled: true
+  replicaCount: 2
+  existingSecret: govai-llm-keys
+  # Keys: GROQ_API_KEY, GEMINI_API_KEY, CEREBRAS_API_KEY, ANTHROPIC_API_KEY,
+  #       OPENAI_API_KEY (optional), OPENROUTER_API_KEY (optional)
+  masterKeySecret: govai-litellm-key
+  # Key: LITELLM_KEY
+
+# ── Presidio (PII detection) ───────────────────────────────────────────────
+presidio:
+  enabled: true
+  replicaCount: 2
+
+# ── Feature flags ──────────────────────────────────────────────────────────
+features:
+  streamRegistryMode: distributed   # REQUIRED when replicaCount.api > 1
+  otelEnabled: true
+  tenantMaxConcurrent: 2
+  claudeCodeRunnerEnabled: false    # requires ANTHROPIC_API_KEY secret
+  openRouterEnabled: false          # requires OPENROUTER_API_KEY in llm-keys
+
+# ── Ingress ────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  tls:
+    enabled: true
+    secretName: govai-tls
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+  hosts:
+    api: api.govai.example.com
+    adminUi: app.govai.example.com
+
+# ── Autoscaling ────────────────────────────────────────────────────────────
+autoscaling:
+  api:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  openclaudeRunner:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+# ── Pod Disruption Budget ──────────────────────────────────────────────────
+pdb:
+  api:
+    enabled: true
+    minAvailable: 2
+  adminUi:
+    enabled: true
+    minAvailable: 1
+
+# ── NetworkPolicy (zero-trust defaults) ────────────────────────────────────
+# Requires a NetworkPolicy-aware CNI (Calico, Cilium, Weave, etc.).
+networkPolicy:
+  enabled: true
+
+# ── Resources ──────────────────────────────────────────────────────────────
+resources:
+  api:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  adminUi:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  openclaudeRunner:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  claudeCodeRunner:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  litellm:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  presidio:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# ── Observability ──────────────────────────────────────────────────────────
+observability:
+  prometheus:
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+  otel:
+    collectorEndpoint: http://otel-collector.observability:4318/v1/traces
+
+# ── Migrations (Helm hook) ─────────────────────────────────────────────────
+migrations:
+  enabled: true

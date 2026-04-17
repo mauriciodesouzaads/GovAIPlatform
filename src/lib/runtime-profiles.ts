@@ -416,6 +416,17 @@ export async function isRuntimeAvailableCached(profile: RuntimeProfile): Promise
 
     const available = isRuntimeAvailable(profile);
 
+    // FASE 12: track probe outcomes for claude_code_official so operators
+    // see how often /v1/admin/runtimes is hit (zero-cost) vs real billable
+    // calls. Uses require() to avoid circular import during module init.
+    if (profile.slug === 'claude_code_official') {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { recordClaudeCodeProbe } = require('./sre-metrics');
+            recordClaudeCodeProbe(available ? 'success' : 'failure');
+        } catch { /* metrics optional */ }
+    }
+
     try {
         if (redisCache.status === 'ready') {
             await redisCache.set(cacheKey, available ? 'true' : 'false', 'EX', 30);

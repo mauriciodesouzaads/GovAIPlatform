@@ -1,0 +1,15 @@
+{{- if .Values.pdb.api.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "govai.fullname" . }}-api
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  minAvailable: {{ .Values.pdb.api.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "govai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+{{- end }}

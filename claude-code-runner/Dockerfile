@@ -60,12 +60,21 @@ COPY bridge.js /app/bridge.js
 RUN mkdir -p /tmp/govai-workspaces /tmp/govai-workspace /var/run/govai \
     && chmod 777 /tmp/govai-workspaces /tmp/govai-workspace /var/run/govai
 
+# ── FASE 12: Non-root user ────────────────────────────────────────────────
+# Claude CLI 2.x refuses --dangerously-skip-permissions when running as
+# root ("cannot be used with root/sudo privileges for security reasons").
+# The node:20-slim base image already ships a `node` user (uid 1000).
+# Give it ownership of the workspace + app dirs and run as that user.
+RUN chown -R node:node /app /tmp/govai-workspaces /tmp/govai-workspace /var/run/govai
+USER node
+
 # ── Defaults overridable from docker-compose ───────────────────────────────
 ENV GRPC_HOST=0.0.0.0 \
     GRPC_PORT=50051 \
     GRPC_SOCKET_PATH=/var/run/govai/claude-code.sock \
     CLAUDE_CLI_PATH=claude \
-    CLAUDE_CODE_MAX_TURNS=30
+    CLAUDE_CODE_MAX_BUDGET_USD=0.50 \
+    HOME=/tmp
 
 # ── Healthcheck ────────────────────────────────────────────────────────────
 # Probes the gRPC TCP port directly — same pattern as openclaude-runner so

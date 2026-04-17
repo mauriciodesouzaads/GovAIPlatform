@@ -197,14 +197,20 @@ function handleChat(call) {
             try { fs.mkdirSync(cwd, { recursive: true }); } catch { /* ignore */ }
 
             const claudePath = process.env.CLAUDE_CLI_PATH || 'claude';
-            const maxTurns = String(process.env.CLAUDE_CODE_MAX_TURNS || '30');
+            // FASE 12: CLI 2.1.112 does NOT have --max-turns. Budget control
+            // uses --max-budget-usd instead (default: 0.50 USD per call, tunable
+            // via CLAUDE_CODE_MAX_BUDGET_USD). --bare skips hooks/LSP/plugin
+            // sync to minimize overhead for server-mode invocation.
+            const maxBudgetUsd = String(process.env.CLAUDE_CODE_MAX_BUDGET_USD || '0.50');
 
             const args = [
                 '-p',                                   // print / non-interactive
                 '--output-format', 'stream-json',       // one JSON envelope per line
-                '--input-format', 'text',               // plain text input (we pass --print-ready below)
+                '--input-format', 'text',               // plain text input
                 '--dangerously-skip-permissions',       // GovAI handles approvals upstream
-                '--max-turns', maxTurns,
+                '--max-budget-usd', maxBudgetUsd,       // per-call USD cap (FASE 12)
+                '--bare',                               // skip hooks/LSP/plugin sync
+                '--no-session-persistence',             // don't write session files
                 '--verbose',                            // richer events for the adapter timeline
             ];
             if (req.model && req.model.trim()) {
@@ -225,10 +231,14 @@ function handleChat(call) {
 
             console.log(`[claude-code-runner] spawning ${claudePath} with ${args.length} args, cwd=${cwd}`);
             try {
+                // FASE 12: stdio[0]='ignore' — close stdin explicitly. The CLI
+                // otherwise waits 3s for stdin before proceeding when --input-format=text
+                // and prompt is a positional arg (observed as "no stdin data received in 3s"
+                // warning on first real E2E run).
                 proc = spawn(claudePath, args, {
                     cwd,
                     env,
-                    stdio: ['pipe', 'pipe', 'pipe'],
+                    stdio: ['ignore', 'pipe', 'pipe'],
                 });
             } catch (err) {
                 try {
@@ -355,7 +365,17 @@ const socketPath = process.env.GRPC_SOCKET_PATH;
 // The TCP listener below is still bound so the compose healthcheck and
 // external tooling can reach the service on port 50051.
 if (socketPath) {
-    try { fs.unlinkSync(socketPath); } catch { /* ignore */ }
+    // FASE 12: handle stale sockets from previous runs. The shared volume
+    // persists socket files across container restarts. If the file exists
+    // but we can't delete it (perm mismatch between root and node user),
+    // fall back to TCP-only rather than crash.
+    try {
+        if (fs.existsSync(socketPath)) {
+            fs.unlinkSync(socketPath);
+        }
+    } catch (err) {
+        console.warn(`[claude-code-runner] Could not remove stale socket ${socketPath}: ${err.message}. Continuing with TCP only.`);
+    }
     server.bindAsync(`unix://${socketPath}`, grpc.ServerCredentials.createInsecure(), (err) => {
         if (err) {
             console.error('[claude-code-runner] unix socket bind failed:', err.message || err);

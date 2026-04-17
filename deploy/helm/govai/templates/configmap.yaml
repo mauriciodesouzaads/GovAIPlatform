@@ -1,0 +1,28 @@
+{{- include "govai.validatePreconditions" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "govai.fullname" . }}-env
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+data:
+  # Non-sensitive runtime config. Secrets live in Secret objects
+  # (existingSecret pattern — see README).
+  NODE_ENV: {{ .Values.global.environment | quote }}
+  ADMIN_UI_ORIGIN: "https://{{ .Values.ingress.hosts.adminUi }}"
+  STREAM_REGISTRY_MODE: {{ .Values.features.streamRegistryMode | quote }}
+  TENANT_MAX_CONCURRENT: {{ .Values.features.tenantMaxConcurrent | quote }}
+  OTEL_ENABLED: {{ .Values.features.otelEnabled | quote }}
+  OTEL_SERVICE_NAME: "govai-api"
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otel.collectorEndpoint | quote }}
+  OTEL_ENVIRONMENT: {{ .Values.global.environment | quote }}
+  OPENCLAUDE_GRPC_HOST: "{{ include "govai.fullname" . }}-openclaude-runner:50051"
+  {{- if .Values.features.claudeCodeRunnerEnabled }}
+  CLAUDE_CODE_GRPC_HOST: "{{ include "govai.fullname" . }}-claude-code-runner:50051"
+  {{- end }}
+  LITELLM_URL: "http://{{ include "govai.fullname" . }}-litellm:4000"
+  PRESIDIO_URL: "http://{{ include "govai.fullname" . }}-presidio:5001"
+  DB_HOST: {{ .Values.postgres.host | default (printf "%s-postgres" (include "govai.fullname" .)) | quote }}
+  DB_PORT: {{ .Values.postgres.port | quote }}
+  DB_NAME: {{ .Values.postgres.database | quote }}
+  DB_SSLMODE: {{ .Values.postgres.sslmode | quote }}

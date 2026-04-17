@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "govai.fullname" . }}-openclaude-runner
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openclaude-runner
+spec:
+  {{- if not .Values.autoscaling.openclaudeRunner.enabled }}
+  replicas: {{ .Values.replicaCount.openclaudeRunner }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "govai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: openclaude-runner
+  template:
+    metadata:
+      labels:
+        {{- include "govai.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: openclaude-runner
+    spec:
+      containers:
+        - name: openclaude-runner
+          image: "{{ .Values.image.openclaudeRunner.repository }}:{{ .Values.image.openclaudeRunner.tag }}"
+          ports:
+            - name: grpc
+              containerPort: 50051
+          env:
+            - name: CLAUDE_CODE_USE_OPENAI
+              value: "1"
+            - name: OPENAI_BASE_URL
+              value: "http://{{ include "govai.fullname" . }}-litellm:4000/v1"
+            - name: OPENAI_MODEL
+              value: "govai-llm-gemini"
+            - name: OPENCLAUDE_DISABLE_WEB_SEARCH
+              value: "true"
+            - name: OPENCLAUDE_DISABLE_WEB_FETCH
+              value: "true"
+          envFrom:
+            - secretRef:
+                name: {{ .Values.litellm.masterKeySecret }}
+                optional: false
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources.openclaudeRunner | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "govai.fullname" . }}-openclaude-runner
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openclaude-runner
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: grpc
+  selector:
+    {{- include "govai.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: openclaude-runner
+{{- if .Values.autoscaling.openclaudeRunner.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "govai.fullname" . }}-openclaude-runner
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "govai.fullname" . }}-openclaude-runner
+  minReplicas: {{ .Values.autoscaling.openclaudeRunner.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.openclaudeRunner.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.openclaudeRunner.targetCPUUtilizationPercentage }}
+{{- end }}

@@ -1,0 +1,96 @@
+{{- if .Values.litellm.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "govai.fullname" . }}-litellm
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+spec:
+  replicas: {{ .Values.litellm.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "govai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: litellm
+  template:
+    metadata:
+      labels:
+        {{- include "govai.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: litellm
+    spec:
+      containers:
+        - name: litellm
+          image: "{{ .Values.image.litellm.repository }}:{{ .Values.image.litellm.tag }}"
+          args:
+            - "--config"
+            - "/etc/litellm/config.yaml"
+            - "--port"
+            - "4000"
+          ports:
+            - name: http
+              containerPort: 4000
+          envFrom:
+            - secretRef:
+                name: {{ .Values.litellm.existingSecret }}
+            - secretRef:
+                name: {{ .Values.litellm.masterKeySecret }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/litellm
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources.litellm | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "govai.fullname" . }}-litellm-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "govai.fullname" . }}-litellm
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 4000
+      targetPort: http
+  selector:
+    {{- include "govai.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+---
+# LiteLLM routing config — mounted into the litellm pod.
+# Customers can override by creating their own ConfigMap and setting
+# a custom name via values.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "govai.fullname" . }}-litellm-config
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    model_list:
+      - model_name: govai-llm
+        litellm_params:
+          model: groq/llama-3.1-8b-instant
+          api_key: os.environ/GROQ_API_KEY
+      - model_name: govai-llm-gemini
+        litellm_params:
+          model: gemini/gemini-2.5-flash-lite
+          api_key: os.environ/GEMINI_API_KEY
+      - model_name: govai-llm-anthropic
+        litellm_params:
+          model: anthropic/claude-sonnet-4-20250514
+          api_key: os.environ/ANTHROPIC_API_KEY
+    general_settings:
+      master_key: os.environ/LITELLM_KEY
+      drop_params: true
+{{- end }}

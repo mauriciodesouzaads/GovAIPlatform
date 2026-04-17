@@ -911,6 +911,13 @@ export async function runOpenClaudeAdapter(
             emitter.on('done', async (data: any) => {
                 // FASE 11: record circuit breaker success
                 try { circuitHandle.recordSuccess(); } catch { /* ignore */ }
+                // FASE 12: track billable Claude Code calls for cost visibility
+                if (runtime.runtimeProfileSlug === 'claude_code_official') {
+                    try {
+                        const { recordClaudeCodeBillableCall } = require('./sre-metrics');
+                        recordClaudeCodeBillableCall('success');
+                    } catch { /* ignore */ }
+                }
 
                 fullText = data.full_text || fullText;
                 promptTokens = data.prompt_tokens || 0;
@@ -974,6 +981,13 @@ export async function runOpenClaudeAdapter(
             emitter.on('error', async (data: any) => {
                 // FASE 11: record circuit breaker failure
                 try { circuitHandle.recordFailure(); } catch { /* ignore */ }
+                // FASE 12: track billable Claude Code failures
+                if (runtime.runtimeProfileSlug === 'claude_code_official') {
+                    try {
+                        const { recordClaudeCodeBillableCall } = require('./sre-metrics');
+                        recordClaudeCodeBillableCall('failure');
+                    } catch { /* ignore */ }
+                }
 
                 const errorMsg = data.message || 'OpenClaude execution failed';
 

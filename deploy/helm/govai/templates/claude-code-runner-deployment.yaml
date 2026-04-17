@@ -1,0 +1,65 @@
+{{- if .Values.features.claudeCodeRunnerEnabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "govai.fullname" . }}-claude-code-runner
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: claude-code-runner
+spec:
+  replicas: {{ .Values.replicaCount.claudeCodeRunner }}
+  selector:
+    matchLabels:
+      {{- include "govai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: claude-code-runner
+  template:
+    metadata:
+      labels:
+        {{- include "govai.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: claude-code-runner
+    spec:
+      # FASE 12: Claude Code CLI refuses --dangerously-skip-permissions
+      # when running as root. Use the non-root uid baked into the image.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: claude-code-runner
+          image: "{{ .Values.image.claudeCodeRunner.repository }}:{{ .Values.image.claudeCodeRunner.tag }}"
+          ports:
+            - name: grpc
+              containerPort: 50051
+          env:
+            - name: CLAUDE_CODE_MAX_BUDGET_USD
+              value: "0.50"
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.litellm.existingSecret }}
+                  key: ANTHROPIC_API_KEY
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources.claudeCodeRunner | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "govai.fullname" . }}-claude-code-runner
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: claude-code-runner
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: grpc
+  selector:
+    {{- include "govai.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: claude-code-runner
+{{- end }}

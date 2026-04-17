@@ -276,7 +276,9 @@ services:
       GRPC_PORT: "50051"
       GRPC_SOCKET_PATH: /var/run/govai/claude-code.sock
       CLAUDE_CLI_PATH: claude
-      CLAUDE_CODE_MAX_TURNS: "30"
+      # FASE 12: CLI 2.x uses --max-budget-usd instead of --max-turns.
+      # 0.50 USD per call is a safe ceiling for short Q&A workloads.
+      CLAUDE_CODE_MAX_BUDGET_USD: "0.50"
       # Real Anthropic key — NOT the LiteLLM proxy key. Without this the
       # CLI will 401 and the adapter surfaces the error.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}

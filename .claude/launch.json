@@ -3,9 +3,9 @@
   "configurations": [
     {
       "name": "admin-ui",
-      "runtimeExecutable": "/bin/bash",
-      "runtimeArgs": ["-c", "cd 'admin-ui' && NEXT_PUBLIC_API_URL=http://localhost:3000 /Users/mauriciodesouza/.nvm/versions/node/v18.20.8/bin/npm run dev -- --port 3002"],
-      "port": 3002
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["start", "-a", "govaigrcplatform-admin-ui-1"],
+      "port": 3001
     }
   ]
 }

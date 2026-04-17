@@ -170,6 +170,41 @@ export function initNotificationWorker(pgPool?: Pool) {
                             });
                             sent = true;
                             log.info({ channelId: channel.id, provider: channel.provider, event: eventNorm }, 'Notification channel delivered');
+                        } else if (channel.provider === 'siem_webhook' || channel.provider === 'siem_cef') {
+                            // FASE 12: SIEM streaming — send every event to the customer's SIEM
+                            // Formatters in src/lib/siem-formatters.ts map to CEF v0 or ECS JSON.
+                            const webhookUrl = channel.config?.webhook_url as string;
+                            if (!webhookUrl) continue;
+
+                            const { toCEF, toSiemJSON, inferOutcome, inferSeverity } =
+                                await import('../lib/siem-formatters');
+                            const siemEvent = {
+                                timestamp: new Date(payload.timestamp),
+                                action: payload.event,
+                                outcome: inferOutcome(payload.event),
+                                severity: inferSeverity(payload.event),
+                                orgId: payload.orgId,
+                                assistantId: payload.assistantId,
+                                traceId: payload.traceId,
+                                reason: payload.reason,
+                                metadata: payload.metadata,
+                            };
+
+                            const body = channel.provider === 'siem_cef'
+                                ? toCEF(siemEvent)
+                                : toSiemJSON(siemEvent);
+
+                            const headers: Record<string, string> = channel.provider === 'siem_cef'
+                                ? { 'Content-Type': 'text/plain' }
+                                : { 'Content-Type': 'application/json' };
+
+                            // Customer can set auth_header (e.g., "Bearer xyz" or "Splunk <token>")
+                            const authHeader = channel.config?.auth_header as string | undefined;
+                            if (authHeader) headers['Authorization'] = authHeader;
+
+                            await axios.post(webhookUrl, body, { headers, timeout: 10_000 });
+                            sent = true;
+                            log.info({ channelId: channel.id, provider: channel.provider, event: eventNorm }, 'SIEM channel delivered');
                         }
                         // Email provider: SMTP not wired — skip silently
                     } catch (chErr: any) {

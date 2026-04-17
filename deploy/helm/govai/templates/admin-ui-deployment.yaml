@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "govai.fullname" . }}-admin-ui
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: admin-ui
+spec:
+  replicas: {{ .Values.replicaCount.adminUi }}
+  selector:
+    matchLabels:
+      {{- include "govai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: admin-ui
+  template:
+    metadata:
+      labels:
+        {{- include "govai.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: admin-ui
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: admin-ui
+          image: "{{ .Values.image.adminUi.repository }}:{{ .Values.image.adminUi.tag }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              value: "https://{{ .Values.ingress.hosts.api }}"
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.resources.adminUi | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "govai.fullname" . }}-admin-ui
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: admin-ui
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3001
+      targetPort: http
+  selector:
+    {{- include "govai.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: admin-ui
+{{- if .Values.pdb.adminUi.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "govai.fullname" . }}-admin-ui
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: admin-ui
+spec:
+  minAvailable: {{ .Values.pdb.adminUi.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "govai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: admin-ui
+{{- end }}

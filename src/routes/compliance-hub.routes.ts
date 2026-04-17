@@ -217,4 +217,57 @@ export async function complianceHubRoutes(
             client.release();
         }
     });
+
+    // ── GET /v1/admin/compliance/access-review ──────────────────────────
+    // FASE 12 — SOC 2 CC6.1 quarterly access review. Lists privileged
+    // users (admin, dpo, operator, auditor) in the caller's org with the
+    // most recent activity timestamp observable from the audit trail
+    // (actions attributed to the account). Auditors export this
+    // quarterly to verify that accounts with elevated permissions are
+    // still used and authorized.
+    //
+    // Note: the `users` table does not currently carry a `last_login_at`
+    // column. We derive the most recent activity from audit_logs_partitioned
+    // (actions taken by the user's org correlated by metadata.actor_user_id
+    // when present) and fall back to `created_at` when no audit row matches.
+    // A follow-up migration can introduce a dedicated column updated by
+    // the login handler, at which point this query can be simplified.
+    app.get('/v1/admin/compliance/access-review', {
+        preHandler: requireRole(['admin', 'dpo', 'auditor']),
+    }, async (request: any, reply: any) => {
+        const orgId = (request.headers['x-org-id'] as string) || request.user?.orgId;
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+
+        const client = await pgPool.connect();
+        try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+            const res = await client.query(`
+                WITH last_activity AS (
+                    SELECT (metadata->>'actor_user_id')::uuid AS user_id,
+                           MAX(created_at) AS last_seen_at
+                      FROM audit_logs_partitioned
+                     WHERE org_id = $1
+                       AND metadata ? 'actor_user_id'
+                  GROUP BY (metadata->>'actor_user_id')::uuid
+                )
+                SELECT u.id, u.email, u.role, u.created_at,
+                       COALESCE(la.last_seen_at, u.created_at) AS last_seen_at,
+                       (COALESCE(la.last_seen_at, u.created_at) < NOW() - INTERVAL '90 days') AS inactive_90d
+                  FROM users u
+             LEFT JOIN last_activity la ON la.user_id = u.id
+                 WHERE u.org_id = $1
+                   AND u.role IN ('admin', 'dpo', 'operator', 'auditor')
+              ORDER BY u.role, last_seen_at DESC NULLS LAST
+            `, [orgId]);
+            return reply.send({
+                users: res.rows,
+                total: res.rows.length,
+                inactive_90d_count: res.rows.filter(r => r.inactive_90d).length,
+                reviewed_at: new Date().toISOString(),
+            });
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
 }

@@ -115,6 +115,33 @@ export function updateComplianceConsentedOrgs(count: number): void {
     complianceConsentedOrgs.set(count);
 }
 
+// ── FASE 12: Claude Code cost observability ───────────────────────────────
+// probes are zero-cost health checks (bridge responds with synthetic done);
+// billable calls invoke the real Anthropic CLI. Splitting the counters lets
+// operators see spend trajectory without having to parse billing reports.
+
+export const claudeCodeProbesTotal = new Counter({
+    name: 'govai_claude_code_probes_total',
+    help: 'Number of probes sent to claude_code_official (zero-cost)',
+    labelNames: ['outcome'] as const,
+    registers: [metricsRegistry],
+});
+
+export const claudeCodeBillableCallsTotal = new Counter({
+    name: 'govai_claude_code_billable_calls_total',
+    help: 'Number of real (billable) Claude Code CLI calls',
+    labelNames: ['outcome'] as const,
+    registers: [metricsRegistry],
+});
+
+export function recordClaudeCodeProbe(outcome: 'success' | 'failure'): void {
+    claudeCodeProbesTotal.inc({ outcome });
+}
+
+export function recordClaudeCodeBillableCall(outcome: 'success' | 'failure'): void {
+    claudeCodeBillableCallsTotal.inc({ outcome });
+}
+
 export async function renderPrometheusMetrics(): Promise<string> {
     return metricsRegistry.metrics();
 }

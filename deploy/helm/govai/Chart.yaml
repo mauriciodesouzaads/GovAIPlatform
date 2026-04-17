@@ -1,0 +1,16 @@
+apiVersion: v2
+name: govai
+description: GovAI GRC Platform — AI governance for regulated enterprises
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+home: https://github.com/mauriciosouza/govai
+maintainers:
+  - name: GovAI Engineering
+keywords:
+  - ai-governance
+  - compliance
+  - grc
+  - llm-gateway
+  - dlp
+  - audit-trail

@@ -1,0 +1,89 @@
+{{- if .Values.networkPolicy.enabled }}
+# Zero-trust default: deny all ingress/egress in the namespace, then
+# explicitly allow the flows the platform requires. Requires a CNI with
+# NetworkPolicy support (Calico, Cilium, Weave).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "govai.fullname" . }}-default-deny
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  # Allow DNS for every pod (required or nothing resolves)
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+---
+# api: ingress from ingress-controller only, egress to DB/Redis/runners/litellm
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "govai.fullname" . }}-api
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "govai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "govai.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: 50051
+        - port: 4000
+        - port: 5001
+    # External DB + Redis when using managed services (no podSelector match)
+    - ports:
+        - port: 5432
+        - port: 6379
+        - port: 443
+---
+# openclaude-runner: only api can reach it
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "govai.fullname" . }}-openclaude-runner
+  labels:
+    {{- include "govai.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "govai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: openclaude-runner
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "govai.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: api
+      ports:
+        - port: 50051
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "govai.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: litellm
+      ports:
+        - port: 4000
+{{- end }}
