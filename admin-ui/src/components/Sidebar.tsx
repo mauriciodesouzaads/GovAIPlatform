@@ -12,6 +12,8 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
 import { useEffect, useState } from 'react';
 import api, { ENDPOINTS } from '@/lib/api';
+import { useTranslations } from 'next-intl';
+import { LocaleSwitcher } from '@/components/LocaleSwitcher';
 
 interface SidebarProps {
     mobileOpen?: boolean;
@@ -121,6 +123,8 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     const { logout, role, email } = useAuth();
     const badgeCount      = useShieldBadge();
     const exceptionsBadge = useExceptionsBadge();
+    const t = useTranslations('nav');
+    const tAuth = useTranslations('auth');
 
     // Role groups
     const isGovernance = ['dpo', 'auditor', 'compliance'].includes(role ?? '');
@@ -159,23 +163,23 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 {/* GOVERNANÇA group */}
                 {showGovernance && (
                     <>
-                        {(isAdmin || showAll) && <SectionLabel label="Governança" />}
-                        <NavItem href="/shield"     label="Postura de Risco"        Icon={ScanEye}       isActive={pathname === '/shield'}      accentClass="bg-amber-400" iconActiveClass="text-amber-400" badge={badgeCount}      onClose={onClose} />
-                        <NavItem href="/catalog"    label="Catálogo de Agentes"     Icon={BookOpen}      isActive={pathname === '/catalog'}     accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
-                        <NavItem href="/approvals"  label="Fila de Aprovação"       Icon={ShieldCheck}   isActive={pathname === '/approvals'}   accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
-                        <NavItem href="/reports"    label="Evidências & Relatórios" Icon={FileText}      isActive={pathname === '/reports'}     accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
-                        <NavItem href="/compliance" label="Compliance LGPD"         Icon={ToggleRight}   isActive={pathname === '/compliance'}  accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
-                        <NavItem href="/policies"   label="Políticas"               Icon={ScrollText}    isActive={pathname === '/policies'}    accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
-                        <NavItem href="/exceptions"       label="Exceções"                Icon={AlertTriangle}   isActive={pathname === '/exceptions'}       accentClass="bg-amber-400" iconActiveClass="text-amber-400" badge={exceptionsBadge} onClose={onClose} />
-                        <NavItem href="/compliance-hub"   label="Compliance Hub"          Icon={ClipboardCheck}  isActive={pathname === '/compliance-hub'}   accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
-                        <NavItem href="/bias"             label="Detecção de Viés"        Icon={Scale}           isActive={pathname === '/bias'}             accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
-                        <NavItem href="/skills"           label="Skills & Templates"      Icon={Sparkles}        isActive={pathname === '/skills'}           accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
-                        <NavItem href="/logs"             label="Audit Logs"              Icon={ShieldAlert}     isActive={pathname === '/logs'}             accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        {(isAdmin || showAll) && <SectionLabel label={t('governance')} />}
+                        <NavItem href="/shield"     label={t('shield')}         Icon={ScanEye}       isActive={pathname === '/shield'}      accentClass="bg-amber-400" iconActiveClass="text-amber-400" badge={badgeCount}      onClose={onClose} />
+                        <NavItem href="/catalog"    label={t('catalog')}        Icon={BookOpen}      isActive={pathname === '/catalog'}     accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/approvals"  label={t('approvals')}      Icon={ShieldCheck}   isActive={pathname === '/approvals'}   accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/reports"    label={t('reports')}        Icon={FileText}      isActive={pathname === '/reports'}     accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/compliance" label={t('compliance')}     Icon={ToggleRight}   isActive={pathname === '/compliance'}  accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/policies"   label={t('policies')}       Icon={ScrollText}    isActive={pathname === '/policies'}    accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/exceptions"       label={t('exceptions')}       Icon={AlertTriangle}   isActive={pathname === '/exceptions'}       accentClass="bg-amber-400" iconActiveClass="text-amber-400" badge={exceptionsBadge} onClose={onClose} />
+                        <NavItem href="/compliance-hub"   label={t('complianceHub')}    Icon={ClipboardCheck}  isActive={pathname === '/compliance-hub'}   accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/bias"             label={t('bias')}             Icon={Scale}           isActive={pathname === '/bias'}             accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/skills"           label={t('skills')}           Icon={Sparkles}        isActive={pathname === '/skills'}           accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        <NavItem href="/logs"             label={t('auditLogs')}        Icon={ShieldAlert}     isActive={pathname === '/logs'}             accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
                         {(isAdmin || role === 'dpo') && (
-                            <NavItem href="/settings/dlp" label="Proteção de Dados" Icon={ShieldEllipsis} isActive={pathname === '/settings/dlp'} accentClass="bg-amber-400" iconActiveClass="text-amber-400" onClose={onClose} />
+                            <NavItem href="/settings/dlp" label={t('dataProtection')} Icon={ShieldEllipsis} isActive={pathname === '/settings/dlp'} accentClass="bg-amber-400" iconActiveClass="text-amber-400" onClose={onClose} />
                         )}
                         {(isAdmin || role === 'dpo') && (
-                            <NavItem href="/settings/icp-brasil" label="ICP-Brasil" Icon={BadgeCheck} isActive={pathname === '/settings/icp-brasil'} accentClass="bg-amber-400" iconActiveClass="text-amber-400" onClose={onClose} />
+                            <NavItem href="/settings/icp-brasil" label={t('icpBrasil')} Icon={BadgeCheck} isActive={pathname === '/settings/icp-brasil'} accentClass="bg-amber-400" iconActiveClass="text-amber-400" onClose={onClose} />
                         )}
                     </>
                 )}
@@ -183,29 +187,29 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 {/* TÉCNICO group */}
                 {showTechnical && (
                     <>
-                        {(isAdmin || showAll) && <SectionLabel label="Técnico" />}
-                        <NavItem href="/"           label="Dashboard"        Icon={LayoutDashboard}  isActive={pathname === '/'}           accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
-                        <NavItem href="/assistants" label="Assistants & RAG" Icon={MessageSquareText} isActive={pathname === '/assistants'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
-                        <NavItem href="/playground" label="Chat"             Icon={MessageSquareText} isActive={pathname === '/playground'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
-                        <NavItem href="/api-keys"   label="API Keys"         Icon={Key}              isActive={pathname === '/api-keys'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
-                        <NavItem href="/architect"  label="Arquiteto"        Icon={BrainCircuit}     isActive={pathname === '/architect'}  accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
-                        <NavItem href="/webhooks"   label="Webhooks"         Icon={Bell}             isActive={pathname === '/webhooks'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        {(isAdmin || showAll) && <SectionLabel label={t('technical')} />}
+                        <NavItem href="/"           label={t('dashboard')}   Icon={LayoutDashboard}  isActive={pathname === '/'}           accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        <NavItem href="/assistants" label={t('assistants')}  Icon={MessageSquareText} isActive={pathname === '/assistants'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        <NavItem href="/playground" label={t('chat')}        Icon={MessageSquareText} isActive={pathname === '/playground'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        <NavItem href="/api-keys"   label={t('apiKeys')}     Icon={Key}              isActive={pathname === '/api-keys'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        <NavItem href="/architect"  label={t('architect')}   Icon={BrainCircuit}     isActive={pathname === '/architect'}  accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        <NavItem href="/webhooks"   label={t('webhooks')}    Icon={Bell}             isActive={pathname === '/webhooks'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                     </>
                 )}
 
                 {/* Consultant (admin, sre, dpo — roles that had it before) */}
                 {(isAdmin || isTechnical || isGovernance || showAll) && (
-                    <NavItem href="/consultant" label="Painel do Consultor" Icon={UserCog} isActive={pathname === '/consultant'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                    <NavItem href="/consultant" label={t('consultant')} Icon={UserCog} isActive={pathname === '/consultant'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                 )}
 
                 {/* Platform (admin + platform_admin) */}
                 {(isAdmin || isPlatformAdmin || showAll) && (
                     <>
-                        <SectionLabel label="Platform" />
-                        <NavItem href="/organizations"          label="Organizações"      Icon={Building2} isActive={pathname === '/organizations'}          accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
-                        <NavItem href="/settings"               label="Configurações"     Icon={Settings}  isActive={pathname === '/settings'}               accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
+                        <SectionLabel label={t('platform')} />
+                        <NavItem href="/organizations"          label={t('organizations')} Icon={Building2} isActive={pathname === '/organizations'}          accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
+                        <NavItem href="/settings"               label={t('settings')}      Icon={Settings}  isActive={pathname === '/settings'}               accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
                         {isAdmin && (
-                            <NavItem href="/settings/notifications" label="Notificações"  Icon={BellRing}  isActive={pathname === '/settings/notifications'} accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
+                            <NavItem href="/settings/notifications" label={t('notifications')} Icon={BellRing}  isActive={pathname === '/settings/notifications'} accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
                         )}
                     </>
                 )}
@@ -222,12 +226,15 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         <span className="text-[10px] text-muted-foreground max-w-[150px] truncate" title={email}>{email}</span>
                     </div>
                 </div>
+                <div className="mb-2">
+                    <LocaleSwitcher />
+                </div>
                 <button
                     onClick={logout}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-destructive/80 hover:text-destructive hover:bg-destructive/10 transition-colors"
                 >
                     <LogOut className="w-4 h-4" />
-                    Encerrar Sessão
+                    {tAuth('logout')}
                 </button>
             </div>
         </div>

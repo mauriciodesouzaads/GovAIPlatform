@@ -1,0 +1,275 @@
+{
+    "common": {
+        "save": "Save",
+        "cancel": "Cancel",
+        "delete": "Delete",
+        "confirm": "Confirm",
+        "loading": "Loading…",
+        "error": "Error",
+        "success": "Success",
+        "yes": "Yes",
+        "no": "No",
+        "back": "Back",
+        "next": "Next",
+        "previous": "Previous",
+        "close": "Close",
+        "search": "Search",
+        "filter": "Filter",
+        "refresh": "Refresh",
+        "new": "New",
+        "edit": "Edit",
+        "view": "View",
+        "download": "Download",
+        "upload": "Upload",
+        "export": "Export",
+        "required": "Required",
+        "optional": "Optional",
+        "name": "Name",
+        "description": "Description",
+        "status": "Status",
+        "actions": "Actions",
+        "createdAt": "Created at",
+        "updatedAt": "Updated at",
+        "total": "Total",
+        "none": "None",
+        "empty": "No records",
+        "notFound": "Not found",
+        "unauthorized": "Unauthorized",
+        "forbidden": "Forbidden",
+        "internalError": "Internal error"
+    },
+    "auth": {
+        "login": "Sign in",
+        "logout": "Sign out",
+        "email": "Email",
+        "password": "Password",
+        "signingIn": "Signing in…",
+        "loginFailed": "Login failed",
+        "sessionExpired": "Session expired"
+    },
+    "nav": {
+        "governance": "Governance",
+        "technical": "Technical",
+        "platform": "Platform",
+        "dashboard": "Dashboard",
+        "shield": "Risk Posture",
+        "catalog": "Agent Catalog",
+        "approvals": "Approval Queue",
+        "reports": "Evidence & Reports",
+        "compliance": "LGPD Compliance",
+        "policies": "Policies",
+        "exceptions": "Exceptions",
+        "complianceHub": "Compliance Hub",
+        "bias": "Bias Detection",
+        "skills": "Skills & Templates",
+        "auditLogs": "Audit Logs",
+        "dataProtection": "Data Protection",
+        "icpBrasil": "ICP-Brasil",
+        "assistants": "Assistants & RAG",
+        "chat": "Chat",
+        "apiKeys": "API Keys",
+        "architect": "Architect",
+        "webhooks": "Webhooks",
+        "consultant": "Consultant Panel",
+        "organizations": "Organizations",
+        "settings": "Settings",
+        "notifications": "Notifications"
+    },
+    "chat": {
+        "title": "Chat",
+        "placeholder": "Type your message…",
+        "send": "Send",
+        "thinking": "Thinking…",
+        "newSession": "New Session",
+        "sessions": "Sessions",
+        "noSessions": "No sessions yet. Start a new one.",
+        "governanceBadge": "GOVERNED",
+        "delegated": "Delegated",
+        "runtime": {
+            "openclaude": "OpenClaude",
+            "claudeCodeOfficial": "Claude Code Official",
+            "unavailable": "Runtime Unavailable",
+            "selector": "Runtime"
+        },
+        "errors": {
+            "serviceUnavailable": "Service unavailable",
+            "runtimeUnavailable": "Runtime unavailable — pick another",
+            "rateLimited": "Rate limit exceeded — try again shortly",
+            "policyViolation": "Message blocked by policy",
+            "dlpBlock": "Message blocked by DLP — sensitive data detected"
+        }
+    },
+    "bias": {
+        "title": "Bias Detection",
+        "subtitle": "Fairness metrics per assistant version — EU AI Act Art. 10 · LGPD Art. 20",
+        "newAssessment": "New Assessment",
+        "summary": {
+            "pass": "Pass",
+            "warn": "Warn",
+            "fail": "Fail"
+        },
+        "verdict": {
+            "pass": "Pass",
+            "warn": "Warn",
+            "fail": "Fail"
+        },
+        "metrics": {
+            "demographicParity": "Demographic parity",
+            "equalizedOdds": "Equalized odds",
+            "disparateImpact": "Disparate impact",
+            "statisticalParity": "Statistical parity"
+        },
+        "form": {
+            "datasetName": "Dataset name",
+            "datasetNamePlaceholder": "e.g., loan_approvals_2026_Q1",
+            "protectedAttributes": "Protected attributes (comma-separated)",
+            "protectedAttributesPlaceholder": "gender, race, age_group",
+            "groups": "Groups (n ≥ 2)",
+            "addGroup": "+ add group",
+            "removeGroup": "remove",
+            "totalN": "Total n",
+            "groupHint": "TP/FP/TN/FN optional (only required for equalized_odds)",
+            "methodologyNotes": "Methodology notes (optional)",
+            "thresholdsSection": "Advanced thresholds",
+            "submit": "Register assessment",
+            "submitting": "Registering…"
+        },
+        "table": {
+            "dataset": "Dataset",
+            "verdict": "Verdict",
+            "when": "When",
+            "emptyForVersion": "No assessments for this version yet.",
+            "pickFirst": "Pick an assistant + version to see assessments."
+        },
+        "violations": {
+            "title": "Threshold violations"
+        },
+        "toast": {
+            "recorded": "Assessment recorded",
+            "recordedFail": "Assessment recorded: FAIL",
+            "submitFailed": "Failed to register assessment"
+        }
+    },
+    "icp": {
+        "title": "ICP-Brasil Certificates",
+        "subtitle": "Legally binding digital signatures on evidence — MP 2.200-2/2001",
+        "newCertificate": "New Certificate",
+        "table": {
+            "subjectCn": "Subject CN",
+            "cnpj": "CNPJ",
+            "issuer": "Issuer",
+            "type": "Type",
+            "validity": "Validity",
+            "status": "Status",
+            "actions": "Actions",
+            "empty": "No certificates registered. Click \"New Certificate\" to import one.",
+            "test": "Test",
+            "testing": "Testing…",
+            "deactivate": "Deactivate"
+        },
+        "status": {
+            "active": "Active",
+            "expired": "Expired",
+            "expiresIn30d": "Expires in ≤30d",
+            "deactivated": "Deactivated"
+        },
+        "type": {
+            "a1": "A1 — File",
+            "a3": "A3 — HSM"
+        },
+        "regulatoryNote": {
+            "heading": "About ICP-Brasil:",
+            "body": "Brazilian Provisional Measure 2.200-2/2001 establishes that ICP-Brasil-issued digital signatures carry the same legal weight as handwritten signatures. The CNJ (judiciary) and BACEN (central bank) accept only this format as formal judicial/financial evidence.",
+            "typesLine": "A1 = file-based certificate (PEM + KMS-derived passphrase); A3 = hardware certificate (HSM via PKCS#11 — USB token, SmartCard, or rack-mounted HSM)."
+        },
+        "form": {
+            "typeLabel": "Type",
+            "pem": "Public certificate PEM (----- BEGIN CERTIFICATE -----)",
+            "pkcs11Module": "PKCS#11 module",
+            "pkcs11Slot": "Slot ID",
+            "pkcs11KeyLabel": "Key label (optional, default = subject CN)",
+            "encryptedKeyPath": "Encrypted key path on host",
+            "a1Hint": "Production: the private key must be encrypted at rest and its passphrase sourced from KMS (AWS KMS, HashiCorp Vault, etc.) — deploy-time wiring.",
+            "cnpj": "CNPJ (optional — auto-extracted if OID 2.16.76.1.3.3 is present)",
+            "submit": "Register",
+            "submitting": "Registering…"
+        },
+        "toast": {
+            "pemRequired": "Paste the public certificate PEM",
+            "a3RequirementMissing": "A3 requires a PKCS#11 module + slot",
+            "a1PathRequired": "A1 requires an encrypted key path",
+            "registered": "Certificate registered",
+            "registerFailed": "Failed to register",
+            "deactivated": "Certificate deactivated",
+            "deactivateFailed": "Failed to deactivate",
+            "verifyOk": "Signature OK ({length} bytes{mock})",
+            "verifyMock": " · mock mode",
+            "verifyFailed": "Failed to verify signature",
+            "confirmDeactivate": "Deactivate this certificate? Reversible only by re-importing."
+        }
+    },
+    "dashboard": {
+        "title": "Dashboard",
+        "subtitle": "Platform overview"
+    },
+    "assistants": {
+        "title": "Assistants",
+        "new": "New Assistant",
+        "publish": "Publish",
+        "version": "Version",
+        "status": {
+            "draft": "Draft",
+            "published": "Published",
+            "archived": "Archived"
+        }
+    },
+    "approvals": {
+        "title": "Approval Queue",
+        "pending": "Pending",
+        "approve": "Approve",
+        "reject": "Reject",
+        "empty": "No pending items"
+    },
+    "policies": {
+        "title": "Policies",
+        "newPolicy": "New Policy",
+        "active": "Active",
+        "draft": "Draft"
+    },
+    "logs": {
+        "title": "Audit Logs",
+        "filters": {
+            "action": "Action",
+            "actor": "Actor",
+            "dateRange": "Date range"
+        },
+        "empty": "No records for this filter"
+    },
+    "compliance": {
+        "title": "LGPD Compliance",
+        "subtitle": "Brazilian General Data Protection Law — Art. 18 / 20",
+        "dpoSummary": "DPO Summary"
+    },
+    "complianceHub": {
+        "title": "Compliance Hub",
+        "frameworks": "Frameworks",
+        "controls": "Controls",
+        "status": {
+            "compliant": "Compliant",
+            "partial": "Partial",
+            "nonCompliant": "Non-compliant",
+            "notAssessed": "Not assessed"
+        }
+    },
+    "settings": {
+        "title": "Settings",
+        "general": "General",
+        "language": "Language",
+        "languageDescription": "Language affects UI messages, notifications, and reports."
+    },
+    "locale": {
+        "switcher": "Language",
+        "pt-BR": "Portuguese (Brazil)",
+        "en": "English"
+    }
+}

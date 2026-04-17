@@ -1,0 +1,275 @@
+{
+    "common": {
+        "save": "Salvar",
+        "cancel": "Cancelar",
+        "delete": "Excluir",
+        "confirm": "Confirmar",
+        "loading": "Carregando...",
+        "error": "Erro",
+        "success": "Sucesso",
+        "yes": "Sim",
+        "no": "Não",
+        "back": "Voltar",
+        "next": "Próximo",
+        "previous": "Anterior",
+        "close": "Fechar",
+        "search": "Buscar",
+        "filter": "Filtrar",
+        "refresh": "Recarregar",
+        "new": "Novo",
+        "edit": "Editar",
+        "view": "Visualizar",
+        "download": "Baixar",
+        "upload": "Enviar",
+        "export": "Exportar",
+        "required": "Obrigatório",
+        "optional": "Opcional",
+        "name": "Nome",
+        "description": "Descrição",
+        "status": "Status",
+        "actions": "Ações",
+        "createdAt": "Criado em",
+        "updatedAt": "Atualizado em",
+        "total": "Total",
+        "none": "Nenhum",
+        "empty": "Sem registros",
+        "notFound": "Não encontrado",
+        "unauthorized": "Não autorizado",
+        "forbidden": "Acesso negado",
+        "internalError": "Erro interno"
+    },
+    "auth": {
+        "login": "Entrar",
+        "logout": "Encerrar Sessão",
+        "email": "E-mail",
+        "password": "Senha",
+        "signingIn": "Autenticando...",
+        "loginFailed": "Falha ao autenticar",
+        "sessionExpired": "Sessão expirada"
+    },
+    "nav": {
+        "governance": "Governança",
+        "technical": "Técnico",
+        "platform": "Platform",
+        "dashboard": "Dashboard",
+        "shield": "Postura de Risco",
+        "catalog": "Catálogo de Agentes",
+        "approvals": "Fila de Aprovação",
+        "reports": "Evidências & Relatórios",
+        "compliance": "Compliance LGPD",
+        "policies": "Políticas",
+        "exceptions": "Exceções",
+        "complianceHub": "Compliance Hub",
+        "bias": "Detecção de Viés",
+        "skills": "Skills & Templates",
+        "auditLogs": "Audit Logs",
+        "dataProtection": "Proteção de Dados",
+        "icpBrasil": "ICP-Brasil",
+        "assistants": "Assistants & RAG",
+        "chat": "Chat",
+        "apiKeys": "API Keys",
+        "architect": "Arquiteto",
+        "webhooks": "Webhooks",
+        "consultant": "Painel do Consultor",
+        "organizations": "Organizações",
+        "settings": "Configurações",
+        "notifications": "Notificações"
+    },
+    "chat": {
+        "title": "Chat",
+        "placeholder": "Digite sua mensagem...",
+        "send": "Enviar",
+        "thinking": "Pensando...",
+        "newSession": "Nova Sessão",
+        "sessions": "Sessões",
+        "noSessions": "Nenhuma sessão ainda. Inicie uma nova.",
+        "governanceBadge": "GOVERNADO",
+        "delegated": "Delegado",
+        "runtime": {
+            "openclaude": "OpenClaude",
+            "claudeCodeOfficial": "Claude Code Oficial",
+            "unavailable": "Runtime Indisponível",
+            "selector": "Runtime"
+        },
+        "errors": {
+            "serviceUnavailable": "Serviço indisponível",
+            "runtimeUnavailable": "Runtime indisponível — selecione outro",
+            "rateLimited": "Limite de requisições atingido — tente novamente em instantes",
+            "policyViolation": "Mensagem bloqueada por política",
+            "dlpBlock": "Mensagem bloqueada por DLP — dados sensíveis detectados"
+        }
+    },
+    "bias": {
+        "title": "Detecção de Viés (Bias Detection)",
+        "subtitle": "Fairness metrics por versão de assistente — EU AI Act Art. 10 · LGPD Art. 20",
+        "newAssessment": "Nova Avaliação",
+        "summary": {
+            "pass": "Aprovadas",
+            "warn": "Atenção",
+            "fail": "Reprovadas"
+        },
+        "verdict": {
+            "pass": "Aprovado",
+            "warn": "Atenção",
+            "fail": "Reprovado"
+        },
+        "metrics": {
+            "demographicParity": "Demographic parity",
+            "equalizedOdds": "Equalized odds",
+            "disparateImpact": "Disparate impact",
+            "statisticalParity": "Statistical parity"
+        },
+        "form": {
+            "datasetName": "Nome do dataset",
+            "datasetNamePlaceholder": "Ex: loan_approvals_2026_Q1",
+            "protectedAttributes": "Atributos protegidos (separados por vírgula)",
+            "protectedAttributesPlaceholder": "gender, race, age_group",
+            "groups": "Grupos (n ≥ 2)",
+            "addGroup": "+ adicionar grupo",
+            "removeGroup": "remover",
+            "totalN": "Total n",
+            "groupHint": "TP/FP/TN/FN opcionais (só necessários para equalized_odds)",
+            "methodologyNotes": "Notas metodológicas (opcional)",
+            "thresholdsSection": "Thresholds avançados",
+            "submit": "Registrar avaliação",
+            "submitting": "Registrando..."
+        },
+        "table": {
+            "dataset": "Dataset",
+            "verdict": "Veredito",
+            "when": "Quando",
+            "emptyForVersion": "Nenhuma avaliação ainda para esta versão.",
+            "pickFirst": "Selecione um assistant + versão para visualizar avaliações."
+        },
+        "violations": {
+            "title": "Violações de threshold"
+        },
+        "toast": {
+            "recorded": "Avaliação registrada",
+            "recordedFail": "Avaliação registrada: FAIL",
+            "submitFailed": "Falha ao registrar avaliação"
+        }
+    },
+    "icp": {
+        "title": "Certificados ICP-Brasil",
+        "subtitle": "Assinatura digital de evidências com validade jurídica — MP 2.200-2/2001",
+        "newCertificate": "Novo Certificado",
+        "table": {
+            "subjectCn": "Subject CN",
+            "cnpj": "CNPJ",
+            "issuer": "Emissor",
+            "type": "Tipo",
+            "validity": "Validade",
+            "status": "Status",
+            "actions": "Ações",
+            "empty": "Nenhum certificado registrado. Clique em \"Novo Certificado\" para importar um.",
+            "test": "Testar",
+            "testing": "Verificando...",
+            "deactivate": "Desativar"
+        },
+        "status": {
+            "active": "Ativo",
+            "expired": "Expirado",
+            "expiresIn30d": "Expira em ≤30d",
+            "deactivated": "Desativado"
+        },
+        "type": {
+            "a1": "A1 — Arquivo",
+            "a3": "A3 — HSM"
+        },
+        "regulatoryNote": {
+            "heading": "Sobre ICP-Brasil:",
+            "body": "a Medida Provisória 2.200-2/2001 estabelece que assinaturas com certificados ICP-Brasil têm valor jurídico equivalente à assinatura manuscrita. CNJ e BACEN aceitam apenas este formato como prova formal em evidências.",
+            "typesLine": "A1 = certificado em arquivo (PEM + passphrase via KMS); A3 = certificado em hardware (HSM via PKCS#11 — token USB, SmartCard ou HSM em rack)."
+        },
+        "form": {
+            "typeLabel": "Tipo",
+            "pem": "PEM do certificado público (----- BEGIN CERTIFICATE -----)",
+            "pkcs11Module": "Módulo PKCS#11",
+            "pkcs11Slot": "Slot ID",
+            "pkcs11KeyLabel": "Key label (opcional, default = subject CN)",
+            "encryptedKeyPath": "Caminho da chave criptografada no host",
+            "a1Hint": "Produção: a chave privada deve estar criptografada em disco e a passphrase vir do KMS (AWS KMS, HashiCorp Vault, etc.) — deploy-time.",
+            "cnpj": "CNPJ (opcional — auto-extraído se OID 2.16.76.1.3.3 presente)",
+            "submit": "Registrar",
+            "submitting": "Registrando..."
+        },
+        "toast": {
+            "pemRequired": "Cole o PEM do certificado público",
+            "a3RequirementMissing": "A3 exige módulo PKCS#11 + slot",
+            "a1PathRequired": "A1 exige caminho da chave criptografada",
+            "registered": "Certificado registrado",
+            "registerFailed": "Falha ao registrar",
+            "deactivated": "Certificado desativado",
+            "deactivateFailed": "Falha ao desativar",
+            "verifyOk": "Assinatura OK ({length} bytes{mock})",
+            "verifyMock": " · modo mock",
+            "verifyFailed": "Falha ao verificar assinatura",
+            "confirmDeactivate": "Desativar este certificado? A ação é reversível apenas reimportando."
+        }
+    },
+    "dashboard": {
+        "title": "Dashboard",
+        "subtitle": "Visão geral da plataforma"
+    },
+    "assistants": {
+        "title": "Assistentes",
+        "new": "Novo Assistente",
+        "publish": "Publicar",
+        "version": "Versão",
+        "status": {
+            "draft": "Rascunho",
+            "published": "Publicado",
+            "archived": "Arquivado"
+        }
+    },
+    "approvals": {
+        "title": "Fila de Aprovação",
+        "pending": "Pendentes",
+        "approve": "Aprovar",
+        "reject": "Rejeitar",
+        "empty": "Sem itens pendentes"
+    },
+    "policies": {
+        "title": "Políticas",
+        "newPolicy": "Nova Política",
+        "active": "Ativa",
+        "draft": "Rascunho"
+    },
+    "logs": {
+        "title": "Audit Logs",
+        "filters": {
+            "action": "Ação",
+            "actor": "Ator",
+            "dateRange": "Intervalo"
+        },
+        "empty": "Sem registros para este filtro"
+    },
+    "compliance": {
+        "title": "Compliance LGPD",
+        "subtitle": "Lei Geral de Proteção de Dados — Art. 18 / 20",
+        "dpoSummary": "Resumo para DPO"
+    },
+    "complianceHub": {
+        "title": "Compliance Hub",
+        "frameworks": "Frameworks",
+        "controls": "Controles",
+        "status": {
+            "compliant": "Conforme",
+            "partial": "Parcial",
+            "nonCompliant": "Não conforme",
+            "notAssessed": "Não avaliado"
+        }
+    },
+    "settings": {
+        "title": "Configurações",
+        "general": "Geral",
+        "language": "Idioma",
+        "languageDescription": "O idioma afeta mensagens da interface, notificações e relatórios."
+    },
+    "locale": {
+        "switcher": "Idioma",
+        "pt-BR": "Português (Brasil)",
+        "en": "English"
+    }
+}

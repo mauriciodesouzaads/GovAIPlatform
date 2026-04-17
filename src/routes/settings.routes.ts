@@ -20,7 +20,8 @@ export async function settingsRoutes(
         try {
             await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
             const res = await client.query(
-                `SELECT id, name, COALESCE(hitl_timeout_hours, 4) AS hitl_timeout_hours
+                `SELECT id, name, COALESCE(hitl_timeout_hours, 4) AS hitl_timeout_hours,
+                        COALESCE(locale, 'pt-BR') AS locale
                  FROM organizations WHERE id = $1`,
                 [orgId]
             );
@@ -29,6 +30,35 @@ export async function settingsRoutes(
         } catch (error) {
             app.log.error(error, 'Error fetching org settings');
             return reply.status(500).send({ error: 'Erro ao buscar configurações da organização.' });
+        } finally {
+            client.release();
+        }
+    });
+
+    // ── PUT /v1/admin/settings/organization/locale ───────────────────────────
+    // Updates only the org locale — scoped endpoint so the wider
+    // `hitl_timeout_hours` PUT stays backward-compatible.
+    app.put('/v1/admin/settings/organization/locale', { preHandler: ADMIN_ONLY }, async (request, reply) => {
+        const orgId = request.headers['x-org-id'] as string;
+        if (!orgId) return reply.status(401).send({ error: "Header 'x-org-id' é obrigatório." });
+
+        const { locale } = request.body as { locale?: string };
+        if (!locale || !['pt-BR', 'en'].includes(locale)) {
+            return reply.status(400).send({ error: "locale deve ser 'pt-BR' ou 'en'" });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query(`SELECT set_config('app.current_org_id', $1, false)`, [orgId]);
+            const res = await client.query(
+                `UPDATE organizations SET locale = $1 WHERE id = $2 RETURNING id, locale`,
+                [locale, orgId]
+            );
+            if (res.rowCount === 0) return reply.status(404).send({ error: 'Organização não encontrada.' });
+            return reply.send(res.rows[0]);
+        } catch (error) {
+            app.log.error(error, 'Error updating org locale');
+            return reply.status(500).send({ error: 'Erro ao atualizar locale da organização.' });
         } finally {
             client.release();
         }
