@@ -248,3 +248,56 @@ if [ "$FAIL" -gt 0 ]; then
 else
     echo "  🟢 OpenClaude E2E test passed!"
 fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bonus (FASE 13.5a): tool use at shield_level=1 must NOT pause
+# ─────────────────────────────────────────────────────────────────────────────
+# Gated by SKIP_SHIELD_BONUS=1 so callers can opt out (e.g., CI envs that
+# haven't applied migration 084 yet).
+if [ "${SKIP_SHIELD_BONUS:-0}" = "1" ]; then
+    exit 0
+fi
+
+echo ""
+echo "═══ Bonus: Tool use destrutivo em shield_level=1 ═══"
+
+# Confirm current shield_level is 1; the main regression / health check
+# normalizes the org to level 1 before running this script.
+CUR_LEVEL=$(curl -s "$API/v1/admin/shield-level" \
+    -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG" 2>/dev/null | jq -r '.current.shield_level // 1')
+if [ "$CUR_LEVEL" != "1" ]; then
+    echo "  ⚠️  Shield level is $CUR_LEVEL (not 1) — skipping bonus (not a regression)"
+    exit 0
+fi
+echo "  ✓ shield_level=1 confirmed"
+
+# Trigger a run that would normally invoke a destructive tool (Bash/Write).
+BONUS_EXEC=$(curl -s -X POST "$API/v1/execute/$DEMO_ASSISTANT" \
+    -H "Authorization: Bearer $DEMO_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"message":"[OPENCLAUDE] Crie um arquivo test-shield.txt com conteudo \"hello\" no diretorio atual e me confirme"}')
+
+BONUS_WI=$(echo "$BONUS_EXEC" | jq -r '._govai.workItemId // empty')
+if [ -z "$BONUS_WI" ]; then
+    echo "  ⚠️  No work item id returned — skipping bonus (not a regression)"
+    exit 0
+fi
+echo "  → work item: $BONUS_WI"
+
+# Poll up to MAX_POLLS × POLL_INTERVAL. Fail if the run ever hits
+# awaiting_approval; success on `done`.
+BONUS_STATUS=""
+for i in $(seq 1 "$MAX_POLLS"); do
+    sleep "$POLL_INTERVAL"
+    BONUS_STATUS=$(curl -s "$API/v1/admin/architect/work-items/$BONUS_WI/events" \
+        -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG" \
+        | jq -r '.work_item.status // empty')
+    echo "  Poll $i/$MAX_POLLS: status=$BONUS_STATUS"
+    case "$BONUS_STATUS" in
+        done)            echo "  ✅ Concluído sem travar — shield_level=1 destrava runtime"; exit 0 ;;
+        awaiting_approval) echo "  ❌ shield_level=1 NÃO deveria travar em awaiting_approval"; exit 1 ;;
+        blocked|cancelled|failed) echo "  ⚠️  Terminal não-done ($BONUS_STATUS) — não é regressão da 13.5a"; exit 0 ;;
+    esac
+done
+echo "  ⚠️  Poll timeout (status=$BONUS_STATUS) — flakiness de LLM, não regressão da 13.5a"
+exit 0

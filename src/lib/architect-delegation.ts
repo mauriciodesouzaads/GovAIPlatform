@@ -16,6 +16,7 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { searchSimilarChunks } from './rag';
 import { recordEvidence } from './evidence';
+import { resolveShieldLevel, requiresHitlForTool, type ShieldLevel } from './shield-level';
 import { executeOpenClaudeRun, resolveOpenClaudeTarget } from './openclaude-client';
 import { createWorkspace, cleanupWorkspace } from './workspace-manager';
 import { registerStream, unregisterStream } from './architect-stream-registry';
@@ -612,6 +613,13 @@ export async function runOpenClaudeAdapter(
         let skillInstructions = '';
         const ctx = (item.execution_context ?? {}) as Record<string, unknown>;
         const ctxAssistantId = (ctx.assistant_id ?? ctx.assistantId) as string | undefined;
+
+        // FASE 13.5a: resolve the effective shield level for this run once,
+        // outside the streaming loop. The action_required handler closes over
+        // `shieldLevel` to decide whether to fast-path native runtime tool
+        // use (levels 1 and 2) or to apply the classic classifier + HITL
+        // pipeline (level 3 — preserved verbatim below).
+        const shieldLevel: ShieldLevel = await resolveShieldLevel(pool, orgId, ctxAssistantId);
         if (ctxAssistantId) {
             try {
                 const skillsRes = await client.query(
@@ -774,6 +782,46 @@ export async function runOpenClaudeAdapter(
             // runs that chain 10-30 tool calls.
             emitter.on('action_required', async (data: any) => {
                 const toolName = parseToolNameFromQuestion(data.question);
+
+                // ─────────────────────────────────────────────────────────
+                // FASE 13.5a — shield_level gate
+                //
+                // Shield levels 1 (Fluxo Livre) and 2 (Conformidade) run
+                // runtime tool use NATIVELY. The runtime's own tool-use
+                // dialog IS the authorization; GovAI records the event
+                // for audit and releases the prompt immediately.
+                //
+                // Shield level 3 (Blindagem Máxima) preserves the full
+                // pre-13.5a pipeline below: approval_mode → auto_safe →
+                // resolveToolDecision → awaiting_approval / allow / deny.
+                //
+                // Invariant guarded by `requiresHitlForTool`: only
+                // level === 3 engages the classifier. Everything below
+                // this block runs unchanged for level 3 callers.
+                // ─────────────────────────────────────────────────────────
+                if (!requiresHitlForTool(shieldLevel)) {
+                    respond(data.prompt_id, 'yes');
+                    await recordEvidence(pool, {
+                        orgId,
+                        category: 'data_access',
+                        eventType: 'TOOL_NATIVE_RUNTIME_USE',
+                        resourceType: 'architect_work_item',
+                        resourceId: workItemId,
+                        metadata: {
+                            tool: toolName,
+                            promptId: data.prompt_id,
+                            sessionId,
+                            shield_level: shieldLevel,
+                            reason: 'shield_level_below_3_native_flow',
+                        },
+                    }).catch(() => { /* non-fatal */ });
+                    await insertWorkItemEvent(pool, orgId, workItemId, 'ACTION_RESPONSE', {
+                        decision: 'allow',
+                        reason: `native_runtime_shield_level_${shieldLevel}`,
+                        automatic: true,
+                    }, toolName, data.prompt_id);
+                    return;
+                }
 
                 // 1. Read the current approval_mode (persisted by the route
                 //    and/or the resolve-approval worker job).

@@ -48,6 +48,11 @@ COPY --chown=govai:govai package.json ./
 # Copy scripts and migrations
 COPY --chown=govai:govai scripts ./scripts
 COPY --chown=govai:govai *.sql ./
+# FASE 13.5a: legal notice templates for shield-level change flow.
+# Read at runtime by src/routes/shield-level.routes.ts; the user-visible
+# content is checksummed before an acknowledgment is accepted, so these
+# files participate in the evidence chain and must travel with the image.
+COPY --chown=govai:govai docs/legal ./docs/legal
 
 # FASE 5-hardening: pre-create the shared volume mount points with govai
 # ownership so when docker mounts the named volumes on top, they inherit

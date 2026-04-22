@@ -6,7 +6,7 @@ import {
     LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck,
     ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2, X, Bell,
     ScrollText, AlertTriangle, Settings, ClipboardCheck, ShieldEllipsis, BellRing, Sparkles,
-    Scale, BadgeCheck, Terminal,
+    Scale, BadgeCheck, Terminal, Shield,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
@@ -125,6 +125,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     const exceptionsBadge = useExceptionsBadge();
     const t = useTranslations('nav');
     const tAuth = useTranslations('auth');
+    const tShield = useTranslations('settings.shieldLevel');
 
     // Role groups
     const isGovernance = ['dpo', 'auditor', 'compliance'].includes(role ?? '');
@@ -210,6 +211,9 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         <NavItem href="/settings"               label={t('settings')}      Icon={Settings}  isActive={pathname === '/settings'}               accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
                         {isAdmin && (
                             <NavItem href="/settings/notifications" label={t('notifications')} Icon={BellRing}  isActive={pathname === '/settings/notifications'} accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
+                        )}
+                        {(isAdmin || role === 'dpo') && (
+                            <NavItem href="/settings/shield-level" label={tShield('navLabel')} Icon={Shield} isActive={pathname === '/settings/shield-level'} accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
                         )}
                         <NavItem href="/developers" label={t('developers')} Icon={Terminal} isActive={pathname === '/developers'} accentClass="bg-indigo-400" iconActiveClass="text-indigo-400" onClose={onClose} />
                     </>

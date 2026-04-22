@@ -25,7 +25,8 @@ export type EvidenceCategory =
   | 'oidc_session'
   | 'api_key_lifecycle'
   | 'data_access'
-  | 'bias_assessment';
+  | 'bias_assessment'
+  | 'shield_level_change';
 
 export interface EvidencePayload {
   orgId: string;

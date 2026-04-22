@@ -266,7 +266,41 @@
         "title": "Configurações",
         "general": "Geral",
         "language": "Idioma",
-        "languageDescription": "O idioma afeta mensagens da interface, notificações e relatórios."
+        "languageDescription": "O idioma afeta mensagens da interface, notificações e relatórios.",
+        "shieldLevel": {
+            "navLabel": "Nível de Proteção",
+            "title": "Nível de Proteção",
+            "subtitle": "Quanto a GovAI intervém no fluxo de execução — único seletor que governa HITL e segregação de responsabilidades",
+            "currentLevel": "Nível atual",
+            "level1": "Nível 1 — Fluxo Livre",
+            "level2": "Nível 2 — Conformidade",
+            "level3": "Nível 3 — Blindagem Máxima",
+            "level1Short": "Fluxo Livre",
+            "level2Short": "Conformidade",
+            "level3Short": "Blindagem Máxima",
+            "changeButton": "Alterar para este nível",
+            "acknowledge": "Entendi o impacto desta mudança e autorizo a alteração",
+            "confirm": "Confirmar mudança",
+            "cancel": "Cancelar",
+            "loadingNotice": "Carregando aviso...",
+            "confirming": "Confirmando...",
+            "historyTitle": "Histórico de mudanças",
+            "historyEmpty": "Sem mudanças registradas — sua organização está no nível configurado desde o provisionamento.",
+            "historyColumns": {
+                "when": "Quando",
+                "from": "De",
+                "to": "Para",
+                "actor": "Responsável",
+                "locale": "Idioma do aviso",
+                "hash": "Hash"
+            },
+            "errors": {
+                "loadFailed": "Falha ao carregar aviso",
+                "changeFailed": "Falha ao aplicar mudança",
+                "hashMismatch": "O aviso foi atualizado desde que você começou — recarregue a página",
+                "sameLevel": "Organização já está neste nível"
+            }
+        }
     },
     "locale": {
         "switcher": "Idioma",

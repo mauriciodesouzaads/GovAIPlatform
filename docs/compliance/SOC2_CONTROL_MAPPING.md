@@ -7,6 +7,22 @@ auditors and customer compliance reviews.
 Platform version reference: `git log -1 --format='%H'` captures the exact
 revision the evidence below was collected against.
 
+> ## Compliance posture depends on Shield Level
+>
+> As of FASE 13.5a, `organizations.shield_level` controls which gates
+> run. **Segregation of duties is enforced only at `shield_level ≥ 2`.**
+>
+> Organizations operating at **Level 1 (Fluxo Livre)** accept sole-actor
+> governance — actions are still fully audit-logged but a single
+> operator can request AND approve the same formal action. Level 1 is
+> **not SOC 2 Type II compliant** for the SoD-dependent controls listed
+> below (CC6.1, CC7.2, CC8.1).
+>
+> Organizations pursuing SOC 2 certification should operate at
+> **Level 2 (Conformidade)** or **Level 3 (Blindagem Máxima)**. See
+> `docs/ASSURANCE_MODES.md` for the full matrix and
+> `docs/ADR-020-shield-levels.md` for the decision rationale.
+
 ---
 
 ## CC6.1 — Logical Access Controls

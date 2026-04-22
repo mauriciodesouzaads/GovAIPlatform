@@ -1600,6 +1600,21 @@ paths:
       responses:
         '200':
           description: Default Response
+  /v1/admin/shield-level/notice:
+    get:
+      responses:
+        '200':
+          description: Default Response
+  /v1/admin/shield-level/change:
+    post:
+      responses:
+        '200':
+          description: Default Response
+  /v1/admin/shield-level:
+    get:
+      responses:
+        '200':
+          description: Default Response
   /v1/admin/monitoring/realtime:
     get:
       responses:

@@ -266,7 +266,41 @@
         "title": "Settings",
         "general": "General",
         "language": "Language",
-        "languageDescription": "Language affects UI messages, notifications, and reports."
+        "languageDescription": "Language affects UI messages, notifications, and reports.",
+        "shieldLevel": {
+            "navLabel": "Shield Level",
+            "title": "Shield Level",
+            "subtitle": "How strictly GovAI intervenes in execution flow — a single selector governing HITL and segregation of duties",
+            "currentLevel": "Current level",
+            "level1": "Level 1 — Free Flow",
+            "level2": "Level 2 — Compliance",
+            "level3": "Level 3 — Maximum Shield",
+            "level1Short": "Free Flow",
+            "level2Short": "Compliance",
+            "level3Short": "Maximum Shield",
+            "changeButton": "Switch to this level",
+            "acknowledge": "I understand the impact of this change and authorize the switch",
+            "confirm": "Confirm change",
+            "cancel": "Cancel",
+            "loadingNotice": "Loading notice...",
+            "confirming": "Confirming...",
+            "historyTitle": "Change history",
+            "historyEmpty": "No changes recorded — your organization has been at this level since provisioning.",
+            "historyColumns": {
+                "when": "When",
+                "from": "From",
+                "to": "To",
+                "actor": "Actor",
+                "locale": "Notice locale",
+                "hash": "Hash"
+            },
+            "errors": {
+                "loadFailed": "Failed to load notice",
+                "changeFailed": "Failed to apply change",
+                "hashMismatch": "The notice was updated since you started — reload the page",
+                "sameLevel": "Organization is already at this level"
+            }
+        }
     },
     "locale": {
         "switcher": "Language",

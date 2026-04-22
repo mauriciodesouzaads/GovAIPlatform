@@ -217,6 +217,12 @@ export const ENDPOINTS = {
     ICP_CERTIFICATES:                 '/v1/admin/icp-certificates',
     ICP_CERTIFICATE_DELETE:           (id: string) => `/v1/admin/icp-certificates/${id}`,
     ICP_CERTIFICATE_VERIFY:           (id: string) => `/v1/admin/icp-certificates/${id}/verify`,
+
+    // FASE 13.5a — Shield level
+    SHIELD_LEVEL:                     '/v1/admin/shield-level',
+    SHIELD_LEVEL_NOTICE:              (from: number, to: number, locale: string) =>
+        `/v1/admin/shield-level/notice?from=${from}&to=${to}&locale=${encodeURIComponent(locale)}`,
+    SHIELD_LEVEL_CHANGE:              '/v1/admin/shield-level/change',
 };
 
 export default api;
