@@ -58,11 +58,21 @@ DATABASE_URL='' npx vitest run  # suíte padrão
 
 ```bash
 npm install && cp .env.example .env
-docker compose up -d
+docker compose --profile dev up -d
 bash scripts/migrate.sh
 npm run build && npm start
 # Admin UI
 cd admin-ui && npm ci && npm run build && npm start
+```
+
+Para habilitar o runtime oficial do Claude Code (aparece no selector de
+Runtime do chat), defina `ANTHROPIC_API_KEY` no `.env` e suba o stack
+completo:
+
+```bash
+bash scripts/dev-up-full.sh
+# ou, equivalente:
+docker compose --profile dev --profile official up -d
 ```
 
 ---

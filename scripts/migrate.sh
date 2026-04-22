@@ -136,6 +136,7 @@ MIGRATIONS=(
     "082_icp_brasil_signing.sql"
     "083_locale_preference.sql"
     "084_shield_levels.sql"
+    "085_architect_recovery_attempts.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

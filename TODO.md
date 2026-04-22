@@ -1,5 +1,17 @@
 # GovAI GRC Platform — Technical Debt / Follow-ups
 
+## ✅ Resolved (FASE 13.5a1)
+
+- ~~Runtime hangs in real UI: work items stuck in PENDING when user
+  submits two `[OPENCLAUDE]` prompts in quick succession. Second item
+  burned BullMQ retry budget while the first held the tenant slot, then
+  got dropped from the queue.~~ Fixed via re-enqueue pattern; see
+  `docs/DIAGNOSTIC_RUNTIME_HANG_20260422.md § Resolution` and
+  `docs/ADR-021-tenant-limit-requeue.md`. Acceptance test
+  `tests/integration/test-concurrent-delegation.sh` was green on
+  commit-of-fix (both work items completed in ~30 s).
+
+
 ## Known Flaky Tests (pre-existing, tracked; not blocking)
 
 All failures below are reproducible on `main` prior to FASE 12 and are

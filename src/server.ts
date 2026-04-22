@@ -486,11 +486,24 @@ fastify.get('/health', async (_request, reply) => {
     } catch (_e) { /* already disconnected */ }
 
     // --- LiteLLM (non-blocking, 2 s timeout) ---
+    // FASE 13.5a1: LiteLLM requires the master key on /health (the proxy
+    // treats /health as authenticated). Without the bearer, every
+    // heartbeat returned 401 and this status showed 'disconnected' while
+    // LiteLLM was in fact up and serving. We pass the key when available;
+    // if LITELLM_KEY isn't set we degrade to the unauthenticated probe
+    // (same behavior as before this fix).
     try {
         const litellmUrl = process.env.LITELLM_URL || 'http://litellm:4000';
+        const litellmKey = process.env.LITELLM_KEY;
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 2000);
-        const res = await fetch(`${litellmUrl}/health`, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+        const headers: Record<string, string> = litellmKey
+            ? { Authorization: `Bearer ${litellmKey}` }
+            : {};
+        const res = await fetch(`${litellmUrl}/health/liveliness`, {
+            signal: ctrl.signal,
+            headers,
+        }).finally(() => clearTimeout(timer));
         litellmStatus = res.ok ? 'connected' : 'disconnected';
     } catch (_e) { /* timeout or unreachable */ }
 

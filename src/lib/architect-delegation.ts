@@ -1424,3 +1424,122 @@ export async function detectAndMarkStuckWorkItems(pool: Pool): Promise<number> {
     }
     return marked;
 }
+
+/**
+ * FASE 13.5a1: recover orphaned PENDING work items.
+ *
+ * When a dispatch job is dropped by BullMQ (e.g., retries exhausted against
+ * a busy tenant slot), the work_item is left in `status='pending'` AND
+ * `dispatch_attempts=0` with no live queue entry. This sweep:
+ *   1. finds items older than `orphanThresholdMin` (default 5) that look
+ *      like orphans
+ *   2. checks BullMQ — if a job for this work_item is still in flight
+ *      (wait/active/delayed), skips it (the worker is handling it)
+ *   3. otherwise re-enqueues the dispatch and bumps `recovery_attempts`
+ *   4. items that burn through `maxRecoveryAttempts` (default 3) are
+ *      marked `status='blocked'` with `dispatch_error='watchdog_recovery_exhausted'`
+ *
+ * The caller injects the architect queue (instead of importing it here) to
+ * avoid a cyclic import between architect-delegation ↔ workers/architect.
+ */
+export async function recoverOrphanedPendingWorkItems(
+    pool: Pool,
+    queue: { add: (name: string, data: any, opts: any) => Promise<unknown>; getJobs: (types: string[], start: number, end: number, asc: boolean) => Promise<Array<{ data?: any }>> },
+): Promise<{ recovered: number; blocked: number }> {
+    const orphanThresholdMin = parseInt(process.env.ARCHITECT_ORPHAN_THRESHOLD_MIN || '5', 10);
+    const maxRecoveryAttempts = parseInt(process.env.ARCHITECT_MAX_RECOVERY_ATTEMPTS || '3', 10);
+    const client = await pool.connect();
+    let recovered = 0;
+    let blocked = 0;
+
+    try {
+        // Cross-org sweep — same RLS-bypass pattern as
+        // detectAndMarkStuckWorkItems. Reads are by id only, writes re-set
+        // app.current_org_id per-row.
+        const candidates = await client.query(`
+            SELECT id, org_id, recovery_attempts
+              FROM architect_work_items
+             WHERE status = 'pending'
+               AND dispatch_attempts = 0
+               AND recovery_attempts < $2
+               AND created_at < NOW() - INTERVAL '1 minute' * $1
+          ORDER BY created_at ASC
+             LIMIT 20
+        `, [orphanThresholdMin, maxRecoveryAttempts]);
+
+        if (candidates.rowCount && candidates.rowCount > 0) {
+            // Pull live jobs once; avoid N queries against Redis.
+            let liveJobWorkItemIds = new Set<string>();
+            try {
+                const jobs = await queue.getJobs(['wait', 'active', 'delayed'], 0, -1, true);
+                liveJobWorkItemIds = new Set(
+                    jobs
+                        .map(j => (j?.data as any)?.workItemId)
+                        .filter((v): v is string => typeof v === 'string'),
+                );
+            } catch (err) {
+                console.warn(
+                    '[Architect Watchdog] failed to list BullMQ jobs — ' +
+                    'will re-enqueue candidates without dedupe:',
+                    (err as Error).message,
+                );
+            }
+
+            for (const row of candidates.rows) {
+                if (liveJobWorkItemIds.has(row.id)) {
+                    continue; // worker already handling
+                }
+                try {
+                    await client.query("SELECT set_config('app.current_org_id', $1, false)", [row.org_id]);
+                    const nextAttempt = Number(row.recovery_attempts) + 1;
+                    await client.query(
+                        `UPDATE architect_work_items
+                            SET recovery_attempts = recovery_attempts + 1,
+                                last_event_at = NOW()
+                          WHERE id = $1 AND org_id = $2
+                            AND status = 'pending' AND dispatch_attempts = 0`,
+                        [row.id, row.org_id],
+                    );
+                    await queue.add(
+                        'dispatch-openclaude',
+                        { workItemId: row.id, orgId: row.org_id },
+                        {
+                            attempts: 1,
+                            jobId: `${row.id}-recovery-${nextAttempt}`,
+                            removeOnComplete: true,
+                            removeOnFail: { age: 3600, count: 100 },
+                        },
+                    );
+                    console.warn(
+                        `[Architect Watchdog] recovered orphaned work_item ${row.id} ` +
+                        `(attempt ${nextAttempt}/${maxRecoveryAttempts})`,
+                    );
+                    recovered++;
+                } catch (err) {
+                    console.warn(
+                        `[Architect Watchdog] recovery failed for ${row.id}:`,
+                        (err as Error).message,
+                    );
+                }
+            }
+        }
+
+        // Items that have exhausted the recovery budget AND still look
+        // orphaned: mark blocked so they stop trapping the sweep.
+        const exhausted = await client.query(`
+            UPDATE architect_work_items
+               SET status = 'blocked',
+                   dispatch_error = COALESCE(dispatch_error, 'watchdog_recovery_exhausted'),
+                   last_event_at = NOW()
+             WHERE status = 'pending'
+               AND dispatch_attempts = 0
+               AND recovery_attempts >= $1
+               AND created_at < NOW() - INTERVAL '30 minutes'
+        `, [maxRecoveryAttempts]);
+        blocked = exhausted.rowCount ?? 0;
+    } finally {
+        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+        client.release();
+    }
+    return { recovered, blocked };
+}

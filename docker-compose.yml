@@ -225,14 +225,22 @@ services:
       # fails with "Not logged in · Please run /login" — because the key we
       # have is the LiteLLM proxy key, not a real Anthropic key.
       CLAUDE_CODE_USE_OPENAI: "1"
-      # Uses GovAI's LiteLLM as OpenAI-compatible LLM proxy.
-      # Pin to govai-llm-gemini specifically — OpenClaude sends ~18.6K
-      # tokens per turn (huge system prompt + tool definitions), which
-      # blows past Groq free tier's 6K TPM. Gemini 2.0 Flash has 1M TPM
-      # on free tier, so the same prompt fits comfortably.
+      # FASE 13.5a1: default changed from govai-llm-gemini to
+      # govai-llm-cerebras. Rationale:
+      #   - Gemini free tier quota = 20 req/day. In active dev use the
+      #     quota exhausts fast, LiteLLM starts returning 429, and the
+      #     openclaude-runner retries stretch a single tool call to
+      #     60-180s. That hold-time is what makes the TENANT_LIMIT
+      #     orphan bug visible in the UI.
+      #   - Groq free tier has 6K TPM — too small for OpenClaude's
+      #     ~18.6K tokens/turn (big system prompt + tool defs).
+      #   - Cerebras qwen-3-235b-a22b-instruct-2507 is healthy, has
+      #     ample TPM, and keeps agent quality comparable to Gemini.
+      # Override via .env -> OPENCLAUDE_DEFAULT_MODEL for customers
+      # running their own routes.
       OPENAI_API_KEY: ${LITELLM_KEY}
       OPENAI_BASE_URL: http://litellm:4000/v1
-      OPENAI_MODEL: govai-llm-gemini
+      OPENAI_MODEL: ${OPENCLAUDE_DEFAULT_MODEL:-govai-llm-cerebras}
       # Security: disable web tools in regulated environment
       OPENCLAUDE_DISABLE_WEB_SEARCH: "true"
       OPENCLAUDE_DISABLE_WEB_FETCH: "true"

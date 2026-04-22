@@ -22,7 +22,11 @@
 import { Queue, Worker, Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { Pool } from 'pg';
-import { dispatchWorkItem, detectAndMarkStuckWorkItems } from '../lib/architect-delegation';
+import {
+    dispatchWorkItem,
+    detectAndMarkStuckWorkItems,
+    recoverOrphanedPendingWorkItems,
+} from '../lib/architect-delegation';
 import { getStream } from '../lib/architect-stream-registry';
 import { publishControl } from '../lib/architect-stream-registry-redis';
 import { cleanupOrphanedWorkspaces } from '../lib/workspace-manager';
@@ -44,6 +48,82 @@ export const architectQueue = new Queue('architect-dispatch', {
 export interface ArchitectDispatchPayload {
     orgId: string;
     workItemId: string;
+    /** FASE 13.5a1 — internal counter bumped each time a TENANT_LIMIT
+     *  rejection re-enqueues the job. NOT set by external callers. */
+    _tenantLimitRequeues?: number;
+}
+
+/**
+ * FASE 13.5a1 — handle a tenant-slot busy rejection without consuming
+ * BullMQ's retry budget. Either re-enqueues with a configurable delay,
+ * or (after `maxRequeues`) marks the work_item as `blocked` with a
+ * clear reason. Exported for unit testing in isolation.
+ *
+ * Behavior:
+ *   - `requeueCount = prev + 1`; if it exceeds `maxRequeues`, UPDATE
+ *     architect_work_items.status = 'blocked' + dispatch_error
+ *   - otherwise, call `queue.add(jobName, {...job.data, _tenantLimitRequeues: requeueCount}, {delay, attempts:1, jobId})`
+ *   - NEVER throws from a healthy path — the caller's consumer should
+ *     `return` immediately after this resolves.
+ */
+export async function handleTenantLimitRejection(
+    pool: Pool,
+    queue: { add: (name: string, data: any, opts: any) => Promise<unknown> },
+    args: {
+        jobName: string;
+        jobData: ArchitectDispatchPayload;
+        orgId: string;
+        workItemId: string;
+    },
+): Promise<{ action: 'requeued' | 'blocked'; requeueCount: number; delaySec: number }> {
+    const delaySec = parseInt(process.env.TENANT_LIMIT_REQUEUE_DELAY_SEC || '30', 10);
+    const maxRequeues = parseInt(process.env.TENANT_LIMIT_MAX_REQUEUES || '40', 10);
+    const prevRequeues = Number(args.jobData._tenantLimitRequeues ?? 0);
+    const requeueCount = prevRequeues + 1;
+
+    if (requeueCount > maxRequeues) {
+        const approxMin = Math.round((maxRequeues * delaySec) / 60);
+        try {
+            await pool.query(
+                `UPDATE architect_work_items
+                    SET status = 'blocked',
+                        dispatch_error = $1,
+                        last_event_at = NOW()
+                  WHERE id = $2 AND status = 'pending'`,
+                [
+                    `tenant_limit_exhausted after ${maxRequeues} requeues (~${approxMin}min)`,
+                    args.workItemId,
+                ],
+            );
+        } catch (err) {
+            console.warn(
+                '[Architect Worker] failed to mark blocked:',
+                (err as Error).message,
+            );
+        }
+        console.warn(
+            `[Architect Worker] work_item ${args.workItemId} BLOCKED: tenant_limit_exhausted`,
+        );
+        return { action: 'blocked', requeueCount, delaySec };
+    }
+
+    console.log(
+        `[Architect Worker] tenant ${args.orgId} at concurrency limit, ` +
+        `re-queuing work_item ${args.workItemId} in ${delaySec}s ` +
+        `(requeue ${requeueCount}/${maxRequeues})`,
+    );
+    await queue.add(
+        args.jobName,
+        { ...args.jobData, _tenantLimitRequeues: requeueCount },
+        {
+            delay: delaySec * 1000,
+            attempts: 1,
+            jobId: `${args.workItemId}-requeue-${requeueCount}`,
+            removeOnComplete: true,
+            removeOnFail: { age: 3600, count: 100 },
+        },
+    );
+    return { action: 'requeued', requeueCount, delaySec };
 }
 
 export interface CancelRunPayload {
@@ -276,12 +356,27 @@ export function initArchitectWorker(pgPool: Pool): Worker {
 
             // FASE 11: per-tenant concurrency — block if this tenant is at
             // capacity so no single org starves the global 2-slot worker.
-            // BullMQ's retry mechanism re-queues the job when we throw the
-            // TENANT_LIMIT error; other tenants' jobs get a fair shot.
+            //
+            // FASE 13.5a1 (hotfix): when the slot is busy, re-enqueue as a
+            // NEW job with a fresh attempts budget instead of throwing.
+            // The previous `throw new Error('TENANT_LIMIT')` was fatal
+            // in practice: BullMQ's retry budget is 3, exponential backoff
+            // 5s/10s/20s = ~35s, and while the first run holds the slot for
+            // 60-180s (especially when routed through a rate-limited
+            // provider like Gemini free-tier), the retries stack up and the
+            // job is DROPPED before the slot releases, orphaning the
+            // work_item in status='pending' forever.
+            //
+            // See docs/DIAGNOSTIC_RUNTIME_HANG_20260422.md + ADR-021.
             const hasSlot = await acquireTenantSlot(orgId);
             if (!hasSlot) {
-                console.log(`[Architect Worker] tenant ${orgId} at concurrency limit, re-queuing`);
-                throw new Error('TENANT_LIMIT');
+                await handleTenantLimitRejection(pgPool, architectQueue, {
+                    jobName: job.name,
+                    jobData: job.data as ArchitectDispatchPayload,
+                    orgId,
+                    workItemId,
+                });
+                return; // graceful — do NOT throw
             }
 
             try {
@@ -314,8 +409,11 @@ export function initArchitectWorker(pgPool: Pool): Worker {
     });
 
     // ── FASE 11: Periodic watchdog + workspace cleanup ──────────────────
-    // Watchdog: every 5 min, mark work items stuck > 15 min as blocked.
-    // Operators see dispatch_error with "Stuck for N minutes" message.
+    // Watchdog: every 5 min, mark work items stuck > 15 min as blocked,
+    // AND (FASE 13.5a1) re-dispatch orphaned PENDING items whose BullMQ
+    // job was dropped (e.g., TENANT_LIMIT retries exhausted). Operators see
+    // dispatch_error with "Stuck for N minutes" (stuck) or
+    // "watchdog_recovery_exhausted" (orphan that couldn't be recovered).
     const watchdogInterval = setInterval(async () => {
         try {
             const marked = await detectAndMarkStuckWorkItems(pgPool);
@@ -324,6 +422,20 @@ export function initArchitectWorker(pgPool: Pool): Worker {
             }
         } catch (err) {
             console.warn('[Architect Watchdog] sweep error:', (err as Error).message);
+        }
+        try {
+            const { recovered, blocked } = await recoverOrphanedPendingWorkItems(
+                pgPool,
+                architectQueue as unknown as Parameters<typeof recoverOrphanedPendingWorkItems>[1],
+            );
+            if (recovered > 0) {
+                console.log(`[Architect Watchdog] Recovered ${recovered} orphaned PENDING work items`);
+            }
+            if (blocked > 0) {
+                console.warn(`[Architect Watchdog] Blocked ${blocked} work items after recovery budget exhausted`);
+            }
+        } catch (err) {
+            console.warn('[Architect Watchdog] orphan recovery error:', (err as Error).message);
         }
     }, 5 * 60 * 1000);
 
