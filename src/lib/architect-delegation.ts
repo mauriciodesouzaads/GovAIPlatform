@@ -10,6 +10,22 @@
  *   - Human adapter is informational only (no DB state changes)
  *   - Max 3 dispatch attempts before marking blocked
  *   - dispatchWorkItem uses SELECT FOR UPDATE SKIP LOCKED for concurrency safety
+ *
+ * ─── FASE 13.5b/1 — refactor in progress ───────────────────────────────
+ * This file is the legacy source of truth. New call sites should import
+ * from `./delegation/orchestration`, `./delegation/dispatch`, or
+ * `./delegation/governance` (or the convenience `./delegation` barrel)
+ * instead of from this module directly. The `./delegation/*` submodules
+ * are currently thin re-export shims that point back here; the physical
+ * code move will happen in 13.5c once callers have migrated. Do not
+ * add new public exports here without also referencing them from the
+ * appropriate submodule.
+ *
+ * The folder is called `delegation/` (not `architect/`) because
+ * `src/lib/architect.ts` already owns the "architect domain" namespace
+ * (workflow graphs, decision sets, demand cases). This file's
+ * responsibility is the delegation/execution layer that sits on top
+ * of that domain, hence the separate folder name.
  */
 
 import { Pool } from 'pg';
