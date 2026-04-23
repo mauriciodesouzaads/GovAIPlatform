@@ -19,6 +19,36 @@ import { Pool } from 'pg';
 import axios from 'axios';
 import { buildCorsHeaders } from '../lib/cors-config';
 
+/**
+ * FASE 13.5b/2 — extract displayable text from an OpenAI-compatible
+ * message, tolerant of the four shapes we see in practice:
+ *   - `content: string` (Groq, Cerebras, OpenAI classic)
+ *   - `content: Array<{type: 'text', text: string}>` (Anthropic via
+ *     LiteLLM passthrough; may also contain tool_use blocks)
+ *   - `content: null` + `tool_calls: [{function: {name}}]` (tool-only
+ *     turns — agent is mid-reasoning, next turn will produce text)
+ *   - `undefined` / empty — genuine no-response
+ */
+export function extractContent(msg: any): string {
+    if (!msg) return '(sem resposta)';
+    if (typeof msg.content === 'string' && msg.content.length > 0) {
+        return msg.content;
+    }
+    if (Array.isArray(msg.content)) {
+        const texts = msg.content
+            .filter((b: any) => b?.type === 'text' && typeof b.text === 'string')
+            .map((b: any) => b.text);
+        if (texts.length > 0) return texts.join('\n');
+    }
+    if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+        const toolNames = msg.tool_calls
+            .map((tc: any) => tc?.function?.name || 'tool')
+            .join(', ');
+        return `[aguardando próximo turno: ${toolNames}]`;
+    }
+    return '(sem resposta)';
+}
+
 interface SendBody {
     assistant_id: string;
     message: string;
@@ -271,8 +301,13 @@ export async function chatRoutes(
             }
 
             // ── Normal streaming path ────────────────────────────────────────
-            const fullContent: string =
-                result.data?.choices?.[0]?.message?.content ?? '(sem resposta)';
+            // FASE 13.5b/2 — tolerate multi-shape `content`. Anthropic-format
+            // responses come back as an array of content blocks rather than
+            // a string; tool-only turns come back with null content + a
+            // populated `tool_calls`. Previously both fell into the
+            // "(sem resposta)" placeholder, confusing end users on valid
+            // but structured responses.
+            const fullContent = extractContent(result.data?.choices?.[0]?.message);
 
             // Split preserving whitespace, emit 3-token chunks with micro-delay
             const tokens = fullContent.split(/(\s+)/).filter(t => t.length > 0);

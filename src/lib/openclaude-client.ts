@@ -172,7 +172,38 @@ export function executeOpenClaudeRun(config: OpenClaudeRunConfig): OpenClaudeHan
         },
     });
 
+    // FASE 13.5b/2 — per-turn idle timeout guard.
+    //
+    // The `timer` above bounds the WHOLE run. This new `turnTimer` aborts
+    // the stream if no event arrives for `turnTimeoutMs` — the specific
+    // symptom of Cerebras multi-turn flakiness observed in 13.5a3 where
+    // tools completed but the final LLM turn just hung. Each incoming
+    // event resets the idle clock. Opt out by setting
+    // RUNTIME_TURN_TIMEOUT_MS=0.
+    const turnTimeoutMs = parseInt(
+        process.env.RUNTIME_TURN_TIMEOUT_MS || '60000', 10,
+    );
+    let turnTimer: NodeJS.Timeout | null = null;
+    const resetTurnTimer = () => {
+        if (turnTimeoutMs <= 0) return;
+        if (turnTimer) clearTimeout(turnTimer);
+        turnTimer = setTimeout(() => {
+            if (settled) return;
+            console.warn(
+                `[openclaude-client] per-turn idle >${turnTimeoutMs}ms (session=${config.sessionId}); aborting stream`,
+            );
+            try { call.write({ cancel: { reason: 'turn_idle_timeout' } }); call.end(); } catch { /* ignore */ }
+            emitter.emit('error', {
+                message: `No stream activity for ${turnTimeoutMs}ms`,
+                code: 'TURN_IDLE_TIMEOUT',
+            });
+            settle();
+        }, turnTimeoutMs);
+    };
+    resetTurnTimer();
+
     call.on('data', (serverMessage: any) => {
+        resetTurnTimer();
         if (serverMessage.text_chunk) {
             emitter.emit('text_chunk', serverMessage.text_chunk);
         } else if (serverMessage.tool_start) {
@@ -183,10 +214,12 @@ export function executeOpenClaudeRun(config: OpenClaudeRunConfig): OpenClaudeHan
             emitter.emit('action_required', serverMessage.action_required);
         } else if (serverMessage.done) {
             clearTimeout(timer);
+            if (turnTimer) clearTimeout(turnTimer);
             settle();
             emitter.emit('done', serverMessage.done);
         } else if (serverMessage.error) {
             clearTimeout(timer);
+            if (turnTimer) clearTimeout(turnTimer);
             settle();
             emitter.emit('error', serverMessage.error);
         }
@@ -194,6 +227,7 @@ export function executeOpenClaudeRun(config: OpenClaudeRunConfig): OpenClaudeHan
 
     call.on('error', (err: any) => {
         clearTimeout(timer);
+        if (turnTimer) clearTimeout(turnTimer);
         if (!settled) {
             settle();
             emitter.emit('error', { message: err?.message || String(err), code: 'GRPC_ERROR' });
