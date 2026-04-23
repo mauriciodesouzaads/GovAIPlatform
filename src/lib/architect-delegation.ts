@@ -205,6 +205,38 @@ export function shouldDelegate(
 }
 
 /**
+ * Map a leading runtime prefix — `[OPENCLAUDE]`, `[CLAUDE_CODE]`, or
+ * `[AIDER]` — to the runtime_profile slug that should handle the work
+ * item. Returns `null` when the message has no such prefix, so the
+ * caller can fall back to the assistant / org / system default chain.
+ *
+ * Why this lives next to `shouldDelegate` and not in the dispatcher:
+ * the prefix is semantically *part of the delegation decision* — it's
+ * what tells us "delegate AND send it to this specific lane." The
+ * dispatcher only cares which gRPC socket to hit given a slug; it
+ * doesn't parse the user message.
+ *
+ * Case-insensitive match, tolerant of leading whitespace. We use a
+ * prefix-only match (not .test of the full body) so a stray mention
+ * of the token mid-message doesn't misroute. The regex patterns in
+ * `auto_delegate_patterns` still decide *whether* to delegate — this
+ * function only answers *which runtime*.
+ */
+export function runtimeFromPrefix(message: string | null | undefined): string | null {
+    if (!message) return null;
+    const trimmed = message.trimStart();
+    const match = trimmed.match(/^\[(OPENCLAUDE|CLAUDE_CODE|AIDER)\]/i);
+    if (!match) return null;
+    const token = match[1].toUpperCase();
+    switch (token) {
+        case 'OPENCLAUDE':  return 'openclaude';
+        case 'CLAUDE_CODE': return 'claude_code_official';
+        case 'AIDER':       return 'aider';
+        default:            return null;  // unreachable given the regex
+    }
+}
+
+/**
  * Returns the singleton "auto-delegation" workflow_graph_id for an org.
  * Required because architect_work_items.workflow_graph_id is NOT NULL.
  *

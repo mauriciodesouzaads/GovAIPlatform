@@ -486,18 +486,33 @@ export async function chatRoutes(
                  ORDER BY a.lifecycle_state, a.name ASC`,
                 [orgId]
             );
-            return reply.send(result.rows.map(r => ({
-                id:                  r.id,
-                name:                r.name,
-                description:         r.description,
-                status:              r.status,
-                lifecycle_state:     r.lifecycle_state,
-                delegation_config:   r.delegation_config,
-                delegation_enabled:  r.delegation_config?.enabled === true,
-                capability_tags:     r.capability_tags ?? [],
-                risk_level:          r.risk_level,
-                skill_count:         Number(r.skill_count) || 0,
-            })));
+            return reply.send(result.rows.map(r => {
+                // FASE 13.5b.1: `delegation_enabled` must match what
+                // shouldDelegate() will actually do at runtime. The
+                // dispatcher requires BOTH `enabled === true` AND a
+                // non-empty patterns array — otherwise every message
+                // short-circuits to `no_patterns`. Computing the serialized
+                // flag the same way closes the UI/runtime divergence the
+                // user hit ("delegation_enabled: true" but nothing ever
+                // got delegated because the patterns array was empty).
+                const patterns = Array.isArray(r.delegation_config?.auto_delegate_patterns)
+                    ? r.delegation_config.auto_delegate_patterns
+                    : [];
+                const delegationEnabled = r.delegation_config?.enabled === true
+                    && patterns.length > 0;
+                return {
+                    id:                  r.id,
+                    name:                r.name,
+                    description:         r.description,
+                    status:              r.status,
+                    lifecycle_state:     r.lifecycle_state,
+                    delegation_config:   r.delegation_config,
+                    delegation_enabled:  delegationEnabled,
+                    capability_tags:     r.capability_tags ?? [],
+                    risk_level:          r.risk_level,
+                    skill_count:         Number(r.skill_count) || 0,
+                };
+            }));
         } finally {
             await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
             client.release();

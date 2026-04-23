@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useState } from 'react';
 import api, { ENDPOINTS } from '@/lib/api';
+import { claimLevelLabel, runtimeClassIcon } from '@/lib/runtime-label';
 import { Plus, Upload, CheckCircle2, Bot, Database, Lock, FileText, AlertTriangle, X, FileCheck, Workflow } from 'lucide-react';
 import Link from 'next/link';
 import { useToast } from '@/components/Toast';
@@ -665,11 +666,13 @@ export default function AssistantsPage() {
                                                     className="w-full bg-secondary border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-violet-500/50"
                                                 >
                                                     {runtimeOptions.map(rt => {
-                                                        const icon = rt.runtime_class === 'official' ? '🔒' : '🌐';
+                                                        // FASE 13.5b.1: centralized labels
+                                                        // so all runtimes (incl. Aider)
+                                                        // render consistently with the
+                                                        // playground selector.
+                                                        const icon = runtimeClassIcon(rt.runtime_class);
                                                         const suffix = rt.available ? '' : ' — indisponível';
-                                                        const claim = rt.claim_level === 'exact_governed' ? 'Exact Governed'
-                                                            : rt.claim_level === 'open_governed' ? 'Open Governed'
-                                                                : rt.claim_level;
+                                                        const claim = claimLevelLabel(rt.claim_level);
                                                         return (
                                                             <option key={rt.slug} value={rt.slug} disabled={!rt.available}>
                                                                 {icon} {rt.display_name} ({claim}){suffix}

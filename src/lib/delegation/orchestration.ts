@@ -13,6 +13,7 @@
 
 export {
     shouldDelegate,
+    runtimeFromPrefix,
     getAutoDelegationWorkflowGraphId,
     type DelegationConfig,
     type DelegationDecision,

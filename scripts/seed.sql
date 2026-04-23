@@ -1195,12 +1195,15 @@ INSERT INTO workflow_graphs (
 ) ON CONFLICT (id) DO NOTHING;
 
 -- ── Delegation config no Assistente Jurídico ────────────────────────────────
--- The [OPENCLAUDE] prefix is the explicit force-delegate escape hatch used
--- by the chat wrapper (POST /v1/admin/chat/send with force_delegate=true).
+-- The [OPENCLAUDE] / [CLAUDE_CODE] / [AIDER] prefixes are explicit
+-- force-delegate escape hatches. Each one also selects which governed
+-- runtime gets the work (see runtimeFromPrefix in architect-delegation.ts).
 UPDATE assistants SET delegation_config = '{
   "enabled": true,
   "auto_delegate_patterns": [
     "\\[OPENCLAUDE\\]",
+    "\\[CLAUDE_CODE\\]",
+    "\\[AIDER\\]",
     "analise o (repositório|código|projeto)",
     "gere um relatório",
     "execute os testes",
@@ -1211,10 +1214,12 @@ UPDATE assistants SET delegation_config = '{
 }'::jsonb
 WHERE id = '00000000-0000-0000-0002-000000000001';
 
--- Idempotent guarantee (FASE 6b): every delegation-enabled assistant in the
--- demo org must carry the \[OPENCLAUDE\] escape pattern. Re-runs are safe:
--- the UPDATE only fires for rows whose current pattern list does not yet
--- contain the string "OPENCLAUDE".
+-- Idempotent guarantee: every delegation-enabled assistant in the demo
+-- org must carry all three runtime-prefix escape patterns. Re-runs are
+-- safe — each UPDATE only fires when the corresponding token is absent
+-- from the existing patterns array. Migration 087 performs the same
+-- backfill org-wide (not just demo); this block keeps a fresh `seed.sql`
+-- run self-sufficient without needing 087 to have executed.
 UPDATE assistants SET delegation_config = jsonb_set(
     delegation_config,
     '{auto_delegate_patterns}',
@@ -1224,5 +1229,25 @@ UPDATE assistants SET delegation_config = jsonb_set(
 WHERE delegation_config->>'enabled' = 'true'
   AND org_id = '00000000-0000-0000-0000-000000000001'
   AND NOT COALESCE(delegation_config->'auto_delegate_patterns', '[]'::jsonb)::text LIKE '%OPENCLAUDE%';
+
+UPDATE assistants SET delegation_config = jsonb_set(
+    delegation_config,
+    '{auto_delegate_patterns}',
+    COALESCE(delegation_config->'auto_delegate_patterns', '[]'::jsonb)
+        || '"\\[CLAUDE_CODE\\]"'::jsonb
+)
+WHERE delegation_config->>'enabled' = 'true'
+  AND org_id = '00000000-0000-0000-0000-000000000001'
+  AND NOT COALESCE(delegation_config->'auto_delegate_patterns', '[]'::jsonb)::text LIKE '%CLAUDE_CODE%';
+
+UPDATE assistants SET delegation_config = jsonb_set(
+    delegation_config,
+    '{auto_delegate_patterns}',
+    COALESCE(delegation_config->'auto_delegate_patterns', '[]'::jsonb)
+        || '"\\[AIDER\\]"'::jsonb
+)
+WHERE delegation_config->>'enabled' = 'true'
+  AND org_id = '00000000-0000-0000-0000-000000000001'
+  AND NOT COALESCE(delegation_config->'auto_delegate_patterns', '[]'::jsonb)::text LIKE '%AIDER%';
 
 COMMIT;

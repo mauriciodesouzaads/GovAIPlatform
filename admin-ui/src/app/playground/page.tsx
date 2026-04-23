@@ -19,6 +19,12 @@ import {
 import { marked } from 'marked';
 import api, { ENDPOINTS, API_BASE } from '@/lib/api';
 import { getAuthToken } from '@/lib/auth-storage';
+import {
+    claimLevelLabel,
+    runtimeClassIcon,
+    runtimeHeading,
+    runtimeFullLabel,
+} from '@/lib/runtime-label';
 import { useAuth } from '@/components/AuthProvider';
 import {
     MessageSquareText, Bot, Send, Shield, ShieldCheck, ShieldAlert,
@@ -1123,13 +1129,15 @@ export default function GovAIChatPage() {
                             <div className="grid grid-cols-2 gap-1.5">
                                 {runtimes.map(rt => {
                                     const active = selectedRuntime === rt.slug;
-                                    const isOfficial = rt.runtime_class === 'official';
-                                    const icon = isOfficial ? '🔒' : '🌐';
-                                    const claimLabel = ({
-                                        official_cli_governed: 'CLI Governed',
-                                        exact_governed: 'Exact Governed',
-                                        open_governed: 'Open Governed',
-                                    } as Record<string, string>)[rt.claim_level] || rt.claim_level;
+                                    // FASE 13.5b.1: prefer DB display_name
+                                    // (distinct per runtime) over the legacy
+                                    // "Official/Open" label computed from
+                                    // runtime_class (identical for OpenClaude
+                                    // and Aider). claim_level becomes the
+                                    // subtitle, not the primary identifier.
+                                    const icon = runtimeClassIcon(rt.runtime_class);
+                                    const heading = runtimeHeading(rt);
+                                    const claimLabel = claimLevelLabel(rt.claim_level);
                                     return (
                                         <button
                                             key={rt.slug}
@@ -1147,8 +1155,8 @@ export default function GovAIChatPage() {
                                             }}
                                             title={
                                                 rt.available
-                                                    ? `${rt.display_name} — ${claimLabel}`
-                                                    : `${rt.display_name} — container indisponível`
+                                                    ? `${heading} — ${claimLabel}`
+                                                    : `${heading} — container indisponível`
                                             }
                                             className={`text-left px-2 py-2 rounded-md border transition-colors ${
                                                 active
@@ -1161,7 +1169,7 @@ export default function GovAIChatPage() {
                                             <div className="flex items-center gap-1 text-[11px] font-medium truncate">
                                                 <span aria-hidden>{icon}</span>
                                                 <span className="truncate">
-                                                    {isOfficial ? 'Official' : 'Open'}
+                                                    {heading}
                                                 </span>
                                             </div>
                                             <div className="text-[9px] text-muted-foreground font-mono truncate mt-0.5">
@@ -1255,7 +1263,14 @@ export default function GovAIChatPage() {
                             {runtimes.length > 0 && (() => {
                                 const rt = runtimes.find(r => r.slug === selectedRuntime);
                                 if (!rt) return null;
+                                // FASE 13.5b.1: badge now shows the actual
+                                // display_name so users can tell OpenClaude
+                                // from Aider at a glance. Official keeps the
+                                // primary color to signal the stricter CLI
+                                // Governed lane.
                                 const isOfficial = rt.runtime_class === 'official';
+                                const icon = runtimeClassIcon(rt.runtime_class);
+                                const heading = runtimeHeading(rt);
                                 return (
                                     <span
                                         className={`hidden md:inline-flex items-center gap-1 text-[10px] font-mono font-medium px-2 py-0.5 rounded border ${
@@ -1263,10 +1278,10 @@ export default function GovAIChatPage() {
                                                 ? 'bg-primary/10 text-primary border-primary/30'
                                                 : 'bg-muted/40 text-muted-foreground border-border/60'
                                         }`}
-                                        title={isOfficial ? 'Claude Code (Official) — CLI Governed' : 'OpenClaude — Open Governed'}
+                                        title={runtimeFullLabel(rt)}
                                     >
-                                        <span aria-hidden>{isOfficial ? '🔒' : '🌐'}</span>
-                                        {isOfficial ? 'Official' : 'Open'}
+                                        <span aria-hidden>{icon}</span>
+                                        {heading}
                                     </span>
                                 );
                             })()}
@@ -1362,6 +1377,7 @@ export default function GovAIChatPage() {
                                                 msg={msg}
                                                 delegationState={msg.workItemId ? delegationStates[msg.workItemId] : undefined}
                                                 onApprove={handleApproval}
+                                                runtimes={runtimes}
                                             />
                                         </div>
                                     );
@@ -1570,11 +1586,12 @@ function EmptyState({
 // ═══════════════════════════════════════════════════════════════════════════
 
 function MessageRow({
-    msg, delegationState, onApprove,
+    msg, delegationState, onApprove, runtimes,
 }: {
     msg: ChatMessage;
     delegationState?: DelegationState;
     onApprove: (workItemId: string, promptId: string, approved: boolean, mode?: ApproveMode) => void;
+    runtimes: RuntimeOption[];
 }) {
     if (msg.role === 'user') {
         return (
@@ -1623,6 +1640,7 @@ function MessageRow({
                 msg={msg}
                 state={delegationState}
                 onApprove={onApprove}
+                runtimes={runtimes}
             />
         );
     }
@@ -1664,11 +1682,12 @@ function MessageRow({
 // ═══════════════════════════════════════════════════════════════════════════
 
 function DelegationCard({
-    msg, state, onApprove,
+    msg, state, onApprove, runtimes,
 }: {
     msg: ChatMessage;
     state: DelegationState | undefined;
     onApprove: (workItemId: string, promptId: string, approved: boolean, mode?: ApproveMode) => void;
+    runtimes: RuntimeOption[];
 }) {
     const status = state?.status ?? 'pending';
     const isTerminal = ['done', 'cancelled', 'blocked'].includes(status);
@@ -1700,23 +1719,31 @@ function DelegationCard({
                         actually executing this work item. Renders from
                         state.runtimeProfileSlug which is set the moment
                         the delegation card is created (from _govai) and
-                        refreshed on every poll (from the column). */}
-                    {state?.runtimeProfileSlug && (
-                        <span
-                            className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded border ${
-                                state.runtimeProfileSlug === 'claude_code_official'
-                                    ? 'bg-primary/10 text-primary border-primary/30'
-                                    : 'bg-muted/40 text-muted-foreground border-border/60'
-                            }`}
-                            title={
-                                state.runtimeProfileSlug === 'claude_code_official'
-                                    ? 'Claude Code (Official) · CLI Governed'
-                                    : 'OpenClaude · Open Governed'
-                            }
-                        >
-                            {state.runtimeProfileSlug === 'claude_code_official' ? '🔒 Official' : '🌐 Open'}
-                        </span>
-                    )}
+                        refreshed on every poll (from the column).
+                        FASE 13.5b.1: resolve label against the runtimes
+                        list so Aider renders as "Aider", not "Open". */}
+                    {state?.runtimeProfileSlug && (() => {
+                        const rt = runtimes.find(r => r.slug === state.runtimeProfileSlug);
+                        const isOfficial = rt?.runtime_class === 'official';
+                        const icon = runtimeClassIcon(rt?.runtime_class);
+                        const heading = rt
+                            ? runtimeHeading(rt)
+                            : state.runtimeProfileSlug;
+                        return (
+                            <span
+                                className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded border ${
+                                    isOfficial
+                                        ? 'bg-primary/10 text-primary border-primary/30'
+                                        : 'bg-muted/40 text-muted-foreground border-border/60'
+                                }`}
+                                title={rt
+                                    ? runtimeFullLabel(rt)
+                                    : `${state.runtimeProfileSlug}`}
+                            >
+                                {icon} {heading}
+                            </span>
+                        );
+                    })()}
                     <div className="text-[10px] font-mono text-muted-foreground truncate max-w-[40%]">
                         {workItemId.slice(0, 8)}
                     </div>

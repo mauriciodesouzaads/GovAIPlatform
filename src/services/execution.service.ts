@@ -33,7 +33,7 @@ import { checkQuota, recordTokenUsage, getCostPerToken } from '../lib/finops';
 import { pgPool } from '../lib/db';
 import { redisCache } from '../lib/redis';
 import { recordEvidence } from '../lib/evidence';
-import { shouldDelegate, getAutoDelegationWorkflowGraphId, type DelegationConfig } from '../lib/architect-delegation';
+import { shouldDelegate, runtimeFromPrefix, getAutoDelegationWorkflowGraphId, type DelegationConfig } from '../lib/architect-delegation';
 
 export interface ExecutionParams {
     assistantId: string;
@@ -348,11 +348,25 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                     // creating a work item that will immediately get blocked in
                     // the dispatch worker. This gives the user an instant error
                     // card instead of a delayed "blocked" poll result.
-                    const resolvedRuntimeSlug = runtimeProfile && runtimeProfile.trim()
+                    //
+                    // FASE 13.5b.1: precedence is
+                    //     explicit body (`runtime_profile`)
+                    //     > message prefix (`[AIDER]` / `[CLAUDE_CODE]` / `[OPENCLAUDE]`)
+                    //     > system default ('openclaude')
+                    // The prefix-derived slug is the mechanism that makes
+                    // "[AIDER] analise o repo" actually land on the Aider
+                    // runner instead of silently falling back to OpenClaude.
+                    // The body takes precedence so the playground selector
+                    // (which always sends runtime_profile) stays authoritative.
+                    const prefixSlug = runtimeFromPrefix(message);
+                    const explicitSlug = runtimeProfile && runtimeProfile.trim()
                         ? runtimeProfile.trim()
-                        : 'openclaude';
+                        : null;
+                    const resolvedRuntimeSlug = explicitSlug
+                        ?? prefixSlug
+                        ?? 'openclaude';
 
-                    if (runtimeProfile && runtimeProfile.trim()) {
+                    if (explicitSlug || prefixSlug) {
                         try {
                             // FASE 8: use the 5-layer resolver for pre-flight
                             const { resolveRuntimeForExecution: resolveRT } = await import('../lib/runtime-profiles');
