@@ -148,6 +148,11 @@ services:
       # sidecar socket when it IS running.
       CLAUDE_CODE_SOCKET_PATH: ${CLAUDE_CODE_SOCKET_PATH:-/var/run/govai/claude-code/claude-code.sock}
       CLAUDE_CODE_GRPC_HOST: ${CLAUDE_CODE_GRPC_HOST:-claude-code-runner:50051}
+      # --- Aider transport (FASE 13.5b/3) ---
+      # Same socket/TCP pattern as OpenClaude + Claude Code Official.
+      # The aider-runner is part of the dev profile by default.
+      AIDER_SOCKET_PATH: ${AIDER_SOCKET_PATH:-/var/run/govai/aider/aider.sock}
+      AIDER_GRPC_HOST: ${AIDER_GRPC_HOST:-aider-runner:50051}
       # --- OpenTelemetry tracing (FASE 10) ---
       # Opt-in: set OTEL_ENABLED=true + run the otel-collector profile
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
@@ -171,6 +176,7 @@ services:
       # Dockerfile change needed for either of them.
       - govai_sockets_openclaude:/var/run/govai/openclaude:ro
       - govai_sockets_claude_code:/var/run/govai/claude-code:ro
+      - govai_sockets_aider:/var/run/govai/aider:ro
       - govai_workspaces:/tmp/govai-workspaces
     ports:
       - "3000:3000"
@@ -324,6 +330,45 @@ services:
       retries: 5
       start_period: 30s
 
+  # ── aider-runner (FASE 13.5b/3 — third runtime) ───────────────────────────
+  # Python CLI agent (https://aider.chat) wrapped in the same gRPC contract
+  # as openclaude-runner and claude-code-runner. Routes LLM calls through
+  # LiteLLM — no provider key bypass, same audit/DLP/rate-limit as the
+  # other runtimes.
+  aider-runner:
+    profiles: ["dev"]
+    build:
+      context: ./aider-runner
+      dockerfile: Dockerfile
+    environment:
+      # Route LLM traffic through the GovAI-managed LiteLLM proxy.
+      OPENAI_API_KEY: ${LITELLM_KEY}
+      OPENAI_API_BASE: http://litellm:4000/v1
+      AIDER_MODEL: ${AIDER_DEFAULT_MODEL:-govai-llm-cerebras}
+      GRPC_HOST: "0.0.0.0"
+      GRPC_PORT: "50051"
+      GRPC_SOCKET_PATH: /var/run/govai/aider.sock
+    volumes:
+      # Isolated socket volume — same pattern as openclaude/claude-code.
+      - govai_sockets_aider:/var/run/govai
+      - aider_workspaces:/workspace
+    networks:
+      - govai-net
+    restart: unless-stopped
+    depends_on:
+      litellm:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket,sys;s=socket.socket();s.settimeout(2);s.connect(('127.0.0.1',50051));s.close()\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   # ── otel-collector (FASE 10 — Observability) ──────────────────────────────
   # OpenTelemetry Collector for receiving and exporting traces.
   # Profile: 'observability' — NOT started by default.
@@ -355,7 +400,9 @@ volumes:
   # them read-only at distinct subpaths.
   govai_sockets_openclaude:
   govai_sockets_claude_code:
+  govai_sockets_aider:
   govai_workspaces:
+  aider_workspaces:
 
 
 networks:
