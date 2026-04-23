@@ -24,10 +24,31 @@ const MAX_AGE_HOURS = parseInt(process.env.GOVAI_WORKSPACE_MAX_AGE_HOURS || '24'
 /**
  * Create the workspace directory for a given (org, work_item) pair.
  * Idempotent — safe to call repeatedly. Returns the absolute path.
+ *
+ * FASE 13.5b/0 — chmod 0o777 after creation so that runners with
+ * different uids can all write (openclaude-runner runs as root,
+ * claude-code-runner as node=1000, aider-runner as 1002). Without
+ * this, the api (govai=1001) creates dirs with 0o755 and only it
+ * can write — runners hit EACCES.
+ *
+ * This is safe because:
+ *  - Directories live under BASE_PATH (/tmp/govai-workspaces)
+ *  - Scoped per (org, work_item): no cross-tenant leakage
+ *  - Ephemeral: cleanupWorkspace() removes them after each run
+ *  - Only container-internal; never exposed to the host
  */
 export function createWorkspace(orgId: string, workItemId: string): string {
     const path = join(BASE_PATH, orgId, workItemId);
     mkdirSync(path, { recursive: true });
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { chmodSync } = require('fs') as typeof import('fs');
+        // Also chmod the parent org dir in case it was freshly created.
+        chmodSync(join(BASE_PATH, orgId), 0o777);
+        chmodSync(path, 0o777);
+    } catch {
+        /* non-fatal — if chmod fails the runner will surface EACCES, same as before */
+    }
     return path;
 }
 

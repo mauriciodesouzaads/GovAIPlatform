@@ -88,6 +88,42 @@ export interface OpenClaudeHandle {
 }
 
 /**
+ * Pick the gRPC target for this run. Prefers unix socket when it exists
+ * and is accessible; falls back to TCP when the socket is missing /
+ * EACCES / otherwise unreachable. This is the runtime-side symmetry
+ * counterpart of `isRuntimeAvailable` (FASE 13.5a3): the availability
+ * check and the actual dial now agree on "socket first, TCP fallback".
+ *
+ * FASE 13.5b/0 — closes the "14 UNAVAILABLE: No connection established"
+ * failure mode where a missing socket file would surface a bare gRPC
+ * error instead of transparently using the TCP host configured in the
+ * same target object.
+ */
+export function pickTransportTarget(
+    config: OpenClaudeRunConfig,
+): { target: string; transport: 'unix' | 'tcp'; fallback: boolean } {
+    if (config.socketPath) {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const fs = require('fs') as typeof import('fs');
+            fs.accessSync(config.socketPath);
+            return {
+                target: `unix:${config.socketPath}`,
+                transport: 'unix',
+                fallback: false,
+            };
+        } catch (err) {
+            const msg = (err as Error)?.message || String(err);
+            console.warn(
+                `[openclaude-client] unix socket unavailable (${config.socketPath}): ${msg}. Falling back to TCP ${config.host}`,
+            );
+            return { target: config.host, transport: 'tcp', fallback: true };
+        }
+    }
+    return { target: config.host, transport: 'tcp', fallback: false };
+}
+
+/**
  * Start an OpenClaude run.  Non-blocking — use the returned emitter to
  * react to events.  The returned promise never rejects; errors are emitted.
  */
@@ -95,11 +131,16 @@ export function executeOpenClaudeRun(config: OpenClaudeRunConfig): OpenClaudeHan
     const emitter = new EventEmitter();
     const AgentService = getAgentService();
 
-    // Prefer unix socket when configured (no TCP exposure, lower latency).
-    // gRPC accepts `unix:/absolute/path` (single slash) or `unix:///abs/path` (three).
-    const target = config.socketPath
-        ? `unix:${config.socketPath}`
-        : config.host;
+    // Prefer unix socket when configured AND accessible; fall back to TCP
+    // when the socket file is missing, EACCES, or otherwise unreachable.
+    // See pickTransportTarget() above.
+    const { target, transport, fallback } = pickTransportTarget(config);
+    if (transport === 'unix') {
+        // Happy path — silent. gRPC accepts `unix:/absolute/path` (single
+        // slash) or `unix:///abs/path` (three).
+    } else if (fallback) {
+        // Already warned in pickTransportTarget().
+    }
 
     const client = new AgentService(
         target,

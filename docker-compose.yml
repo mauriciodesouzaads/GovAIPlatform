@@ -127,9 +127,12 @@ services:
       MICROSOFT_TOKEN: ${MICROSOFT_TOKEN:-}
       GOOGLE_ADMIN_TOKEN: ${GOOGLE_ADMIN_TOKEN:-}
       ADMIN_UI_URL: ${ADMIN_UI_URL:-http://localhost:3001}
-      # --- OpenClaude transport (FASE 5-hardening) ---
-      # Prefer unix socket via shared volume; falls back to TCP if not present.
-      OPENCLAUDE_SOCKET_PATH: /var/run/govai/openclaude.sock
+      # --- OpenClaude transport (FASE 5-hardening, isolated in FASE 13.5b) ---
+      # Prefer unix socket via isolated volume; falls back to TCP if the
+      # socket is not accessible. Each runner now owns its own socket volume
+      # so concurrent bind attempts by different uids can't collide. See
+      # docs/ADR-023 and the 13.5b/0 commit for the symmetry fix.
+      OPENCLAUDE_SOCKET_PATH: ${OPENCLAUDE_SOCKET_PATH:-/var/run/govai/openclaude/openclaude.sock}
       OPENCLAUDE_GRPC_HOST: openclaude-runner:50051
       # 600000 = 10 min. The 5 min default was tight for tool-using
       # delegations on slower fallback models — Cerebras qwen-3-235b
@@ -143,7 +146,7 @@ services:
       # vars let the runtime resolver and isRuntimeAvailable() see that
       # the target is configured, and map 'claude_code_official' to the
       # sidecar socket when it IS running.
-      CLAUDE_CODE_SOCKET_PATH: ${CLAUDE_CODE_SOCKET_PATH:-/var/run/govai/claude-code.sock}
+      CLAUDE_CODE_SOCKET_PATH: ${CLAUDE_CODE_SOCKET_PATH:-/var/run/govai/claude-code/claude-code.sock}
       CLAUDE_CODE_GRPC_HOST: ${CLAUDE_CODE_GRPC_HOST:-claude-code-runner:50051}
       # --- OpenTelemetry tracing (FASE 10) ---
       # Opt-in: set OTEL_ENABLED=true + run the otel-collector profile
@@ -160,7 +163,14 @@ services:
       # --- Chat wrapper (FASE 6) ---
       GOVAI_DEMO_API_KEY: ${GOVAI_DEMO_API_KEY:-sk-govai-demo00000000000000000000}
     volumes:
-      - govai_sockets:/var/run/govai
+      # FASE 13.5b/0: each runner now owns a dedicated socket volume so
+      # EACCES between containers with different uids cannot happen. The
+      # api mounts each runner's volume at a distinct subpath (read-only)
+      # and reads the socket from there. The runners themselves keep
+      # their internal socket paths at /var/run/govai/<name>.sock — no
+      # Dockerfile change needed for either of them.
+      - govai_sockets_openclaude:/var/run/govai/openclaude:ro
+      - govai_sockets_claude_code:/var/run/govai/claude-code:ro
       - govai_workspaces:/tmp/govai-workspaces
     ports:
       - "3000:3000"
@@ -245,7 +255,11 @@ services:
       OPENCLAUDE_DISABLE_WEB_SEARCH: "true"
       OPENCLAUDE_DISABLE_WEB_FETCH: "true"
     volumes:
-      - govai_sockets:/var/run/govai
+      # FASE 13.5b/0: dedicated socket volume per runner (no cross-uid
+      # collision). Mount point = /var/run/govai, socket internal path
+      # stays /var/run/govai/openclaude.sock. The api mounts this same
+      # named volume at /var/run/govai/openclaude (subpath) to read it.
+      - govai_sockets_openclaude:/var/run/govai
       - govai_workspaces:/tmp/govai-workspaces
       - openclaude_workspaces:/tmp/govai-workspace
     networks:
@@ -291,7 +305,10 @@ services:
       # CLI will 401 and the adapter surfaces the error.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     volumes:
-      - govai_sockets:/var/run/govai
+      # FASE 13.5b/0: dedicated socket volume (analogous to openclaude).
+      # The runner's internal socket path stays /var/run/govai/claude-code.sock;
+      # the api mounts this volume at /var/run/govai/claude-code.
+      - govai_sockets_claude_code:/var/run/govai
       - govai_workspaces:/tmp/govai-workspaces
     networks:
       - govai-net
@@ -329,10 +346,15 @@ volumes:
   pgdata:
   redisdata:
   openclaude_workspaces:
-  # FASE 5-hardening: shared between api and openclaude-runner.
-  # govai_sockets carries the gRPC unix socket; govai_workspaces holds the
-  # per-(org, work_item) scratch directories created by workspace-manager.
-  govai_sockets:
+  # FASE 13.5b/0 — one socket volume per runner. Before, a single
+  # govai_sockets volume was shared across openclaude-runner +
+  # claude-code-runner. That caused EACCES when the second runner
+  # tried to bind its socket in a directory whose ownership had been
+  # claimed by the first runner (different container uids).
+  # Each named volume here is private to its runner; the api mounts
+  # them read-only at distinct subpaths.
+  govai_sockets_openclaude:
+  govai_sockets_claude_code:
   govai_workspaces:
 
 

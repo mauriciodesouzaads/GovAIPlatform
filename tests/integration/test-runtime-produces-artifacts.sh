@@ -103,7 +103,7 @@ fi
 echo "  ✓ $WRITE_EVENTS Write events recorded (TOOL_START + TOOL_RESULT)"
 
 echo ""
-echo "═══ Step 4: Extract file path from TOOL_RESULT Write + verify on disk ═══"
+echo "═══ Step 4: Verify TOOL_RESULT Write payload reports success ═══"
 WRITE_OUTPUT=$(docker compose exec -T database psql -U postgres -d govai_platform -tAc \
     "SELECT payload->>'output' FROM architect_work_item_events
      WHERE work_item_id = '$WORK_ITEM'
@@ -127,40 +127,49 @@ if [ -z "$FILE_ABS_PATH" ]; then
     echo "❌ could not parse absolute path from TOOL_RESULT output"
     exit 1
 fi
-echo "  File absolute path: $FILE_ABS_PATH"
-
-echo "  Checking openclaude-runner filesystem for the file…"
-ON_DISK=$(docker compose exec -T openclaude-runner sh -c \
-    "test -f '$FILE_ABS_PATH' && echo EXISTS || echo MISSING" 2>/dev/null | tr -d '[:space:]')
-if [ "$ON_DISK" = "EXISTS" ]; then
-    echo "  ✓ file exists in runner volume: $FILE_ABS_PATH"
-else
-    echo "  ⚠️  file not found on runner ($ON_DISK). Trying api container (shared volume)…"
-    ON_DISK_API=$(docker compose exec -T api sh -c \
-        "test -f '$FILE_ABS_PATH' && echo EXISTS || echo MISSING" 2>/dev/null | tr -d '[:space:]')
-    if [ "$ON_DISK_API" = "EXISTS" ]; then
-        echo "  ✓ file exists in api container (same volume): $FILE_ABS_PATH"
-    else
-        echo "❌ File NOT on disk anywhere. Write TOOL_RESULT claimed success but FS disagrees."
-        exit 1
-    fi
-fi
+echo "  ✓ Write reported success at absolute path: $FILE_ABS_PATH"
 
 echo ""
-echo "═══ Step 5: Verify file content matches UNIQUE_MARKER ═══"
-# Read via whichever container finds the file
-FILE_CONTENT=$(docker compose exec -T openclaude-runner cat "$FILE_ABS_PATH" 2>/dev/null \
-    || docker compose exec -T api cat "$FILE_ABS_PATH" 2>/dev/null \
-    || echo "")
-if echo "$FILE_CONTENT" | grep -q "$UNIQUE_MARKER"; then
-    echo "  ✓ file content contains UNIQUE_MARKER: $UNIQUE_MARKER"
-    echo "    real bytes on disk — cannot be hallucinated"
+echo "═══ Step 5: Verify content match via a follow-up tool event ═══"
+# Workspace dirs are ephemeral (cleanupWorkspace() removes them after the
+# run). Post-run `docker exec cat` would race with cleanup. Instead we
+# validate the content via the TOOL_RESULT of a READ tool that ran
+# DURING the session: either Read or Bash(cat). These payloads are
+# immutable audit events — the LLM cannot fabricate them because they
+# are recorded by the adapter from the live tool-result gRPC frame.
+#
+# The prompt we submitted explicitly asks the agent to `cat` the file
+# as a separate Bash call after Write. If the content in that
+# TOOL_RESULT matches the marker, the file was really created AND
+# read back; no hallucination possible.
+READBACK_OUTPUT=$(docker compose exec -T database psql -U postgres -d govai_platform -tAc "
+    SELECT payload->>'output'
+      FROM architect_work_item_events
+     WHERE work_item_id = '$WORK_ITEM'
+       AND event_type = 'TOOL_RESULT'
+       AND (
+           tool_name = 'Read'
+           OR (tool_name IN ('Bash', 'tool_result') AND payload->>'output' ~ '$UNIQUE_MARKER')
+       )
+  ORDER BY event_seq ASC
+     LIMIT 1")
+
+if echo "$READBACK_OUTPUT" | grep -q "$UNIQUE_MARKER"; then
+    echo "  ✓ readback tool event contains UNIQUE_MARKER: $UNIQUE_MARKER"
+    echo "    bytes captured from live tool stream, not from LLM text"
 else
-    echo "❌ file content does NOT contain UNIQUE_MARKER"
-    echo "  Expected: $UNIQUE_MARKER"
-    echo "  Got (first 200 chars):"
-    echo "$FILE_CONTENT" | head -c 200 | sed 's/^/    /'
-    exit 1
+    # Fallback: if no Read/Bash readback event, check raw disk in case the
+    # runner happens to still have the workspace mounted (dev scenarios)
+    ON_DISK=$(docker compose exec -T api sh -c \
+        "test -f '$FILE_ABS_PATH' && cat '$FILE_ABS_PATH'" 2>/dev/null || echo "")
+    if echo "$ON_DISK" | grep -q "$UNIQUE_MARKER"; then
+        echo "  ✓ disk still has the file pre-cleanup; content matches"
+    else
+        echo "❌ no readback event nor persisted file — cannot prove real execution"
+        echo "  Expected marker:  $UNIQUE_MARKER"
+        echo "  Latest readback:  ${READBACK_OUTPUT:0:200}"
+        exit 1
+    fi
 fi
 
 echo ""
