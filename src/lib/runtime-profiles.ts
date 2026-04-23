@@ -375,6 +375,19 @@ export function resolveRuntimeTarget(profile: RuntimeProfile): RuntimeTarget {
  * surface any real connectivity error".
  */
 export function isRuntimeAvailable(profile: RuntimeProfile): boolean {
+    // FASE 13.5a3: align availability check with the real connection
+    // logic in `resolveRuntimeTarget()`. Previously, when the configured
+    // unix socket was missing we returned `false` immediately — which
+    // flagged the runtime as "Indisponível" in the UI even though the
+    // adapter already has a clean TCP fallback and can reach the sidecar
+    // over `container_service:50051`. The symptom: claude-code-runner
+    // was `Up (healthy)` on TCP but `EACCES` on the shared socket volume
+    // (uid conflict), and the UI refused to offer it.
+    //
+    // New rule: try the socket first; if it doesn't exist / isn't
+    // readable, fall through to the TCP host check. Return `true` when
+    // either transport is configured and let the adapter surface a real
+    // gRPC connection error at call time if neither works.
     const socketPath = process.env[profile.config.socket_path_env];
     if (socketPath && socketPath.trim()) {
         try {
@@ -383,20 +396,39 @@ export function isRuntimeAvailable(profile: RuntimeProfile): boolean {
             fs.accessSync(socketPath.trim());
             return true;
         } catch {
-            // Socket path is CONFIGURED but the file doesn't exist →
-            // the container is expected but not running. Return false
-            // immediately — do NOT fall through to the TCP probe, which
-            // would return true just because the host env var is set
-            // (CLAUDE_CODE_GRPC_HOST is always present in docker-compose
-            // even when the sidecar isn't up). This prevents the UI from
-            // showing "available" for a runtime whose container is down.
-            return false;
+            // Socket not accessible — do NOT early-return; fall through
+            // to the TCP host check below.
         }
     }
-    // No socket configured — check for TCP host. This path is only hit by
-    // runtimes that don't use unix sockets (e.g. external providers).
     const host = process.env[profile.config.grpc_host_env];
-    return Boolean(host && host.trim());
+    if (host && host.trim()) {
+        // TCP host configured. Adapter connects lazily and surfaces a
+        // specific error code if the port is actually dead.
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Drop all cached runtime-health values (or a specific slug). Called on
+ * api boot so the new `isRuntimeAvailable` semantics take effect
+ * immediately rather than waiting for the 30 s TTL to expire. Safe to
+ * call when Redis is down — no-op.
+ */
+export async function invalidateRuntimeHealthCache(slug?: string): Promise<void> {
+    if (redisCache.status !== 'ready') return;
+    try {
+        if (slug) {
+            await redisCache.del(`runtime:health:${slug}`);
+            return;
+        }
+        const keys = await redisCache.keys('runtime:health:*');
+        if (keys.length > 0) {
+            await redisCache.del(...keys);
+        }
+    } catch {
+        /* best-effort — next probe will repopulate */
+    }
 }
 
 // ── FASE 8 — Cached health + 5-layer resolver ─────────────────────────────

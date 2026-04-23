@@ -685,6 +685,17 @@ const start = async () => {
         process.exit(1);
     }
 
+    // FASE 13.5a3: bust the runtime-health Redis cache on boot so the
+    // new `isRuntimeAvailable` TCP-fallback semantics take effect
+    // immediately. Without this, the 30 s TTL could keep a stale
+    // "unavailable" verdict after a rebuild+restart of the runner.
+    try {
+        const { invalidateRuntimeHealthCache } = await import('./lib/runtime-profiles');
+        await invalidateRuntimeHealthCache();
+    } catch (err) {
+        fastify.log.warn(err, 'failed to invalidate runtime health cache on boot');
+    }
+
     // ── Compliance gauge refresh ──────────────────────────────────────────────
     // Atualiza a gauge govai_compliance_consented_orgs a cada 5 min para que o
     // Grafana mostre o número de organizações com consentimento LGPD ativo.
