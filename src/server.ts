@@ -12,6 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
+import { getCorsAllowOrigins } from './lib/cors-config';
 import helmet from '@fastify/helmet';
 import fastifyJwt from '@fastify/jwt';
 import cookie from '@fastify/cookie';
@@ -183,12 +184,10 @@ fastify.register(cookie, {
 });
 
 fastify.register(cors, {
-    origin: [
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'http://localhost:3002',
-        process.env.ADMIN_UI_ORIGIN || '',
-    ].filter(Boolean),
+    // FASE 13.5a2: allow-list consumed from src/lib/cors-config.ts so
+    // the plugin registration and hijacked SSE (chat.routes.ts) share
+    // exactly one source of truth.
+    origin: getCorsAllowOrigins(),
     credentials: true,
 });
 

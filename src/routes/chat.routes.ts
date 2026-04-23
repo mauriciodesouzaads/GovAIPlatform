@@ -17,6 +17,7 @@
 import { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
 import axios from 'axios';
+import { buildCorsHeaders } from '../lib/cors-config';
 
 interface SendBody {
     assistant_id: string;
@@ -194,6 +195,19 @@ export async function chatRoutes(
         try {
             await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
 
+            // ── FASE 13.5a2: CORS bypass fix ─────────────────────────────────
+            // reply.hijack() skips Fastify's onSend pipeline, where
+            // @fastify/cors normally injects Access-Control-Allow-Origin.
+            // Without these headers, Chrome aborts the cross-origin SSE
+            // response with TypeError: Failed to fetch. We mirror the
+            // SAME allow-list used by the plugin (src/lib/cors-config.ts)
+            // so the hijacked response looks byte-identical to non-
+            // hijacked JSON responses from the browser's perspective.
+            // See docs/ADR-022-cors-on-hijacked-sse.md.
+            const corsHeaders = buildCorsHeaders(
+                request.headers.origin as string | undefined,
+            );
+
             // Assume control of the response before writing headers — Fastify
             // will otherwise intercept and JSON-encode.
             reply.hijack();
@@ -202,6 +216,7 @@ export async function chatRoutes(
                 'Cache-Control': 'no-cache, no-transform',
                 'Connection': 'keep-alive',
                 'X-Accel-Buffering': 'no',
+                ...corsHeaders,
             });
 
             const sendFrame = (payload: Record<string, unknown>) => {
