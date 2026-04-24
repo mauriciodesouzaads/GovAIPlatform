@@ -1,8 +1,18 @@
 # ADR-009 — Architect Domain: Federated Control Plane Design
 
-**Status:** Aceito
-**Data:** 2026-03-28
+**Status:** **Superseded by FASE 14.0 Etapa 1 — the workflow domain described here was removed in its entirety.**
+**Data original:** 2026-03-28
+**Supersedido em:** 2026-04-24
 **Contexto:** Sprint A1–A3 — Architect Domain Foundation e Hardening
+
+> **Nota histórica (FASE 14.0 Etapa 1):** o domínio workflow descrito abaixo
+> (demand_cases → problem_contracts → architecture_decision_sets →
+> workflow_graphs) foi removido em 14.0/1. O nome "Architect" agora carrega
+> apenas o sentido de **delegation runtime** — o caminho [OPENCLAUDE] /
+> [CLAUDE_CODE] / [AIDER] → architect_work_items. A cadeia de entidades
+> workflow não existe mais em código; resta apenas um spine mínimo em
+> `workflow_graphs` (singleton `marker='auto_delegation'`) até Etapa 2
+> renomear a tabela e dropar a coluna `workflow_graph_id`.
 
 ---
 

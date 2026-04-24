@@ -29,7 +29,7 @@ Multi-tenant com PostgreSQL RLS. Admin UI em Next.js 14. Shield detecta shadow-A
 | Catalog | ✅ | `src/lib/catalog.ts` |
 | Consultant Plane | ✅ | `src/lib/consultant-auth.ts` |
 | Shield (shadow-AI) | ✅ | `src/lib/shield.ts` (facade → 5 services) |
-| Architect | ✅ | `src/lib/architect.ts` + `src/lib/architect-delegation.ts` |
+| Architect Delegation | ✅ | `src/lib/architect-delegation.ts` + `src/lib/delegation/*` (workflow domain removed in FASE 14.0/1) |
 
 ---
 

@@ -698,45 +698,23 @@ VALUES (
     status     = 'pending',
     expires_at = NOW() + INTERVAL '30 days';
 
--- ── 1.13 Demand Cases for Architect (3) ──────────────────────────────────────
-
--- Case 1: Migração para LLM Nacional
+-- ── 1.13 Demand Case — auto_delegation spine (FASE 14.0 Etapa 1) ────────────
+-- The workflow domain (cases / demands / contracts / decisions) was removed
+-- in Etapa 1. ONE demand_case row survives here as the root of the FK
+-- chain that feeds the `auto_delegation` singleton in workflow_graphs —
+-- which architect-delegation.getAutoDelegationWorkflowGraphId() consults
+-- to satisfy architect_work_items.workflow_graph_id (NOT NULL FK). Etapa 2
+-- drops the column + this spine together. Do not add new demand_cases.
 INSERT INTO demand_cases (id, org_id, title, description, source_type, status, priority, requested_by)
 VALUES (
     '00000000-0000-0000-000A-000000000001',
     '00000000-0000-0000-0000-000000000001',
-    'Migração para LLM Nacional',
-    'Avaliar viabilidade de substituir Groq/Llama por modelo nacional (Maritaca AI) para atender requisitos de soberania de dados do BACEN.',
-    'compliance_requirement',
+    'auto_delegation anchor (removed in Etapa 2)',
+    'Keeps the FK chain alive for architect_work_items.workflow_graph_id until Etapa 2 renames the table and drops the column. Not a user-visible case.',
+    'internal',
     'discovery',
-    'high',
-    '00000000-0000-0000-0001-000000000004'
-) ON CONFLICT (id) DO NOTHING;
-
--- Case 2: Integração com SAP S/4HANA
-INSERT INTO demand_cases (id, org_id, title, description, source_type, status, priority, requested_by)
-VALUES (
-    '00000000-0000-0000-000A-000000000002',
-    '00000000-0000-0000-0000-000000000001',
-    'Integração com SAP S/4HANA',
-    'Desenvolver conector MCP para permitir que assistentes consultem dados de ERP (pedidos, estoque, fornecedores) com read-only access.',
-    'client_request',
-    'contracting',
-    'medium',
-    '55d9bd9f-f9c9-4d78-9aa0-3b3af2e4f7ab'
-) ON CONFLICT (id) DO NOTHING;
-
--- Case 3: Chatbot Multilíngue Atendimento
-INSERT INTO demand_cases (id, org_id, title, description, source_type, status, priority, requested_by)
-VALUES (
-    '00000000-0000-0000-000A-000000000003',
-    '00000000-0000-0000-0000-000000000001',
-    'Chatbot Multilíngue Atendimento',
-    'Expandir o chatbot de atendimento para suportar espanhol e inglês. Requer avaliação de impacto no DLP (detecção de PII em múltiplos idiomas).',
-    'catalog_gap',
-    'intake',
     'low',
-    '00000000-0000-0000-0001-000000000003'
+    '00000000-0000-0000-0001-000000000004'
 ) ON CONFLICT (id) DO NOTHING;
 
 -- ── Review Tracks (3 default tracks for demo org) ────────────────────────────
@@ -1051,11 +1029,13 @@ VALUES
    true)
 ON CONFLICT (org_id, name) DO NOTHING;
 
--- ── Architect Workflow — OpenClaude Demo (FASE 5b) ───────────────────────────
--- Chain: problem_contract → architecture_decision_set → workflow_graph → work_item
--- Uses demand_case 000A-000001 ("Migração para LLM Nacional")
-
--- Problem contract
+-- ── Auto-delegation FK spine (FASE 14.0 Etapa 1) ─────────────────────────────
+-- The workflow-demo INSERTs that used to live here were removed along with
+-- the Arquiteto-workflow domain. What remains is the minimum spine that
+-- architect-delegation.getAutoDelegationWorkflowGraphId() relies on:
+-- demand_case → problem_contract → architecture_decision_set → workflow_graph
+-- (marker='auto_delegation', inserted below in FASE 5d block). Etapa 2 drops
+-- the FK + these rows together; do not extend this block.
 INSERT INTO problem_contracts
     (id, org_id, demand_case_id, version, goal, status, confidence_score)
 VALUES (
@@ -1063,48 +1043,20 @@ VALUES (
     '00000000-0000-0000-0000-000000000001',
     '00000000-0000-0000-000A-000000000001',
     1,
-    'Avaliar a viabilidade técnica e regulatória de migrar o LLM principal para um modelo nacional (Maritaca AI), garantindo conformidade com BACEN e soberania de dados.',
+    'FK anchor — removed in Etapa 2',
     'accepted',
-    88
+    0
 ) ON CONFLICT (id) DO NOTHING;
 
--- Architecture decision set
 INSERT INTO architecture_decision_sets
     (id, org_id, problem_contract_id, recommended_option, rationale_md, status)
 VALUES (
     '00000000-0000-0000-00B1-000000000001',
     '00000000-0000-0000-0000-000000000001',
     '00000000-0000-0000-00B0-000000000001',
-    'Migrar para Maritaca AI com fallback para modelo atual',
-    '## Decisão\nAdotar Maritaca AI (sabiá-3) como provedor primário via LiteLLM, mantendo o modelo atual como fallback automático.\n\n## Justificativa\n- Conformidade nativa com BACEN 4.557 (dados no território nacional)\n- Custo 40% menor por token vs. provedores internacionais\n- Suporte a português com melhor performance',
+    'FK anchor — removed in Etapa 2',
+    'Keeps workflow_graphs FK alive until Etapa 2.',
     'approved'
-) ON CONFLICT (id) DO NOTHING;
-
--- Workflow graph
-INSERT INTO workflow_graphs
-    (id, org_id, architecture_decision_set_id, version, status, graph_json)
-VALUES (
-    '00000000-0000-0000-00B2-000000000001',
-    '00000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-00B1-000000000001',
-    1,
-    'delegated',
-    '{"nodes": [{"id": "openclaude-review", "type": "openclaude_task"}]}'::jsonb
-) ON CONFLICT (id) DO NOTHING;
-
--- Work item with execution_hint = 'openclaude' (requires migration 073)
-INSERT INTO architect_work_items
-    (id, org_id, workflow_graph_id, node_id, item_type, title, description, execution_hint, status)
-VALUES (
-    '00000000-0000-0000-00B3-000000000001',
-    '00000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-00B2-000000000001',
-    'openclaude-review',
-    'compliance_check',
-    'Análise de Conformidade — Migração LLM Nacional',
-    'Revisar o litellm-config.yaml e execution.service.ts para identificar todos os pontos de configuração que precisam ser atualizados para suportar Maritaca AI como provedor primário. Listar endpoints, parâmetros de autenticação e ajustes de fallback necessários.',
-    'openclaude',
-    'pending'
 ) ON CONFLICT (id) DO NOTHING;
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -1142,38 +1094,10 @@ INSERT INTO catalog_skills (id, org_id, name, description, category, instruction
  (SELECT id FROM users WHERE email = 'admin@orga.com' LIMIT 1))
 ON CONFLICT (org_id, name) DO NOTHING;
 
--- ── Workflow Template 1: Feature Development (7 fases) ──────────────────────
-INSERT INTO architect_workflow_templates (id, org_id, name, description, category, phases, default_execution_hint, estimated_duration_minutes, is_system, created_by) VALUES
-('00000000-0000-0000-0070-000000000001', '00000000-0000-0000-0000-000000000001',
- 'Feature Development', 'Fluxo completo de desenvolvimento de feature — da descoberta ao summary',
- 'development',
- '[
-   {"name":"Discovery","description":"Entender o problema e o contexto do negócio","execution_hint":"human","auto_advance":false},
-   {"name":"Codebase Exploration","description":"Analisar o código existente e identificar pontos de integração","execution_hint":"openclaude","auto_advance":true},
-   {"name":"Clarifying Questions","description":"Formular perguntas de clarificação para o stakeholder","execution_hint":"openclaude","auto_advance":false},
-   {"name":"Architecture Design","description":"Propor 2-3 abordagens arquiteturais com trade-offs","execution_hint":"openclaude","auto_advance":false},
-   {"name":"Implementation","description":"Implementar a abordagem aprovada","execution_hint":"openclaude","auto_advance":true},
-   {"name":"Review","description":"Revisar o código gerado com scoring de confiança","execution_hint":"openclaude","auto_advance":true},
-   {"name":"Summary","description":"Resumo do que foi feito, decisões tomadas e próximos passos","execution_hint":"openclaude","auto_advance":true}
- ]'::jsonb,
- 'openclaude', 120, true,
- (SELECT id FROM users WHERE email = 'admin@orga.com' LIMIT 1))
-ON CONFLICT (org_id, name) DO NOTHING;
-
--- ── Workflow Template 2: Security Review (4 fases) ──────────────────────────
-INSERT INTO architect_workflow_templates (id, org_id, name, description, category, phases, default_execution_hint, estimated_duration_minutes, is_system, created_by) VALUES
-('00000000-0000-0000-0070-000000000002', '00000000-0000-0000-0000-000000000001',
- 'Security Review', 'Revisão de segurança com triagem, análise paralela e filtro de falso positivo',
- 'security',
- '[
-   {"name":"Triage","description":"Classificar a mudança: tipo, escopo, superfície de ataque","execution_hint":"openclaude","auto_advance":true},
-   {"name":"Parallel Analysis","description":"4 agentes analisam: injeção, autenticação, dados sensíveis, configuração","execution_hint":"openclaude","auto_advance":true},
-   {"name":"Validation","description":"Validar findings contra o contexto do projeto, filtrar falso positivo","execution_hint":"openclaude","auto_advance":true},
-   {"name":"Report","description":"Relatório consolidado com severidade, score de confiança e recomendações","execution_hint":"openclaude","auto_advance":true}
- ]'::jsonb,
- 'openclaude', 45, true,
- (SELECT id FROM users WHERE email = 'admin@orga.com' LIMIT 1))
-ON CONFLICT (org_id, name) DO NOTHING;
+-- Workflow templates were removed in FASE 14.0 Etapa 1 along with the
+-- architect_workflow_templates table (migration 088). Catalog skills
+-- above remain — they're the assistant-authoring abstraction that
+-- survived the workflow removal.
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║  FASE 5d — Escalação Governada                                             ║

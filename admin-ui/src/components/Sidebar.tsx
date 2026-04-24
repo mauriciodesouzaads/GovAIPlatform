@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
     LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck,
-    ToggleRight, Play, ScanEye, BookOpen, UserCog, BrainCircuit, Building2, X, Bell,
+    ToggleRight, Play, ScanEye, BookOpen, UserCog, Building2, X, Bell,
     ScrollText, AlertTriangle, Settings, ClipboardCheck, ShieldEllipsis, BellRing, Sparkles,
     Scale, BadgeCheck, Terminal, Shield,
 } from 'lucide-react';
@@ -193,7 +193,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         <NavItem href="/assistants" label={t('assistants')}  Icon={MessageSquareText} isActive={pathname === '/assistants'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                         <NavItem href="/playground" label={t('chat')}        Icon={MessageSquareText} isActive={pathname === '/playground'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                         <NavItem href="/api-keys"   label={t('apiKeys')}     Icon={Key}              isActive={pathname === '/api-keys'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
-                        <NavItem href="/architect"  label={t('architect')}   Icon={BrainCircuit}     isActive={pathname === '/architect'}  accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        {/* FASE 14.0 Etapa 1: /architect menu entry removed along with the workflow domain. */}
                         <NavItem href="/webhooks"   label={t('webhooks')}    Icon={Bell}             isActive={pathname === '/webhooks'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                     </>
                 )}
