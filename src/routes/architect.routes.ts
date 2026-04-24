@@ -1,5 +1,5 @@
 /**
- * Architect Routes — delegation control plane
+ * Runtime delegation routes
  *
  * ─── FASE 14.0 Etapa 1 ───────────────────────────────────────────────
  * This file used to register 18 workflow routes (cases / demands /
@@ -9,17 +9,19 @@
  * dispatch, cancel, observe and gate work items produced by the
  * [OPENCLAUDE] / [CLAUDE_CODE] / [AIDER] delegation path.
  *
- * Path prefix (`/v1/admin/architect/work-items/...`) is intentionally
- * kept in place so the admin UI + CLI clients don't break during
- * the transition. Etapa 2 will rename the prefix to
- * `/v1/admin/runtime/work-items/...` along with the table rename.
+ * Etapa 2 renamed the backing tables (the old delegation table →
+ * runtime_work_items, events table similarly) and the BullMQ queue
+ * (the old queue → runtime-dispatch). The URL prefix
+ * `/v1/admin/architect/work-items/...` is kept as-is to avoid
+ * breaking external clients; it's the "architect UX badge" at the
+ * API boundary, even though internally everything is "runtime".
  * ─────────────────────────────────────────────────────────────────────
  */
 
 import { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
-import { dispatchWorkItem } from '../lib/architect-delegation';
-import { architectQueue } from '../workers/architect.worker';
+import { dispatchWorkItem } from '../lib/runtime-delegation';
+import { runtimeQueue } from '../workers/runtime.worker';
 
 export async function architectRoutes(
     fastify: FastifyInstance,
@@ -37,14 +39,14 @@ export async function architectRoutes(
         try {
             // Check execution_hint before dispatching
             const hintCheck = await pgPool.query(
-                `SELECT execution_hint FROM architect_work_items WHERE id = $1`,
+                `SELECT execution_hint FROM runtime_work_items WHERE id = $1`,
                 [workItemId]
             );
             const hint = hintCheck.rows[0]?.execution_hint;
 
             if (hint === 'openclaude') {
                 // Async dispatch via BullMQ — returns 202 Accepted immediately
-                await architectQueue.add('dispatch-openclaude', { orgId, workItemId }, {
+                await runtimeQueue.add('dispatch-openclaude', { orgId, workItemId }, {
                     attempts: 3,
                     backoff: { type: 'exponential', delay: 5_000 },
                 });
@@ -87,7 +89,7 @@ export async function architectRoutes(
         try {
             await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
             const result = await client.query(
-                `UPDATE architect_work_items
+                `UPDATE runtime_work_items
                  SET cancellation_requested_at = NOW()
                  WHERE id = $1 AND org_id = $2
                    AND status IN ('pending', 'in_progress', 'awaiting_approval')
@@ -98,7 +100,7 @@ export async function architectRoutes(
                 return reply.status(404).send({ error: 'Work item not found or not cancellable' });
             }
 
-            await architectQueue.add('cancel-run', { orgId, workItemId }, {
+            await runtimeQueue.add('cancel-run', { orgId, workItemId }, {
                 attempts: 1,
                 removeOnComplete: { count: 50 },
                 removeOnFail: { count: 50 },
@@ -116,7 +118,7 @@ export async function architectRoutes(
     });
 
     // ── GET /v1/admin/architect/work-items/:workItemId/events ────────────────
-    // FASE 5-hardening: reads from the dedicated architect_work_item_events
+    // FASE 5-hardening: reads from the dedicated runtime_work_item_events
     // table (operational telemetry) instead of evidence_records. Returns the
     // work item state plus the ordered event timeline.
     fastify.get('/v1/admin/architect/work-items/:workItemId/events', {
@@ -137,7 +139,7 @@ export async function architectRoutes(
                         runtime_claim_level,
                         run_started_at, dispatched_at, last_event_at, cancelled_at,
                         cancellation_requested_at, completed_at, created_at, updated_at
-                 FROM architect_work_items
+                 FROM runtime_work_items
                  WHERE id = $1 AND org_id = $2`,
                 [workItemId, orgId]
             );
@@ -147,7 +149,7 @@ export async function architectRoutes(
 
             const events = await client.query(
                 `SELECT id, event_type, event_seq, tool_name, prompt_id, payload, created_at
-                 FROM architect_work_item_events
+                 FROM runtime_work_item_events
                  WHERE work_item_id = $1 AND org_id = $2
                  ORDER BY event_seq ASC`,
                 [workItemId, orgId]
@@ -221,7 +223,7 @@ export async function architectRoutes(
         try {
             await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
             const wi = await client.query(
-                `SELECT id, status FROM architect_work_items WHERE id = $1 AND org_id = $2`,
+                `SELECT id, status FROM runtime_work_items WHERE id = $1 AND org_id = $2`,
                 [workItemId, orgId]
             );
             if (wi.rows.length === 0) {
@@ -240,7 +242,7 @@ export async function architectRoutes(
             // stream.respond() call happens inside the worker job.
             if (body.approved && approveMode !== 'single') {
                 await client.query(
-                    `UPDATE architect_work_items
+                    `UPDATE runtime_work_items
                      SET execution_context = COALESCE(execution_context, '{}'::jsonb)
                                               || jsonb_build_object('approval_mode', $1::text)
                      WHERE id = $2 AND org_id = $3`,
@@ -252,7 +254,7 @@ export async function architectRoutes(
             client.release();
         }
 
-        await architectQueue.add('resolve-approval', {
+        await runtimeQueue.add('resolve-approval', {
             orgId,
             workItemId,
             promptId: body.prompt_id,

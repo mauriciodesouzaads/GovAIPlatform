@@ -33,7 +33,7 @@ poll_until_terminal() {
     for i in $(seq 1 "$MAX_POLLS"); do
         sleep "$POLL_INTERVAL"
         status=$(docker compose exec -T database psql -U postgres -d govai_platform -tAc \
-            "SELECT status FROM architect_work_items WHERE id = '$wi'" \
+            "SELECT status FROM runtime_work_items WHERE id = '$wi'" \
             | tr -d '[:space:]')
         case "$status" in
             done|blocked|cancelled|failed) break ;;

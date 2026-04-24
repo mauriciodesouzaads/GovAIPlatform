@@ -698,24 +698,9 @@ VALUES (
     status     = 'pending',
     expires_at = NOW() + INTERVAL '30 days';
 
--- ── 1.13 Demand Case — auto_delegation spine (FASE 14.0 Etapa 1) ────────────
--- The workflow domain (cases / demands / contracts / decisions) was removed
--- in Etapa 1. ONE demand_case row survives here as the root of the FK
--- chain that feeds the `auto_delegation` singleton in workflow_graphs —
--- which architect-delegation.getAutoDelegationWorkflowGraphId() consults
--- to satisfy architect_work_items.workflow_graph_id (NOT NULL FK). Etapa 2
--- drops the column + this spine together. Do not add new demand_cases.
-INSERT INTO demand_cases (id, org_id, title, description, source_type, status, priority, requested_by)
-VALUES (
-    '00000000-0000-0000-000A-000000000001',
-    '00000000-0000-0000-0000-000000000001',
-    'auto_delegation anchor (removed in Etapa 2)',
-    'Keeps the FK chain alive for architect_work_items.workflow_graph_id until Etapa 2 renames the table and drops the column. Not a user-visible case.',
-    'internal',
-    'discovery',
-    'low',
-    '00000000-0000-0000-0001-000000000004'
-) ON CONFLICT (id) DO NOTHING;
+-- (FASE 14.0 Etapa 2: the auto_delegation FK spine was removed
+-- alongside migration 089 which dropped runtime_work_items.workflow_graph_id
+-- and the four orphan workflow tables. Nothing to seed here anymore.)
 
 -- ── Review Tracks (3 default tracks for demo org) ────────────────────────────
 
@@ -1029,35 +1014,11 @@ VALUES
    true)
 ON CONFLICT (org_id, name) DO NOTHING;
 
--- ── Auto-delegation FK spine (FASE 14.0 Etapa 1) ─────────────────────────────
--- The workflow-demo INSERTs that used to live here were removed along with
--- the Arquiteto-workflow domain. What remains is the minimum spine that
--- architect-delegation.getAutoDelegationWorkflowGraphId() relies on:
--- demand_case → problem_contract → architecture_decision_set → workflow_graph
--- (marker='auto_delegation', inserted below in FASE 5d block). Etapa 2 drops
--- the FK + these rows together; do not extend this block.
-INSERT INTO problem_contracts
-    (id, org_id, demand_case_id, version, goal, status, confidence_score)
-VALUES (
-    '00000000-0000-0000-00B0-000000000001',
-    '00000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-000A-000000000001',
-    1,
-    'FK anchor — removed in Etapa 2',
-    'accepted',
-    0
-) ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO architecture_decision_sets
-    (id, org_id, problem_contract_id, recommended_option, rationale_md, status)
-VALUES (
-    '00000000-0000-0000-00B1-000000000001',
-    '00000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-00B0-000000000001',
-    'FK anchor — removed in Etapa 2',
-    'Keeps workflow_graphs FK alive until Etapa 2.',
-    'approved'
-) ON CONFLICT (id) DO NOTHING;
+-- (FASE 14.0 Etapa 2: the problem_contract / architecture_decision_set
+-- FK anchors that lived here were dropped along with the workflow_graph_id
+-- column on runtime_work_items. The four orphan workflow tables
+-- — workflow_graphs, demand_cases, problem_contracts,
+-- architecture_decision_sets — no longer exist post-migration 089.)
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║  FASE 5c — Skills Catalogáveis + Workflow Templates                        ║
@@ -1104,24 +1065,14 @@ ON CONFLICT (org_id, name) DO NOTHING;
 -- ║  (requer migration 075_delegation_config.sql)                              ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
--- ── Auto-Delegation Workflow Graph (singleton per org) ──────────────────────
--- Usado pelo execution.service.ts ao escalar mensagens para o Architect.
--- Reutiliza o problem_contract + decision_set já criados para o demo OpenClaude.
-INSERT INTO workflow_graphs (
-    id, org_id, architecture_decision_set_id, version, status, graph_json
-) VALUES (
-    '00000000-0000-0000-00B4-000000000001',
-    '00000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-00B1-000000000001',
-    1,
-    'delegated',
-    '{"nodes": [{"id": "auto-delegation", "type": "openclaude_task"}], "marker": "auto_delegation"}'::jsonb
-) ON CONFLICT (id) DO NOTHING;
+-- (Auto-delegation singleton in workflow_graphs was removed in FASE 14.0
+-- Etapa 2 — runtime_work_items.workflow_graph_id no longer exists, so
+-- there's no FK to satisfy and no singleton to seed.)
 
 -- ── Delegation config no Assistente Jurídico ────────────────────────────────
 -- The [OPENCLAUDE] / [CLAUDE_CODE] / [AIDER] prefixes are explicit
 -- force-delegate escape hatches. Each one also selects which governed
--- runtime gets the work (see runtimeFromPrefix in architect-delegation.ts).
+-- runtime gets the work (see runtimeFromPrefix in runtime-delegation.ts).
 UPDATE assistants SET delegation_config = '{
   "enabled": true,
   "auto_delegate_patterns": [

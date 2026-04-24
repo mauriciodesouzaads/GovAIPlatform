@@ -33,7 +33,7 @@ import { checkQuota, recordTokenUsage, getCostPerToken } from '../lib/finops';
 import { pgPool } from '../lib/db';
 import { redisCache } from '../lib/redis';
 import { recordEvidence } from '../lib/evidence';
-import { shouldDelegate, runtimeFromPrefix, getAutoDelegationWorkflowGraphId, type DelegationConfig } from '../lib/architect-delegation';
+import { shouldDelegate, runtimeFromPrefix, type DelegationConfig } from '../lib/runtime-delegation';
 
 export interface ExecutionParams {
     assistantId: string;
@@ -334,11 +334,10 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
         const delegationDecision = shouldDelegate(message, delegationConfig);
         if (delegationDecision.shouldDelegate) {
             try {
-                const wfgId = await getAutoDelegationWorkflowGraphId(pgPool, orgId);
-                if (!wfgId) {
-                    log.warn({ orgId, assistantId },
-                        'Delegation pattern matched but no auto-delegation workflow_graph found — falling through to LLM');
-                } else {
+                // FASE 14.0/2: the dropped FK column is gone. runtime_work_items
+                // is now a self-contained delegation table; no FK spine to
+                // resolve. We go straight into the INSERT.
+                {
                     const workItemId = randomUUID();
                     const titleSnippet = message.length > 100 ? message.substring(0, 97) + '...' : message;
 
@@ -405,14 +404,13 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                         : 'openclaude';
 
                     await client.query(
-                        `INSERT INTO architect_work_items
-                            (id, org_id, workflow_graph_id, node_id, item_type, title, description,
+                        `INSERT INTO runtime_work_items
+                            (id, org_id, node_id, item_type, title, description,
                              execution_hint, status, execution_context, runtime_profile_slug)
-                         VALUES ($1, $2, $3, $4, 'compliance_check', $5, $6, $8, 'pending', $7, $9)`,
+                         VALUES ($1, $2, $3, 'compliance_check', $4, $5, $7, 'pending', $6, $8)`,
                         [
                             workItemId,
                             orgId,
-                            wfgId,
                             `delegation-${workItemId.substring(0, 8)}`,
                             `Delegated: ${titleSnippet}`,
                             safeMessage,
@@ -432,9 +430,9 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                     );
 
                     // Enqueue async dispatch via BullMQ
-                    const { architectQueue } = await import('../workers/architect.worker');
+                    const { runtimeQueue } = await import('../workers/runtime.worker');
                     const timeoutMs = (delegationConfig?.max_duration_seconds || 300) * 1000;
-                    await architectQueue.add(
+                    await runtimeQueue.add(
                         'dispatch-openclaude',
                         { orgId, workItemId },
                         {

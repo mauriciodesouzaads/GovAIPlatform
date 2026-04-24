@@ -10,7 +10,7 @@
 #   1. Enfileira [OPENCLAUDE] instruindo Write(<UNIQUE_MARKER>) +
 #      Bash(cat) — marcador random para que o LLM não possa inventar.
 #   2. Poll DB até status terminal.
-#   3. Ler architect_work_item_events: deve existir
+#   3. Ler runtime_work_item_events: deve existir
 #      TOOL_START Write + TOOL_RESULT Write com
 #      `output: "File created successfully at: <abs_path>"`.
 #   4. Extrair <abs_path> do payload e conferir que o arquivo **existe
@@ -71,7 +71,7 @@ STATUS=""
 for i in $(seq 1 "$MAX_POLLS"); do
     sleep "$POLL_INTERVAL"
     STATUS=$(docker compose exec -T database psql -U postgres -d govai_platform -tAc \
-        "SELECT status FROM architect_work_items WHERE id = '$WORK_ITEM'" \
+        "SELECT status FROM runtime_work_items WHERE id = '$WORK_ITEM'" \
         | tr -d '[:space:]')
     printf "  poll #%d: status=%s\n" "$i" "$STATUS"
     case "$STATUS" in
@@ -90,7 +90,7 @@ fi
 echo ""
 echo "═══ Step 3: Verify TOOL_START Write + TOOL_RESULT Write events ═══"
 WRITE_EVENTS=$(docker compose exec -T database psql -U postgres -d govai_platform -tAc \
-    "SELECT COUNT(*) FROM architect_work_item_events
+    "SELECT COUNT(*) FROM runtime_work_item_events
      WHERE work_item_id = '$WORK_ITEM'
        AND tool_name = 'Write'
        AND event_type IN ('TOOL_START','TOOL_RESULT')" \
@@ -105,7 +105,7 @@ echo "  ✓ $WRITE_EVENTS Write events recorded (TOOL_START + TOOL_RESULT)"
 echo ""
 echo "═══ Step 4: Verify TOOL_RESULT Write payload reports success ═══"
 WRITE_OUTPUT=$(docker compose exec -T database psql -U postgres -d govai_platform -tAc \
-    "SELECT payload->>'output' FROM architect_work_item_events
+    "SELECT payload->>'output' FROM runtime_work_item_events
      WHERE work_item_id = '$WORK_ITEM'
        AND tool_name = 'Write'
        AND event_type = 'TOOL_RESULT'
@@ -144,7 +144,7 @@ echo "═══ Step 5: Verify content match via a follow-up tool event ══�
 # read back; no hallucination possible.
 READBACK_OUTPUT=$(docker compose exec -T database psql -U postgres -d govai_platform -tAc "
     SELECT payload->>'output'
-      FROM architect_work_item_events
+      FROM runtime_work_item_events
      WHERE work_item_id = '$WORK_ITEM'
        AND event_type = 'TOOL_RESULT'
        AND (
@@ -175,7 +175,7 @@ fi
 echo ""
 echo "═══ Step 6: Check fullText (informational — depends on final LLM turn) ═══"
 FULLTEXT=$(docker compose exec -T database psql -U postgres -d govai_platform -tAc \
-    "SELECT execution_context->>'fullText' FROM architect_work_items WHERE id = '$WORK_ITEM'")
+    "SELECT execution_context->>'fullText' FROM runtime_work_items WHERE id = '$WORK_ITEM'")
 if [ -z "$FULLTEXT" ] || [ "$FULLTEXT" = "null" ]; then
     echo "  ⚠️  fullText está vazio. Tools rodaram com sucesso, mas o turno final"
     echo "     do LLM não produziu texto (completionTokens=0). Conhecido: timeout"

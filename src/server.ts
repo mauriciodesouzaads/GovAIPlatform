@@ -39,7 +39,7 @@ import { initKeyRotationJob } from './jobs/key-rotation.job';
 import { initApiKeyRotationJob } from './jobs/api-key-rotation.job';
 import { startShieldWorker } from './workers/shield.worker';
 import { startShieldSchedule } from './jobs/shield-schedule.job';
-import { initArchitectWorker, architectQueue } from './workers/architect.worker';
+import { initRuntimeWorker } from './workers/runtime.worker';
 import { initAlertingWorker } from './workers/alerting.worker';
 
 // ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ initExpirationWorker();
 initNotificationWorker(pgPool);
 initTelemetryWorker();
 startShieldWorker();
-initArchitectWorker(pgPool);
+initRuntimeWorker(pgPool);
 initAlertingWorker(pgPool);
 
 // ---------------------------------------------------------------------------
@@ -597,7 +597,7 @@ import { dlpRoutes } from './routes/dlp.routes';
 import { notificationChannelsRoutes } from './routes/notification-channels.routes';
 import { skillsRoutes } from './routes/skills.routes';
 // FASE 14.0 Etapa 1: workflow-templates removido junto com o
-// Arquiteto-workflow. Delegação (architect-delegation) fica intacta.
+// Arquiteto-workflow. Delegação (the legacy delegation module) fica intacta.
 import { chatRoutes } from './routes/chat.routes';
 import { runtimeRoutes } from './routes/runtime.routes';
 import { runRetentionArchiving } from './jobs/retention-archive.job';

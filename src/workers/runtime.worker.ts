@@ -1,7 +1,10 @@
 /**
- * Architect BullMQ Worker
+ * Runtime Dispatch BullMQ Worker — renamed from architect.worker in
+ * FASE 14.0/2. The three job types stay the same; the queue name moved
+ * from `the old queue` to `runtime-dispatch` to match the domain
+ * nomenclature established after the Arquiteto-workflow removal.
  *
- * Handles three job types on the `architect-dispatch` queue:
+ * Job types on the `runtime-dispatch` queue:
  *
  *   - dispatch-openclaude  : start an OpenClaude run for a work item
  *                            (long-lived; lock held until the gRPC stream
@@ -26,7 +29,7 @@ import {
     dispatchWorkItem,
     detectAndMarkStuckWorkItems,
     recoverOrphanedPendingWorkItems,
-} from '../lib/architect-delegation';
+} from '../lib/runtime-delegation';
 import { getStream } from '../lib/architect-stream-registry';
 import { publishControl } from '../lib/architect-stream-registry-redis';
 import { cleanupOrphanedWorkspaces } from '../lib/workspace-manager';
@@ -35,7 +38,7 @@ import { acquireTenantSlot, releaseTenantSlot } from '../lib/tenant-concurrency'
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
-export const architectQueue = new Queue('architect-dispatch', {
+export const runtimeQueue = new Queue('runtime-dispatch', {
     connection: new IORedis(redisUrl, { maxRetriesPerRequest: null }) as any,
     defaultJobOptions: {
         attempts: 3,
@@ -45,7 +48,7 @@ export const architectQueue = new Queue('architect-dispatch', {
     },
 });
 
-export interface ArchitectDispatchPayload {
+export interface RuntimeDispatchPayload {
     orgId: string;
     workItemId: string;
     /** FASE 13.5a1 — internal counter bumped each time a TENANT_LIMIT
@@ -61,7 +64,7 @@ export interface ArchitectDispatchPayload {
  *
  * Behavior:
  *   - `requeueCount = prev + 1`; if it exceeds `maxRequeues`, UPDATE
- *     architect_work_items.status = 'blocked' + dispatch_error
+ *     runtime_work_items.status = 'blocked' + dispatch_error
  *   - otherwise, call `queue.add(jobName, {...job.data, _tenantLimitRequeues: requeueCount}, {delay, attempts:1, jobId})`
  *   - NEVER throws from a healthy path — the caller's consumer should
  *     `return` immediately after this resolves.
@@ -71,7 +74,7 @@ export async function handleTenantLimitRejection(
     queue: { add: (name: string, data: any, opts: any) => Promise<unknown> },
     args: {
         jobName: string;
-        jobData: ArchitectDispatchPayload;
+        jobData: RuntimeDispatchPayload;
         orgId: string;
         workItemId: string;
     },
@@ -85,7 +88,7 @@ export async function handleTenantLimitRejection(
         const approxMin = Math.round((maxRequeues * delaySec) / 60);
         try {
             await pool.query(
-                `UPDATE architect_work_items
+                `UPDATE runtime_work_items
                     SET status = 'blocked',
                         dispatch_error = $1,
                         last_event_at = NOW()
@@ -97,18 +100,18 @@ export async function handleTenantLimitRejection(
             );
         } catch (err) {
             console.warn(
-                '[Architect Worker] failed to mark blocked:',
+                '[Runtime Worker] failed to mark blocked:',
                 (err as Error).message,
             );
         }
         console.warn(
-            `[Architect Worker] work_item ${args.workItemId} BLOCKED: tenant_limit_exhausted`,
+            `[Runtime Worker] work_item ${args.workItemId} BLOCKED: tenant_limit_exhausted`,
         );
         return { action: 'blocked', requeueCount, delaySec };
     }
 
     console.log(
-        `[Architect Worker] tenant ${args.orgId} at concurrency limit, ` +
+        `[Runtime Worker] tenant ${args.orgId} at concurrency limit, ` +
         `re-queuing work_item ${args.workItemId} in ${delaySec}s ` +
         `(requeue ${requeueCount}/${maxRequeues})`,
     );
@@ -142,43 +145,43 @@ export interface ResolveApprovalPayload {
     actorEmail?: string;
 }
 
-type ArchitectJobPayload =
-    | ArchitectDispatchPayload
+type RuntimeJobPayload =
+    | RuntimeDispatchPayload
     | CancelRunPayload
     | ResolveApprovalPayload;
 
-export function initArchitectWorker(pgPool: Pool): Worker {
+export function initRuntimeWorker(pgPool: Pool): Worker {
     // Garbage-collect any workspaces left behind by previous boots before
     // we start accepting new jobs.
     try {
         cleanupOrphanedWorkspaces();
     } catch (err) {
-        console.warn('[Architect Worker] Workspace GC failed:', (err as Error).message);
+        console.warn('[Runtime Worker] Workspace GC failed:', (err as Error).message);
     }
 
     const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null }) as any;
 
-    const worker = new Worker<ArchitectJobPayload>(
-        'architect-dispatch',
-        async (job: Job<ArchitectJobPayload>) => {
+    const worker = new Worker<RuntimeJobPayload>(
+        'runtime-dispatch',
+        async (job: Job<RuntimeJobPayload>) => {
             // ── cancel-run ────────────────────────────────────────────────
             if (job.name === 'cancel-run') {
                 const { orgId, workItemId } = job.data as CancelRunPayload;
-                console.log(`[Architect Worker] cancel-run for ${workItemId}`);
+                console.log(`[Runtime Worker] cancel-run for ${workItemId}`);
 
                 // FASE 9: try local stream first; if not found and distributed
                 // mode is enabled, broadcast via Redis pub/sub to all replicas.
                 const stream = getStream(workItemId);
                 if (stream) {
                     try { stream.cancel(); } catch (err) {
-                        console.warn(`[Architect Worker] cancel() threw:`, (err as Error).message);
+                        console.warn(`[Runtime Worker] cancel() threw:`, (err as Error).message);
                     }
                 } else if (process.env.STREAM_REGISTRY_MODE !== 'local') {
                     try {
                         await publishControl({ type: 'cancel', workItemId });
-                        console.log(`[Architect Worker] published cancel via pub/sub for ${workItemId}`);
+                        console.log(`[Runtime Worker] published cancel via pub/sub for ${workItemId}`);
                     } catch (err) {
-                        console.warn(`[Architect Worker] publishControl(cancel) failed:`, (err as Error).message);
+                        console.warn(`[Runtime Worker] publishControl(cancel) failed:`, (err as Error).message);
                     }
                 }
 
@@ -189,7 +192,7 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                 try {
                     await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
                     await cl.query(
-                        `UPDATE architect_work_items
+                        `UPDATE runtime_work_items
                          SET status = 'cancelled', cancelled_at = NOW()
                          WHERE id = $1 AND org_id = $2
                            AND status IN ('pending', 'awaiting_approval')`,
@@ -204,7 +207,7 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                     orgId,
                     category: 'data_access',
                     eventType: 'OPENCLAUDE_RUN_CANCELLED',
-                    resourceType: 'architect_work_item',
+                    resourceType: 'runtime_work_item',
                     resourceId: workItemId,
                     metadata: { source: 'cancel-run-job', hadActiveStream: Boolean(stream) },
                 }).catch(() => {});
@@ -216,7 +219,7 @@ export function initArchitectWorker(pgPool: Pool): Worker {
             if (job.name === 'resolve-approval') {
                 const { orgId, workItemId, promptId, approved, approveMode, actorEmail } = job.data as ResolveApprovalPayload;
                 const mode = approveMode ?? 'single';
-                console.log(`[Architect Worker] resolve-approval for ${workItemId} promptId=${promptId} approved=${approved} mode=${mode}`);
+                console.log(`[Runtime Worker] resolve-approval for ${workItemId} promptId=${promptId} approved=${approved} mode=${mode}`);
 
                 // FASE 9: try local stream first; if not found and distributed
                 // mode is enabled, broadcast via Redis pub/sub.
@@ -225,7 +228,7 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                     try {
                         stream.respond(promptId, approved ? 'yes' : 'no');
                     } catch (err) {
-                        console.warn(`[Architect Worker] respond() threw:`, (err as Error).message);
+                        console.warn(`[Runtime Worker] respond() threw:`, (err as Error).message);
                         return { resolved: false, reason: 'respond_failed' };
                     }
                 } else if (process.env.STREAM_REGISTRY_MODE !== 'local') {
@@ -236,13 +239,13 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                             promptId,
                             reply: approved ? 'yes' : 'no',
                         });
-                        console.log(`[Architect Worker] published respond via pub/sub for ${workItemId} promptId=${promptId}`);
+                        console.log(`[Runtime Worker] published respond via pub/sub for ${workItemId} promptId=${promptId}`);
                     } catch (err) {
-                        console.warn(`[Architect Worker] publishControl(respond) failed:`, (err as Error).message);
+                        console.warn(`[Runtime Worker] publishControl(respond) failed:`, (err as Error).message);
                         return { resolved: false, reason: 'publish_failed' };
                     }
                 } else {
-                    console.warn(`[Architect Worker] resolve-approval: no active stream for ${workItemId} (local mode)`);
+                    console.warn(`[Runtime Worker] resolve-approval: no active stream for ${workItemId} (local mode)`);
                     return { resolved: false, reason: 'no_active_stream' };
                 }
 
@@ -259,14 +262,14 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                             await other.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
                             const pendingRes = await other.query(
                                 `SELECT DISTINCT e.prompt_id
-                                 FROM architect_work_item_events e
+                                 FROM runtime_work_item_events e
                                  WHERE e.work_item_id = $1
                                    AND e.org_id = $2
                                    AND e.event_type = 'ACTION_REQUIRED'
                                    AND e.prompt_id IS NOT NULL
                                    AND e.prompt_id <> $3
                                    AND NOT EXISTS (
-                                       SELECT 1 FROM architect_work_item_events r
+                                       SELECT 1 FROM runtime_work_item_events r
                                        WHERE r.work_item_id = e.work_item_id
                                          AND r.org_id = e.org_id
                                          AND r.event_type = 'ACTION_RESPONSE'
@@ -284,20 +287,20 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                                     } else if (process.env.STREAM_REGISTRY_MODE !== 'local') {
                                         await publishControl({ type: 'respond', workItemId, promptId: otherPromptId, reply: 'yes' });
                                     }
-                                    console.log(`[Architect Worker] auto_all broadcast respond for ${otherPromptId}`);
+                                    console.log(`[Runtime Worker] auto_all broadcast respond for ${otherPromptId}`);
                                     await other.query(
-                                        `INSERT INTO architect_work_item_events
+                                        `INSERT INTO runtime_work_item_events
                                             (org_id, work_item_id, event_type, event_seq, tool_name, prompt_id, payload)
                                          VALUES (
                                             $1, $2, 'ACTION_RESPONSE',
-                                            COALESCE((SELECT MAX(event_seq) + 1 FROM architect_work_item_events WHERE work_item_id = $2), 1),
+                                            COALESCE((SELECT MAX(event_seq) + 1 FROM runtime_work_item_events WHERE work_item_id = $2), 1),
                                             NULL, $3,
                                             '{"decision":"allow","reason":"user_approved_all_broadcast","automatic":true}'::jsonb
                                          )`,
                                         [orgId, workItemId, otherPromptId]
                                     );
                                 } catch (e) {
-                                    console.warn('[Architect Worker] auto_all broadcast respond failed:', (e as Error).message);
+                                    console.warn('[Runtime Worker] auto_all broadcast respond failed:', (e as Error).message);
                                 }
                             }
                         } finally {
@@ -305,7 +308,7 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                             other.release();
                         }
                     } catch (e) {
-                        console.warn('[Architect Worker] auto_all broadcast failed:', (e as Error).message);
+                        console.warn('[Runtime Worker] auto_all broadcast failed:', (e as Error).message);
                     }
                 }
 
@@ -317,7 +320,7 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                     await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
                     if (approved && mode !== 'single') {
                         await cl.query(
-                            `UPDATE architect_work_items
+                            `UPDATE runtime_work_items
                              SET status = 'in_progress', last_event_at = NOW(),
                                  execution_context = COALESCE(execution_context, '{}'::jsonb)
                                                       || jsonb_build_object('approval_mode', $3::text)
@@ -326,7 +329,7 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                         );
                     } else {
                         await cl.query(
-                            `UPDATE architect_work_items
+                            `UPDATE runtime_work_items
                              SET status = 'in_progress', last_event_at = NOW()
                              WHERE id = $1 AND org_id = $2 AND status = 'awaiting_approval'`,
                             [workItemId, orgId]
@@ -341,7 +344,7 @@ export function initArchitectWorker(pgPool: Pool): Worker {
                     orgId,
                     category: 'approval',
                     eventType: approved ? 'TOOL_APPROVED_BY_HUMAN' : 'TOOL_REJECTED_BY_HUMAN',
-                    resourceType: 'architect_work_item',
+                    resourceType: 'runtime_work_item',
                     resourceId: workItemId,
                     actorEmail: actorEmail ?? null,
                     metadata: { promptId, approved, approveMode: mode },
@@ -351,8 +354,8 @@ export function initArchitectWorker(pgPool: Pool): Worker {
             }
 
             // ── dispatch-openclaude (default) ─────────────────────────────
-            const { orgId, workItemId } = job.data as ArchitectDispatchPayload;
-            console.log(`[Architect Worker] Dispatching work item ${workItemId} for org ${orgId}`);
+            const { orgId, workItemId } = job.data as RuntimeDispatchPayload;
+            console.log(`[Runtime Worker] Dispatching work item ${workItemId} for org ${orgId}`);
 
             // FASE 11: per-tenant concurrency — block if this tenant is at
             // capacity so no single org starves the global 2-slot worker.
@@ -370,9 +373,9 @@ export function initArchitectWorker(pgPool: Pool): Worker {
             // See docs/DIAGNOSTIC_RUNTIME_HANG_20260422.md + ADR-021.
             const hasSlot = await acquireTenantSlot(orgId);
             if (!hasSlot) {
-                await handleTenantLimitRejection(pgPool, architectQueue, {
+                await handleTenantLimitRejection(pgPool, runtimeQueue, {
                     jobName: job.name,
-                    jobData: job.data as ArchitectDispatchPayload,
+                    jobData: job.data as RuntimeDispatchPayload,
                     orgId,
                     workItemId,
                 });
@@ -381,7 +384,7 @@ export function initArchitectWorker(pgPool: Pool): Worker {
 
             try {
                 const result = await dispatchWorkItem(pgPool, orgId, workItemId);
-                console.log(`[Architect Worker] Completed: adapter=${result.adapter} success=${result.success}`);
+                console.log(`[Runtime Worker] Completed: adapter=${result.adapter} success=${result.success}`);
                 return result;
             } finally {
                 await releaseTenantSlot(orgId);
@@ -397,15 +400,15 @@ export function initArchitectWorker(pgPool: Pool): Worker {
     );
 
     worker.on('completed', (job) => {
-        console.log(`[Architect Worker] Job ${job.id} (${job.name}) completed`);
+        console.log(`[Runtime Worker] Job ${job.id} (${job.name}) completed`);
     });
 
     worker.on('failed', (job, err) => {
-        console.error(`[Architect Worker] Job ${job?.id} (${job?.name}) failed: ${err?.message}`);
+        console.error(`[Runtime Worker] Job ${job?.id} (${job?.name}) failed: ${err?.message}`);
     });
 
     worker.on('error', (err) => {
-        console.error(`[Architect Worker] Worker error:`, err?.message);
+        console.error(`[Runtime Worker] Worker error:`, err?.message);
     });
 
     // ── FASE 11: Periodic watchdog + workspace cleanup ──────────────────
@@ -418,24 +421,24 @@ export function initArchitectWorker(pgPool: Pool): Worker {
         try {
             const marked = await detectAndMarkStuckWorkItems(pgPool);
             if (marked > 0) {
-                console.log(`[Architect Watchdog] Marked ${marked} stuck work items as blocked`);
+                console.log(`[Runtime Watchdog] Marked ${marked} stuck work items as blocked`);
             }
         } catch (err) {
-            console.warn('[Architect Watchdog] sweep error:', (err as Error).message);
+            console.warn('[Runtime Watchdog] sweep error:', (err as Error).message);
         }
         try {
             const { recovered, blocked } = await recoverOrphanedPendingWorkItems(
                 pgPool,
-                architectQueue as unknown as Parameters<typeof recoverOrphanedPendingWorkItems>[1],
+                runtimeQueue as unknown as Parameters<typeof recoverOrphanedPendingWorkItems>[1],
             );
             if (recovered > 0) {
-                console.log(`[Architect Watchdog] Recovered ${recovered} orphaned PENDING work items`);
+                console.log(`[Runtime Watchdog] Recovered ${recovered} orphaned PENDING work items`);
             }
             if (blocked > 0) {
-                console.warn(`[Architect Watchdog] Blocked ${blocked} work items after recovery budget exhausted`);
+                console.warn(`[Runtime Watchdog] Blocked ${blocked} work items after recovery budget exhausted`);
             }
         } catch (err) {
-            console.warn('[Architect Watchdog] orphan recovery error:', (err as Error).message);
+            console.warn('[Runtime Watchdog] orphan recovery error:', (err as Error).message);
         }
     }, 5 * 60 * 1000);
 
@@ -454,21 +457,21 @@ export function initArchitectWorker(pgPool: Pool): Worker {
     }, 30 * 60 * 1000);
 
     // BLOCO 2: final cleanup on graceful shutdown
-    const shutdownArchitect = async () => {
-        console.log('[Architect Worker] Shutdown — running final workspace cleanup');
+    const shutdownRuntime = async () => {
+        console.log('[Runtime Worker] Shutdown — running final workspace cleanup');
         clearInterval(watchdogInterval);
         clearInterval(workspaceCleanupInterval);
         try {
             const cleaned = cleanupOrphanedWorkspaces();
-            if (cleaned > 0) console.log(`[Architect Worker] Final cleanup: ${cleaned} workspaces`);
+            if (cleaned > 0) console.log(`[Runtime Worker] Final cleanup: ${cleaned} workspaces`);
         } catch (err) {
-            console.warn('[Architect Worker] cleanup error on shutdown:', (err as Error).message);
+            console.warn('[Runtime Worker] cleanup error on shutdown:', (err as Error).message);
         }
         try { await worker.close(); } catch { /* ignore */ }
     };
-    process.once('SIGTERM', shutdownArchitect);
-    process.once('SIGINT', shutdownArchitect);
+    process.once('SIGTERM', shutdownRuntime);
+    process.once('SIGINT', shutdownRuntime);
 
-    console.log('[Architect Worker] Started (watchdog=5min, workspace cleanup=30min)');
+    console.log('[Runtime Worker] Started (watchdog=5min, workspace cleanup=30min)');
     return worker;
 }

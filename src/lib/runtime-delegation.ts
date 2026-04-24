@@ -1,31 +1,21 @@
 /**
- * Architect Delegation Router — Sprint A4/A5
+ * Runtime Delegation Router — renamed from the legacy delegation module in
+ * FASE 14.0/2 after the Arquiteto-workflow domain was demolished.
  *
- * Reads work items with specific execution_hint values and routes them
- * to the appropriate adapter for execution.
+ * Reads runtime_work_items with specific execution_hint values and routes
+ * them to the appropriate runtime adapter (OpenClaude, Claude Code,
+ * Aider, internal_rag, human, agno) for execution.
  *
  * Conventions:
- *   - Same Pool + set_config pattern as architect.ts
+ *   - Pool + set_config per call for RLS isolation
  *   - Adapters update work item status in DB and record evidence
  *   - Human adapter is informational only (no DB state changes)
  *   - Max 3 dispatch attempts before marking blocked
- *   - dispatchWorkItem uses SELECT FOR UPDATE SKIP LOCKED for concurrency safety
+ *   - dispatchWorkItem uses SELECT FOR UPDATE SKIP LOCKED for concurrency
  *
- * ─── FASE 13.5b/1 — refactor in progress ───────────────────────────────
- * This file is the legacy source of truth. New call sites should import
- * from `./delegation/orchestration`, `./delegation/dispatch`, or
- * `./delegation/governance` (or the convenience `./delegation` barrel)
- * instead of from this module directly. The `./delegation/*` submodules
- * are currently thin re-export shims that point back here; the physical
- * code move will happen in 13.5c once callers have migrated. Do not
- * add new public exports here without also referencing them from the
- * appropriate submodule.
- *
- * The folder is called `delegation/` (not `architect/`) because
- * `src/lib/architect.ts` already owns the "architect domain" namespace
- * (workflow graphs, decision sets, demand cases). This file's
- * responsibility is the delegation/execution layer that sits on top
- * of that domain, hence the separate folder name.
+ * Public surface is also re-exported via `./runtime/orchestration`,
+ * `./runtime/dispatch`, `./runtime/governance` (barrel at `./runtime`).
+ * Both import paths are valid; the barrel is preferred for new code.
  */
 
 import { Pool } from 'pg';
@@ -110,7 +100,7 @@ export async function resolveToolDecision(
         try {
             await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
             const wiRes = await client.query(
-                `SELECT execution_context FROM architect_work_items WHERE id = $1 AND org_id = $2`,
+                `SELECT execution_context FROM runtime_work_items WHERE id = $1 AND org_id = $2`,
                 [workItemId, orgId]
             );
             const ctx = wiRes.rows[0]?.execution_context || {};
@@ -236,37 +226,10 @@ export function runtimeFromPrefix(message: string | null | undefined): string | 
     }
 }
 
-/**
- * Returns the singleton "auto-delegation" workflow_graph_id for an org.
- * Required because architect_work_items.workflow_graph_id is NOT NULL.
- *
- * The seed creates this workflow_graph at id 00000000-0000-0000-00B4-...001
- * with marker = "auto_delegation" in graph_json. This helper looks it up
- * by marker (not by hardcoded ID) so it works for any org that has been
- * properly seeded.
- *
- * Returns null if no marker found — caller must handle gracefully.
- */
-export async function getAutoDelegationWorkflowGraphId(
-    pool: Pool,
-    orgId: string
-): Promise<string | null> {
-    const client = await pool.connect();
-    try {
-        await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
-        const res = await client.query(
-            `SELECT id FROM workflow_graphs
-             WHERE org_id = $1
-               AND graph_json->>'marker' = 'auto_delegation'
-             ORDER BY created_at ASC LIMIT 1`,
-            [orgId]
-        );
-        return res.rows.length > 0 ? (res.rows[0].id as string) : null;
-    } finally {
-        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
-        client.release();
-    }
-}
+// getAutoDelegationWorkflowGraphId was removed in FASE 14.0/2 along
+// with runtime_work_items.the dropped FK column (migration 089). The old
+// NOT NULL FK required a singleton in workflow_graphs; now INSERTs go
+// straight in without needing a placeholder reference.
 
 // ── Adapter: internal_rag ─────────────────────────────────────────────────────
 
@@ -281,7 +244,7 @@ export async function runInternalRagAdapter(
 
         // 1. Fetch work item
         const wiRes = await client.query(
-            `SELECT * FROM architect_work_items WHERE id = $1 AND org_id = $2`,
+            `SELECT * FROM runtime_work_items WHERE id = $1 AND org_id = $2`,
             [workItemId, orgId]
         );
         if (wiRes.rows.length === 0) {
@@ -298,7 +261,7 @@ export async function runInternalRagAdapter(
 
         // 2. Mark in_progress
         await client.query(
-            `UPDATE architect_work_items
+            `UPDATE runtime_work_items
              SET status = 'in_progress', dispatched_at = now(),
                  dispatch_attempts = dispatch_attempts + 1
              WHERE id = $1`,
@@ -317,7 +280,7 @@ export async function runInternalRagAdapter(
         if (kbRes.rows.length === 0) {
             const output = { snippets: [], message: 'No knowledge base configured' };
             await client.query(
-                `UPDATE architect_work_items
+                `UPDATE runtime_work_items
                  SET status = 'done', completed_at = now(),
                      execution_context = $1
                  WHERE id = $2`,
@@ -341,7 +304,7 @@ export async function runInternalRagAdapter(
 
         // 7. Update work item as done
         await client.query(
-            `UPDATE architect_work_items
+            `UPDATE runtime_work_items
              SET status = 'done', completed_at = now(),
                  execution_context = $1
              WHERE id = $2`,
@@ -372,7 +335,7 @@ export async function runInternalRagAdapter(
         try {
             // On error: update dispatch_error, check attempts for blocked state
             const attemptsRes = await client.query(
-                `UPDATE architect_work_items
+                `UPDATE runtime_work_items
                  SET dispatch_error = $1,
                      dispatch_attempts = dispatch_attempts + 1,
                      status = CASE
@@ -407,7 +370,7 @@ export async function runHumanAdapter(
 
         // 1. Fetch and validate work item
         const wiRes = await client.query(
-            `SELECT * FROM architect_work_items WHERE id = $1 AND org_id = $2`,
+            `SELECT * FROM runtime_work_items WHERE id = $1 AND org_id = $2`,
             [workItemId, orgId]
         );
         if (wiRes.rows.length === 0) {
@@ -448,7 +411,7 @@ export async function runAgnoAdapter(
 
         // 1. Fetch work item
         const wiRes = await client.query(
-            `SELECT * FROM architect_work_items WHERE id = $1 AND org_id = $2`,
+            `SELECT * FROM runtime_work_items WHERE id = $1 AND org_id = $2`,
             [workItemId, orgId]
         );
         if (wiRes.rows.length === 0) {
@@ -494,7 +457,7 @@ export async function runAgnoAdapter(
 
         // Update execution_context; status stays 'pending' (stub does not complete item)
         await client.query(
-            `UPDATE architect_work_items
+            `UPDATE runtime_work_items
              SET execution_context = $1
              WHERE id = $2`,
             [JSON.stringify({ adapter: 'agno', stub: true, payload: agnoPayload }), workItemId]
@@ -510,7 +473,7 @@ export async function runAgnoAdapter(
 // ── Work item event helpers (FASE 5-hardening) ───────────────────────────────
 
 /**
- * Append an entry to architect_work_item_events with monotonic event_seq.
+ * Append an entry to runtime_work_item_events with monotonic event_seq.
  * Auto-touches last_event_at on the parent work item. Errors are swallowed
  * to avoid breaking the gRPC stream — the timeline is best-effort telemetry.
  */
@@ -528,17 +491,17 @@ export async function insertWorkItemEvent(
         await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
         // Compute next event_seq atomically using SELECT then INSERT inside a single statement
         await client.query(
-            `INSERT INTO architect_work_item_events
+            `INSERT INTO runtime_work_item_events
                 (org_id, work_item_id, event_type, event_seq, tool_name, prompt_id, payload)
              VALUES (
                 $1, $2, $3,
-                COALESCE((SELECT MAX(event_seq) + 1 FROM architect_work_item_events WHERE work_item_id = $2), 1),
+                COALESCE((SELECT MAX(event_seq) + 1 FROM runtime_work_item_events WHERE work_item_id = $2), 1),
                 $4, $5, $6
              )`,
             [orgId, workItemId, eventType, toolName ?? null, promptId ?? null, JSON.stringify(payload)]
         );
         await client.query(
-            `UPDATE architect_work_items SET last_event_at = NOW() WHERE id = $1 AND org_id = $2`,
+            `UPDATE runtime_work_items SET last_event_at = NOW() WHERE id = $1 AND org_id = $2`,
             [workItemId, orgId]
         );
     } catch (err) {
@@ -621,7 +584,7 @@ export async function runOpenClaudeAdapter(
 
         // 1. Fetch work item
         const wiRes = await client.query(
-            `SELECT * FROM architect_work_items WHERE id = $1 AND org_id = $2`,
+            `SELECT * FROM runtime_work_items WHERE id = $1 AND org_id = $2`,
             [workItemId, orgId]
         );
         if (wiRes.rows.length === 0) {
@@ -647,7 +610,7 @@ export async function runOpenClaudeAdapter(
         // 'claude_code_official'.
         const sessionId = randomUUID();
         await client.query(
-            `UPDATE architect_work_items
+            `UPDATE runtime_work_items
              SET status = 'in_progress', dispatched_at = now(),
                  dispatch_attempts = dispatch_attempts + 1,
                  worker_session_id = $2, run_started_at = now(),
@@ -732,7 +695,7 @@ export async function runOpenClaudeAdapter(
             if (err instanceof CircuitOpenError) {
                 // Mark blocked, surface clear error, don't even try the gRPC call
                 await client.query(
-                    `UPDATE architect_work_items
+                    `UPDATE runtime_work_items
                      SET status = 'blocked',
                          dispatch_error = $2,
                          last_event_at = NOW()
@@ -873,7 +836,7 @@ export async function runOpenClaudeAdapter(
 
                 // 1. Read the current approval_mode (persisted by the route
                 //    and/or the resolve-approval worker job).
-                //    IMPORTANT: architect_work_items has RLS; use a dedicated
+                //    IMPORTANT: runtime_work_items has RLS; use a dedicated
                 //    client with set_config so the SELECT can see the row.
                 //    Using `pool.query` directly hits a fresh unset session
                 //    and returns zero rows silently.
@@ -884,7 +847,7 @@ export async function runOpenClaudeAdapter(
                         await modeClient.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
                         const modeRes = await modeClient.query(
                             `SELECT execution_context->>'approval_mode' AS mode
-                             FROM architect_work_items WHERE id = $1 AND org_id = $2`,
+                             FROM runtime_work_items WHERE id = $1 AND org_id = $2`,
                             [workItemId, orgId]
                         );
                         approvalMode = modeRes.rows[0]?.mode ?? null;
@@ -981,7 +944,7 @@ export async function runOpenClaudeAdapter(
                 try {
                     await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
                     await cl.query(
-                        `UPDATE architect_work_items SET status = 'awaiting_approval' WHERE id = $1 AND org_id = $2`,
+                        `UPDATE runtime_work_items SET status = 'awaiting_approval' WHERE id = $1 AND org_id = $2`,
                         [workItemId, orgId]
                     );
                 } catch (e) {
@@ -1029,7 +992,7 @@ export async function runOpenClaudeAdapter(
                     // overwrites adapter/output/tokens but keeps approval_mode,
                     // assistantId, delegated_from, matchedPattern, etc.
                     await cl.query(
-                        `UPDATE architect_work_items
+                        `UPDATE runtime_work_items
                          SET status = 'done', completed_at = now(), last_event_at = now(),
                              execution_context = COALESCE(execution_context, '{}'::jsonb) || $1::jsonb
                          WHERE id = $2`,
@@ -1091,7 +1054,7 @@ export async function runOpenClaudeAdapter(
                 try {
                     await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
                     await cl.query(
-                        `UPDATE architect_work_items
+                        `UPDATE runtime_work_items
                          SET dispatch_error = $1, last_event_at = now(),
                              status = CASE
                                  WHEN cancellation_requested_at IS NOT NULL THEN 'cancelled'
@@ -1148,7 +1111,7 @@ export async function runOpenClaudeAdapter(
         const errorMsg = err instanceof Error ? err.message : String(err);
         try {
             await client.query(
-                `UPDATE architect_work_items
+                `UPDATE runtime_work_items
                  SET dispatch_error = $1,
                      dispatch_attempts = dispatch_attempts + 1,
                      status = CASE WHEN dispatch_attempts + 1 >= 3 THEN 'blocked' ELSE 'pending' END
@@ -1187,7 +1150,7 @@ export async function dispatchWorkItem(
 
         // 1. Lock with SKIP LOCKED — concurrent callers skip rather than block
         const wiRes = await client.query(
-            `SELECT * FROM architect_work_items
+            `SELECT * FROM runtime_work_items
              WHERE id = $1 AND org_id = $2
              FOR UPDATE SKIP LOCKED`,
             [workItemId, orgId]
@@ -1207,7 +1170,7 @@ export async function dispatchWorkItem(
             } else if ((item.dispatch_attempts as number) >= 3) {
                 // 3. Check max attempts
                 await client.query(
-                    `UPDATE architect_work_items SET status = 'blocked' WHERE id = $1`,
+                    `UPDATE runtime_work_items SET status = 'blocked' WHERE id = $1`,
                     [workItemId]
                 );
                 guardOutcome = 'blocked';
@@ -1298,7 +1261,7 @@ export async function dispatchWorkItem(
             try {
                 await persistCl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
                 await persistCl.query(
-                    `UPDATE architect_work_items
+                    `UPDATE runtime_work_items
                      SET runtime_claim_level = $1,
                          execution_context = COALESCE(execution_context, '{}'::jsonb) || $2::jsonb
                      WHERE id = $3 AND org_id = $4`,
@@ -1327,7 +1290,7 @@ export async function dispatchWorkItem(
                 try {
                     await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
                     await cl.query(
-                        `UPDATE architect_work_items
+                        `UPDATE runtime_work_items
                          SET status = 'blocked', dispatch_error = $1
                          WHERE id = $2 AND org_id = $3`,
                         [e.message, workItemId, orgId]
@@ -1371,49 +1334,11 @@ export async function dispatchWorkItem(
     };
 }
 
-// ── Batch Dispatch ────────────────────────────────────────────────────────────
-
-export async function dispatchPendingWorkItems(
-    pool: Pool,
-    orgId: string,
-    workflowGraphId: string
-): Promise<DispatchResult[]> {
-    const client = await pool.connect();
-    let pendingIds: string[];
-    try {
-        await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
-        const res = await client.query(
-            `SELECT id FROM architect_work_items
-             WHERE workflow_graph_id = $1 AND org_id = $2 AND status = 'pending'
-             ORDER BY created_at ASC`,
-            [workflowGraphId, orgId]
-        );
-        pendingIds = res.rows.map(r => r.id as string);
-    } finally {
-        await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
-        client.release();
-    }
-
-    // Dispatch sequentially to avoid race conditions
-    const results: DispatchResult[] = [];
-    for (const workItemId of pendingIds) {
-        try {
-            const result = await dispatchWorkItem(pool, orgId, workItemId);
-            // Skip silently if another process has the lock
-            if (result.error?.includes('locked')) continue;
-            results.push(result);
-        } catch (err: unknown) {
-            results.push({
-                workItemId,
-                adapter: 'unknown',
-                success: false,
-                output: {},
-                error: err instanceof Error ? err.message : String(err),
-            });
-        }
-    }
-    return results;
-}
+// dispatchPendingWorkItems was removed in FASE 14.0/2 along with the
+// the dropped FK column — it used to filter pending items by that
+// FK, which no longer exists. The only production caller was the
+// `cases/:id/workflow/dispatch-all` route killed in Etapa 1. Individual
+// dispatch still goes through `dispatchWorkItem` per item.
 
 // ── FASE 11 — Stuck work item watchdog ──────────────────────────────────
 
@@ -1443,7 +1368,7 @@ export async function detectAndMarkStuckWorkItems(pool: Pool): Promise<number> {
         const res = await client.query(`
             SELECT id, org_id,
                    EXTRACT(EPOCH FROM (NOW() - COALESCE(last_event_at, run_started_at, created_at))) / 60 AS minutes_idle
-            FROM architect_work_items
+            FROM runtime_work_items
             WHERE status IN ('in_progress', 'awaiting_approval')
               AND COALESCE(last_event_at, run_started_at, created_at) < NOW() - INTERVAL '1 minute' * $1
             ORDER BY created_at ASC
@@ -1455,7 +1380,7 @@ export async function detectAndMarkStuckWorkItems(pool: Pool): Promise<number> {
                 await client.query("SELECT set_config('app.current_org_id', $1, false)", [row.org_id]);
                 const mins = Math.floor(row.minutes_idle);
                 const upd = await client.query(`
-                    UPDATE architect_work_items
+                    UPDATE runtime_work_items
                     SET status = 'blocked',
                         dispatch_error = $3,
                         last_event_at = NOW()
@@ -1487,8 +1412,8 @@ export async function detectAndMarkStuckWorkItems(pool: Pool): Promise<number> {
  *   4. items that burn through `maxRecoveryAttempts` (default 3) are
  *      marked `status='blocked'` with `dispatch_error='watchdog_recovery_exhausted'`
  *
- * The caller injects the architect queue (instead of importing it here) to
- * avoid a cyclic import between architect-delegation ↔ workers/architect.
+ * The caller injects the runtime queue (instead of importing it here) to
+ * avoid a cyclic import between runtime-delegation ↔ workers/runtime.worker.
  */
 export async function recoverOrphanedPendingWorkItems(
     pool: Pool,
@@ -1506,7 +1431,7 @@ export async function recoverOrphanedPendingWorkItems(
         // app.current_org_id per-row.
         const candidates = await client.query(`
             SELECT id, org_id, recovery_attempts
-              FROM architect_work_items
+              FROM runtime_work_items
              WHERE status = 'pending'
                AND dispatch_attempts = 0
                AND recovery_attempts < $2
@@ -1541,7 +1466,7 @@ export async function recoverOrphanedPendingWorkItems(
                     await client.query("SELECT set_config('app.current_org_id', $1, false)", [row.org_id]);
                     const nextAttempt = Number(row.recovery_attempts) + 1;
                     await client.query(
-                        `UPDATE architect_work_items
+                        `UPDATE runtime_work_items
                             SET recovery_attempts = recovery_attempts + 1,
                                 last_event_at = NOW()
                           WHERE id = $1 AND org_id = $2
@@ -1575,7 +1500,7 @@ export async function recoverOrphanedPendingWorkItems(
         // Items that have exhausted the recovery budget AND still look
         // orphaned: mark blocked so they stop trapping the sweep.
         const exhausted = await client.query(`
-            UPDATE architect_work_items
+            UPDATE runtime_work_items
                SET status = 'blocked',
                    dispatch_error = COALESCE(dispatch_error, 'watchdog_recovery_exhausted'),
                    last_event_at = NOW()

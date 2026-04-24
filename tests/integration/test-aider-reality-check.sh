@@ -10,7 +10,7 @@
 #
 # Chain:
 #   1. Send a [AIDER]-prefixed delegation with a random MARKER.
-#   2. Poll architect_work_items until terminal status.
+#   2. Poll runtime_work_items until terminal status.
 #   3. Verify runtime_profile_slug='aider' (the routing part).
 #   4. Verify at least one event payload contains the MARKER
 #      (the execution part — can't be LLM fabrication since the
@@ -67,19 +67,19 @@ STATUS=""
 RT=""
 for i in $(seq 1 "$MAX_POLLS"); do
     sleep "$POLL_INTERVAL"
-    STATUS=$(dbq "SELECT status FROM architect_work_items WHERE id='$WI'")
-    RT=$(dbq "SELECT runtime_profile_slug FROM architect_work_items WHERE id='$WI'")
+    STATUS=$(dbq "SELECT status FROM runtime_work_items WHERE id='$WI'")
+    RT=$(dbq "SELECT runtime_profile_slug FROM runtime_work_items WHERE id='$WI'")
     echo "  poll #$i: status=$STATUS runtime=$RT"
     case "$STATUS" in
         done) break ;;
         failed|blocked|cancelled)
-            ERR=$(dbq "SELECT COALESCE(dispatch_error, '(no dispatch_error)') FROM architect_work_items WHERE id='$WI'")
+            ERR=$(dbq "SELECT COALESCE(dispatch_error, '(no dispatch_error)') FROM runtime_work_items WHERE id='$WI'")
             echo "❌ Terminal $STATUS — dispatch_error: $ERR"
             echo ""
             echo "─── Recent events ───"
             docker compose exec -T database psql -U postgres -d govai_platform -c "
                 SELECT event_type, substring(payload::text for 300) AS payload
-                  FROM architect_work_item_events
+                  FROM runtime_work_item_events
                  WHERE work_item_id='$WI'
                  ORDER BY event_seq ASC
                  LIMIT 15"
@@ -94,7 +94,7 @@ if [ "$STATUS" != "done" ]; then
     echo "─── Recent events ───"
     docker compose exec -T database psql -U postgres -d govai_platform -c "
         SELECT event_type, substring(payload::text for 300) AS payload
-          FROM architect_work_item_events
+          FROM runtime_work_item_events
          WHERE work_item_id='$WI'
          ORDER BY event_seq ASC
          LIMIT 15"
@@ -118,7 +118,7 @@ echo "✅ runtime_profile_slug=aider"
 echo ""
 echo "═══ Check marker in event payloads (proves tool output is real) ═══"
 HIT=$(dbq "
-    SELECT COUNT(*) FROM architect_work_item_events
+    SELECT COUNT(*) FROM runtime_work_item_events
      WHERE work_item_id='$WI'
        AND payload::text LIKE '%$MARKER%'")
 
@@ -128,7 +128,7 @@ else
     echo "⚠️  Marker not in event payloads. Dumping stream:"
     docker compose exec -T database psql -U postgres -d govai_platform -c "
         SELECT event_type, substring(payload::text for 400) AS payload
-          FROM architect_work_item_events
+          FROM runtime_work_item_events
          WHERE work_item_id='$WI'
          ORDER BY event_seq ASC
          LIMIT 20"

@@ -2,8 +2,8 @@
  * Architect Stream Registry — FASE 5-hardening + FASE 9 distributed
  *
  * Process-local map of active OpenClaude/Claude Code gRPC streams keyed by
- * work_item_id. The adapter (architect-delegation.ts) registers itself when
- * it starts a run; the worker (architect.worker.ts) reads from it when
+ * work_item_id. The adapter (runtime-delegation.ts) registers itself when
+ * it starts a run; the worker (runtime.worker.ts) reads from it when
  * processing `cancel-run` or `resolve-approval` jobs so it can call
  * cancel() / respond() on the live stream.
  *

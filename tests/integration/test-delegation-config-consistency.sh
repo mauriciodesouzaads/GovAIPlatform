@@ -157,7 +157,7 @@ else
     else
         SLUG=$(dbq "
             SELECT runtime_profile_slug
-              FROM architect_work_items
+              FROM runtime_work_items
              WHERE id = '$WORK_ITEM_ID';
         " | tr -d '[:space:]')
         check "work item runtime_profile_slug == aider" "aider" "$SLUG"
@@ -185,7 +185,7 @@ if [ -z "$WORK_ITEM_ID" ]; then
 else
     SLUG=$(dbq "
         SELECT runtime_profile_slug
-          FROM architect_work_items
+          FROM runtime_work_items
          WHERE id = '$WORK_ITEM_ID';
     " | tr -d '[:space:]')
     check "work item runtime_profile_slug == openclaude" "openclaude" "$SLUG"

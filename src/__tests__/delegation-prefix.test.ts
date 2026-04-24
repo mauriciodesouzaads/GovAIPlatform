@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { runtimeFromPrefix, shouldDelegate } from '../lib/architect-delegation';
+import { runtimeFromPrefix, shouldDelegate } from '../lib/runtime-delegation';
 
 describe('runtimeFromPrefix', () => {
     describe('happy path', () => {

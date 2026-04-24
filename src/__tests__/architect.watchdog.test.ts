@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 describe('Architect Watchdog', () => {
     it('detectAndMarkStuckWorkItems is exported and callable', async () => {
-        const mod = await import('../lib/architect-delegation');
+        const mod = await import('../lib/runtime-delegation');
         expect(typeof mod.detectAndMarkStuckWorkItems).toBe('function');
     });
 
@@ -22,7 +22,7 @@ describe('Architect Watchdog', () => {
             connect: vi.fn().mockResolvedValue(mockClient),
         };
 
-        const { detectAndMarkStuckWorkItems } = await import('../lib/architect-delegation');
+        const { detectAndMarkStuckWorkItems } = await import('../lib/runtime-delegation');
         const count = await detectAndMarkStuckWorkItems(mockPool as any);
 
         expect(count).toBe(0);
@@ -45,7 +45,7 @@ describe('Architect Watchdog', () => {
             connect: vi.fn().mockResolvedValue(mockClient),
         };
 
-        const { detectAndMarkStuckWorkItems } = await import('../lib/architect-delegation');
+        const { detectAndMarkStuckWorkItems } = await import('../lib/runtime-delegation');
         const count = await detectAndMarkStuckWorkItems(mockPool as any);
         expect(count).toBe(0);
         expect(mockClient.release).toHaveBeenCalled();

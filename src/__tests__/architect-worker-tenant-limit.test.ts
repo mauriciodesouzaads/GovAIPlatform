@@ -4,11 +4,11 @@
  * Exercises two extracted helpers that together form the TENANT_LIMIT
  * orphan fix:
  *
- *   - handleTenantLimitRejection (src/workers/architect.worker.ts)
+ *   - handleTenantLimitRejection (src/workers/runtime.worker.ts)
  *     Re-enqueues a dispatch job with a fresh attempts budget, or marks
  *     the work_item blocked after `TENANT_LIMIT_MAX_REQUEUES` requeues.
  *
- *   - recoverOrphanedPendingWorkItems (src/lib/architect-delegation.ts)
+ *   - recoverOrphanedPendingWorkItems (src/lib/runtime-delegation.ts)
  *     Sweeps `status='pending' AND dispatch_attempts=0` rows older than
  *     `ARCHITECT_ORPHAN_THRESHOLD_MIN`, re-enqueues if no live BullMQ job,
  *     and marks blocked after `ARCHITECT_MAX_RECOVERY_ATTEMPTS` attempts.
@@ -18,8 +18,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { handleTenantLimitRejection } from '../workers/architect.worker';
-import { recoverOrphanedPendingWorkItems } from '../lib/architect-delegation';
+import { handleTenantLimitRejection } from '../workers/runtime.worker';
+import { recoverOrphanedPendingWorkItems } from '../lib/runtime-delegation';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ describe('handleTenantLimitRejection', () => {
         expect(queue.add).not.toHaveBeenCalled();
         expect(pool.query).toHaveBeenCalledTimes(1);
         const [sql, params] = pool.query.mock.calls[0];
-        expect(sql).toMatch(/UPDATE architect_work_items[\s\S]*SET status = 'blocked'/);
+        expect(sql).toMatch(/UPDATE runtime_work_items[\s\S]*SET status = 'blocked'/);
         expect(params![0]).toMatch(/tenant_limit_exhausted after 3 requeues/);
         expect(params![1]).toBe(WI);
     });

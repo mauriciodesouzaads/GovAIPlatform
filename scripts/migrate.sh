@@ -140,6 +140,7 @@ MIGRATIONS=(
     "086_aider_runtime_profile.sql"
     "087_delegation_prefix_patterns.sql"
     "088_drop_architect_workflow.sql"
+    "089_rename_to_runtime_drop_orphans.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
