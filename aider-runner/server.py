@@ -163,7 +163,16 @@ def serve() -> None:
             except FileNotFoundError:
                 pass
             server.add_insecure_port(f'unix://{socket_path}')
-            log.info('listening on unix://%s', socket_path)
+            # FASE 13.5b.2 — Python's grpcio creates unix sockets with mode
+            # 0755 (owner rwx, others r-x). Unix socket connect() requires
+            # write permission, so the api container (uid 1000 / govai)
+            # gets EACCES when reaching this socket owned by the aider
+            # user (uid 1002). openclaude-runner and claude-code-runner
+            # already end up with 0666 via the grpc-js default, which is
+            # why those two runtimes dispatch cleanly cross-uid. Match
+            # that contract explicitly here.
+            os.chmod(socket_path, 0o666)
+            log.info('listening on unix://%s (chmod 0666)', socket_path)
             started_any = True
         except Exception as err:
             log.warning('unix socket bind failed on %s: %s — continuing with TCP only',
