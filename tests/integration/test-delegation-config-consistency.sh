@@ -30,7 +30,14 @@ ADMIN_EMAIL="${ADMIN_EMAIL:-admin@orga.com}"
 ADMIN_PASS="${ADMIN_PASS:-GovAI2026@Admin}"
 ORG="${ORG:-00000000-0000-0000-0000-000000000001}"
 DEMO_ASSISTANT="${DEMO_ASSISTANT:-00000000-0000-0000-0002-000000000001}"
-DB_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/govai_platform}"
+
+# DB access goes through `docker compose exec database psql` (not
+# host-side DATABASE_URL) so we inherit the postgres superuser's trust
+# auth inside the container — no password plumbing. Matches the pattern
+# used by test-openclaude-e2e.sh and test-runtime-produces-artifacts.sh.
+dbq() {
+    docker compose exec -T database psql -U postgres -d govai_platform -tAc "$1"
+}
 
 PASS=0; FAIL=0; TOTAL=0
 
@@ -92,7 +99,7 @@ fi
 echo ""
 echo "═══ Test 2: migration 087 patterns present on demo assistant ═══"
 
-patterns=$(psql "$DB_URL" -tAc "
+patterns=$(dbq "
     SELECT delegation_config->'auto_delegate_patterns'
       FROM assistants
      WHERE id = '$DEMO_ASSISTANT' AND org_id = '$ORG';
@@ -119,7 +126,7 @@ check "[AIDER] token present"       "true" "$(has_token 'AIDER')"
 echo ""
 echo "═══ Test 3: [AIDER] prefix → runtime_profile_slug=aider ═══"
 
-AIDER_REGISTERED=$(psql "$DB_URL" -tAc "
+AIDER_REGISTERED=$(dbq "
     SELECT COUNT(*) FROM runtime_profiles
      WHERE slug = 'aider' AND status = 'active';
 " 2>/dev/null || echo 0)
@@ -131,7 +138,14 @@ else
         -d "{\"assistant_id\":\"$DEMO_ASSISTANT\",\"message\":\"[AIDER] regression probe — do not execute\",\"force_delegate\":false}" \
         || echo '{}')
 
-    WORK_ITEM_ID=$(echo "$RESP" | jq -r '.workItemId // .work_item_id // empty')
+    # /v1/admin/chat/send returns the pipeline's chat-completions-shaped
+    # response. Delegated runs embed the new work item id in the
+    # assistant message's content as `Work Item ID: \`<uuid>\``. Extract
+    # that UUID — it's what the UI renders in the delegation card.
+    WORK_ITEM_ID=$(echo "$RESP" \
+        | jq -r '.choices[0].message.content // ""' \
+        | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
+        | head -1)
 
     if [ -z "$WORK_ITEM_ID" ]; then
         # [AIDER] alone doesn't trigger delegation if the pattern is
@@ -141,7 +155,7 @@ else
         echo "  ❌ [AIDER]-prefixed message did NOT create a delegated work item"
         echo "     Response: $(echo "$RESP" | head -c 400)"
     else
-        SLUG=$(psql "$DB_URL" -tAc "
+        SLUG=$(dbq "
             SELECT runtime_profile_slug
               FROM architect_work_items
              WHERE id = '$WORK_ITEM_ID';
@@ -158,13 +172,18 @@ RESP=$(curl -sf "${H[@]}" -X POST "$API/v1/admin/chat/send" \
     -d "{\"assistant_id\":\"$DEMO_ASSISTANT\",\"message\":\"[OPENCLAUDE] regression probe — do not execute\",\"force_delegate\":false}" \
     || echo '{}')
 
-WORK_ITEM_ID=$(echo "$RESP" | jq -r '.workItemId // .work_item_id // empty')
+# Same extraction shape as Test 3 — UUID sits inside the markdown
+# body of the chat-completions response.
+WORK_ITEM_ID=$(echo "$RESP" \
+    | jq -r '.choices[0].message.content // ""' \
+    | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
+    | head -1)
 
 if [ -z "$WORK_ITEM_ID" ]; then
     TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
     echo "  ❌ [OPENCLAUDE]-prefixed message did NOT create a delegated work item"
 else
-    SLUG=$(psql "$DB_URL" -tAc "
+    SLUG=$(dbq "
         SELECT runtime_profile_slug
           FROM architect_work_items
          WHERE id = '$WORK_ITEM_ID';
