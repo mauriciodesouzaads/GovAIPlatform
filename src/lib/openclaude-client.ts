@@ -6,10 +6,11 @@
  *
  * Events emitted:
  *   'text_chunk'       { text: string }
+ *   'thinking_chunk'   { text: string }                              (FASE 14.0/3a)
  *   'tool_start'       { tool_name, arguments_json, tool_use_id }
  *   'tool_result'      { tool_name, output, is_error, tool_use_id }
  *   'action_required'  { prompt_id, question, type }
- *   'done'             { full_text, prompt_tokens, completion_tokens }
+ *   'done'             { full_text, prompt_tokens, completion_tokens, session_id }
  *   'error'            { message, code }
  *   'end'              (stream closed)
  */
@@ -66,6 +67,17 @@ export interface OpenClaudeRunConfig {
     sessionId: string;
     /** Default 300_000 ms (5 min) */
     timeoutMs?: number;
+    // ─── FASE 14.0/3a — Claude Code SDK foundation knobs ──────────────────
+    // Optional. When set, the runner resumes the named CLI session
+    // instead of starting fresh. Conversation history is loaded from
+    // the runner's on-disk store.
+    resumeSessionId?: string;
+    // Enable extended thinking on the underlying model. Effective only
+    // for runners that wire it through (claude-code today).
+    enableThinking?: boolean;
+    // Hint for thinking budget; the runner maps this to the closest
+    // CLI effort level (low/medium/high/xhigh/max).
+    thinkingBudgetTokens?: number;
 }
 
 /**
@@ -169,6 +181,16 @@ export function executeOpenClaudeRun(config: OpenClaudeRunConfig): OpenClaudeHan
             working_directory: config.workingDirectory,
             ...(config.model ? { model: config.model } : {}),
             session_id: config.sessionId,
+            // FASE 14.0/3a: only include the new optional fields when
+            // explicitly set, so runners that haven't picked up the
+            // proto change yet don't see undefined keys cluttering
+            // the wire payload.
+            ...(config.resumeSessionId
+                ? { resume_session_id: config.resumeSessionId } : {}),
+            ...(config.enableThinking !== undefined
+                ? { enable_thinking: config.enableThinking } : {}),
+            ...(config.thinkingBudgetTokens !== undefined
+                ? { thinking_budget_tokens: config.thinkingBudgetTokens } : {}),
         },
     });
 
@@ -206,6 +228,12 @@ export function executeOpenClaudeRun(config: OpenClaudeRunConfig): OpenClaudeHan
         resetTurnTimer();
         if (serverMessage.text_chunk) {
             emitter.emit('text_chunk', serverMessage.text_chunk);
+        } else if (serverMessage.thinking_chunk) {
+            // FASE 14.0/3a — extended thinking deltas. Forwarded as a
+            // distinct event so the adapter can persist them under a
+            // separate event_type='THINKING' (auditable separately
+            // from the final answer).
+            emitter.emit('thinking_chunk', serverMessage.thinking_chunk);
         } else if (serverMessage.tool_start) {
             emitter.emit('tool_start', serverMessage.tool_start);
         } else if (serverMessage.tool_result) {

@@ -51,6 +51,20 @@ export interface ExecutionParams {
      * falls back to resolveRuntimeProfile's system-default chain.
      */
     runtimeProfile?: string;
+    /**
+     * FASE 14.0/3a — knobs for the underlying runtime that get persisted
+     * on the work item's execution_context and read by the gRPC adapter
+     * before the run starts. All optional; today only claude-code-runner
+     * consumes them.
+     *   resume_session_id: continue an existing CLI session
+     *   enable_thinking:   stream extended thinking deltas
+     *   thinking_budget_tokens: hint for the thinking effort tier
+     */
+    runtimeOptions?: {
+        resume_session_id?: string;
+        enable_thinking?: boolean;
+        thinking_budget_tokens?: number;
+    };
     log: FastifyBaseLogger;
 }
 
@@ -112,7 +126,7 @@ export async function captureOrReusePolicySnapshot(
 }
 
 export async function executeAssistant(params: ExecutionParams): Promise<ExecutionResult> {
-    const { assistantId, orgId, message, traceId, userId, model: modelOverride, runtimeProfile, log } = params;
+    const { assistantId, orgId, message, traceId, userId, model: modelOverride, runtimeProfile, runtimeOptions, log } = params;
     const execStart = Date.now();
     // Single model resolution: request override > env default > built-in fallback
     const aiModel = modelOverride || process.env.AI_MODEL || 'govai-llm';
@@ -423,6 +437,10 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                                 matchedPattern: delegationDecision.matchedPattern,
                                 instructions: safeMessage,
                                 runtime_profile: resolvedRuntimeSlug,
+                                // FASE 14.0/3a — knobs propagated from the body
+                                // (runtime_options) to the gRPC adapter.
+                                ...(runtimeOptions
+                                    ? { runtime_options: runtimeOptions } : {}),
                             }),
                             executionHint,
                             resolvedRuntimeSlug,

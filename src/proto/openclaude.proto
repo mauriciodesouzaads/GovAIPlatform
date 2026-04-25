@@ -30,7 +30,26 @@ message ChatRequest {
   string working_directory = 2; // Where the agent should execute commands
   reserved 3;                   // Reserved to prevent accidental reuse
   optional string model = 4;
-  string session_id = 5;        // Non-empty = cross-stream session persistence
+  string session_id = 5;        // Non-empty = cross-stream session persistence (legacy)
+
+  // ─── FASE 14.0/3a — Claude Code SDK foundation ─────────────────────
+  // All optional. Runners that don't recognize them ignore safely
+  // (proto3 default behavior). Today only claude-code-runner consumes
+  // them; openclaude-runner / aider-runner ignore.
+
+  // When set, the runner resumes the named CLI session instead of
+  // starting a new one. Conversation history is loaded by the CLI
+  // from its on-disk store (mounted as the claude_code_state volume).
+  optional string resume_session_id = 6;
+
+  // Enable extended thinking for the underlying Anthropic model. The
+  // CLI streams `thinking` content blocks back as ThinkingChunk events
+  // when this is on. Default (false) keeps current behavior.
+  optional bool enable_thinking = 7;
+
+  // Thinking budget in tokens (Anthropic API param). 0 = SDK default.
+  // Only meaningful when enable_thinking = true.
+  optional int32 thinking_budget_tokens = 8;
 }
 
 message UserInput {
@@ -54,6 +73,12 @@ message ServerMessage {
     ActionRequired action_required = 4;// Agent requires human intervention
     FinalResponse done = 5;            // Generation successfully completed
     ErrorResponse error = 6;           // A critical error occurred
+    // FASE 14.0/3a — extended thinking deltas. Emitted as the model
+    // streams its reasoning blocks (only with --include-partial-messages
+    // and a model that supports thinking). Adapter persists as a
+    // distinct THINKING event; runners that don't emit it (openclaude,
+    // aider) simply skip the case.
+    ThinkingChunk thinking_chunk = 7;
   }
 }
 
@@ -93,6 +118,20 @@ message FinalResponse {
   string full_text = 1;     // The entire generated text
   int32 prompt_tokens = 2;
   int32 completion_tokens = 3;
+  // FASE 14.0/3a: identifier of the session that just completed. The
+  // runner reports it back so the adapter can persist it on the
+  // work_item and clients can pass it as `resume_session_id` to
+  // continue. Empty string when the runner doesn't support sessions.
+  string session_id = 4;
+}
+
+// FASE 14.0/3a — extended thinking delta from the model. Sent inline
+// in the gRPC stream, BEFORE the corresponding TextChunk(s). Adapter
+// MUST persist as a distinct event type so audit can replay reasoning
+// vs final answer separately. The text is incremental — concatenate
+// multiple chunks for the full thought.
+message ThinkingChunk {
+  string text = 1;
 }
 
 message ErrorResponse {

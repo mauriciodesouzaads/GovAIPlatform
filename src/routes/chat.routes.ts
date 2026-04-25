@@ -61,6 +61,16 @@ interface SendBody {
      * delegation. 'openclaude' | 'claude_code_official' today.
      */
     runtime_profile?: string;
+    /**
+     * FASE 14.0/3a: runtime-specific knobs forwarded to /v1/execute.
+     * Today only claude-code-runner consumes them (resume_session_id,
+     * enable_thinking, thinking_budget_tokens). Other runners ignore.
+     */
+    runtime_options?: {
+        resume_session_id?: string;
+        enable_thinking?: boolean;
+        thinking_budget_tokens?: number;
+    };
 }
 
 export async function chatRoutes(
@@ -106,6 +116,7 @@ export async function chatRoutes(
                     ...(body.session_id ? { sessionId: body.session_id } : {}),
                     ...(body.model ? { model: body.model } : {}),
                     ...(body.runtime_profile ? { runtime_profile: body.runtime_profile } : {}),
+                    ...(body.runtime_options ? { runtime_options: body.runtime_options } : {}),
                 },
                 {
                     headers: {
@@ -193,6 +204,7 @@ export async function chatRoutes(
                         ...(body.session_id ? { sessionId: body.session_id } : {}),
                         ...(body.model ? { model: body.model } : {}),
                         ...(body.runtime_profile ? { runtime_profile: body.runtime_profile } : {}),
+                        ...(body.runtime_options ? { runtime_options: body.runtime_options } : {}),
                     },
                     {
                         headers: {
@@ -264,6 +276,7 @@ export async function chatRoutes(
                     ...(body.session_id ? { sessionId: body.session_id } : {}),
                     ...(body.model ? { model: body.model } : {}),
                     ...(body.runtime_profile ? { runtime_profile: body.runtime_profile } : {}),
+                    ...(body.runtime_options ? { runtime_options: body.runtime_options } : {}),
                 },
                 {
                     headers: {

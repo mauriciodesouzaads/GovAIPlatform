@@ -357,6 +357,7 @@ fastify.post('/v1/execute/:assistantId', {
         message: parseResult.data.message,
         model: parseResult.data.model,
         runtimeProfile: parseResult.data.runtime_profile,
+        runtimeOptions: parseResult.data.runtime_options,
         traceId: request.auditContext!.traceId,
         log: request.log,
     });

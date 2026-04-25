@@ -53,6 +53,36 @@ export function createWorkspace(orgId: string, workItemId: string): string {
 }
 
 /**
+ * FASE 14.0/3a — Workspace pinned by session id.
+ *
+ * The Claude Code CLI scopes its session store by working directory
+ * (`~/.claude/projects/<hash-of-cwd>/<sessionId>.jsonl`). If two runs
+ * resume the same `session_id` from DIFFERENT cwds, the CLI doesn't
+ * find the prior conversation and 400s with "No conversation found
+ * with session ID: ...".
+ *
+ * Adapter calls this helper instead of createWorkspace whenever the
+ * caller is resuming an existing session. The directory is reused
+ * across runs — and explicitly NOT cleaned up after the run, so the
+ * next resume finds the CLI's transcript still on disk. Cleanup of
+ * abandoned session workspaces is a future janitor job (Etapa 5
+ * territory).
+ */
+export function getSessionWorkspace(orgId: string, sessionId: string): string {
+    const path = join(BASE_PATH, orgId, `session-${sessionId}`);
+    mkdirSync(path, { recursive: true });
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { chmodSync } = require('fs') as typeof import('fs');
+        chmodSync(join(BASE_PATH, orgId), 0o777);
+        chmodSync(path, 0o777);
+    } catch {
+        /* non-fatal */
+    }
+    return path;
+}
+
+/**
  * Recursively delete a workspace directory. Errors are logged but not thrown
  * — workspace cleanup must never break the main execution flow.
  */

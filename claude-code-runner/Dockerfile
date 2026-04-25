@@ -48,7 +48,8 @@ RUN npm install -g @anthropic-ai/claude-code \
 RUN npm init -y \
     && npm install --silent --no-fund --no-audit \
         @grpc/grpc-js@1.12.2 \
-        @grpc/proto-loader@0.7.13
+        @grpc/proto-loader@0.7.13 \
+        ioredis@5.4.1
 
 # ── Copy shim source ───────────────────────────────────────────────────────
 COPY proto/ /app/proto/

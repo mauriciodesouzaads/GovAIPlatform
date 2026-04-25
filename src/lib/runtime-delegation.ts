@@ -24,7 +24,7 @@ import { searchSimilarChunks } from './rag';
 import { recordEvidence } from './evidence';
 import { resolveShieldLevel, requiresHitlForTool, type ShieldLevel } from './shield-level';
 import { executeOpenClaudeRun, resolveOpenClaudeTarget } from './openclaude-client';
-import { createWorkspace, cleanupWorkspace } from './workspace-manager';
+import { createWorkspace, cleanupWorkspace, getSessionWorkspace } from './workspace-manager';
 import { registerStream, unregisterStream } from './architect-stream-registry';
 import {
     resolveRuntimeProfile,
@@ -568,6 +568,7 @@ export async function runOpenClaudeAdapter(
 ): Promise<AdapterResult> {
     const client = await pool.connect();
     let workspacePath: string | null = null;
+    let workspaceCleanupNeeded = true;
     let streamRegistered = false;
 
     // Default runtime — keeps the pre-FASE-7 behaviour for callers that
@@ -711,10 +712,97 @@ export async function runOpenClaudeAdapter(
             throw err;
         }
 
-        // 7. Create per-(org, work_item) workspace under the shared volume
-        workspacePath = createWorkspace(orgId, workItemId);
+        // FASE 14.0/3a — pass through runtime_options from execution_context
+        // so the runner can resume a session, enable thinking, etc. Only
+        // claude-code-runner consumes them today; openclaude/aider runners
+        // ignore the new fields safely (proto3 default behavior).
+        const runtimeOptions = (ctx.runtime_options ?? {}) as {
+            resume_session_id?: string;
+            enable_thinking?: boolean;
+            thinking_budget_tokens?: number;
+        };
+
+        // 7. Workspace selection.
+        //
+        // Default (openclaude / aider / one-off claude-code): a per-work-item
+        // ephemeral dir, cleaned up at end-of-run.
+        //
+        // For claude-code resumes: the CLI scopes its session store by cwd
+        // (~/.claude/projects/<hash-of-cwd>/<sessionId>.jsonl). Resuming
+        // from a different cwd → "No conversation found with session ID".
+        // We pin the workspace to a deterministic session-keyed path and
+        // skip cleanup so the next resume finds the transcript.
+        const isClaudeCode = runtime.runtimeProfileSlug === 'claude_code_official';
+        const isResume = isClaudeCode && Boolean(runtimeOptions.resume_session_id);
+
+        if (isResume) {
+            workspacePath = getSessionWorkspace(
+                orgId,
+                runtimeOptions.resume_session_id as string,
+            );
+            workspaceCleanupNeeded = false;
+        } else if (isClaudeCode) {
+            // First run of a CLI session: stage the workspace under the
+            // future session id we will read back from FinalResponse.
+            // We don't know the session id yet — use the work_item_id as
+            // the temporary key, and on completion we'll move/keep the
+            // CLI's transcript under <session-id> if needed. Simpler:
+            // skip cleanup so the session JSONL the CLI just wrote
+            // survives. Next resume looks up the original work_item by
+            // session_id (block 8b below).
+            workspacePath = createWorkspace(orgId, workItemId);
+            workspaceCleanupNeeded = false;
+        } else {
+            workspacePath = createWorkspace(orgId, workItemId);
+            workspaceCleanupNeeded = true;
+        }
+        void workspaceCleanupNeeded;  // honored in the finally block below
+
+        // 7b. If resuming a claude-code session, the CLI's session JSONL
+        // was originally written by the FIRST work_item of this session.
+        // Find that work_item and reuse ITS workspace path so the CLI
+        // can locate the transcript. This is only relevant when the
+        // session-keyed dir from the first run is missing (e.g. a fresh
+        // dev box) — in steady state the first run already wrote into
+        // session-<sid> via the isClaudeCode branch above for new
+        // sessions, so getSessionWorkspace points at the right place.
+        if (isResume && workspacePath) {
+            try {
+                const priorClient = await pool.connect();
+                try {
+                    await priorClient.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                    const priorRes = await priorClient.query(
+                        `SELECT id FROM runtime_work_items
+                         WHERE session_id = $1::uuid AND org_id = $2
+                         ORDER BY created_at ASC LIMIT 1`,
+                        [runtimeOptions.resume_session_id, orgId]
+                    );
+                    if (priorRes.rows.length > 0) {
+                        const priorWorkItemId = priorRes.rows[0].id as string;
+                        const priorPath = require('path').join(
+                            process.env.GOVAI_WORKSPACE_BASE || '/tmp/govai-workspaces',
+                            orgId,
+                            priorWorkItemId,
+                        );
+                        try {
+                            require('fs').accessSync(priorPath);
+                            workspacePath = priorPath;  // reuse first-run cwd
+                        } catch { /* prior dir gone — stick with session-keyed */ }
+                    }
+                } finally {
+                    await priorClient.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+                    priorClient.release();
+                }
+            } catch (err) {
+                console.warn('[runtime-delegation] resume cwd lookup failed:', (err as Error).message);
+            }
+        }
 
         // 8. Execute via gRPC (non-blocking handle)
+        if (!workspacePath) {
+            // Should never reach here — every branch above sets workspacePath.
+            return { success: false, output: {}, error: 'workspace setup failed' };
+        }
         const handle = executeOpenClaudeRun({
             host: target.host,
             socketPath: target.socketPath,
@@ -722,6 +810,12 @@ export async function runOpenClaudeAdapter(
             workingDirectory: workspacePath,
             sessionId,
             timeoutMs,
+            ...(runtimeOptions.resume_session_id
+                ? { resumeSessionId: runtimeOptions.resume_session_id } : {}),
+            ...(runtimeOptions.enable_thinking !== undefined
+                ? { enableThinking: Boolean(runtimeOptions.enable_thinking) } : {}),
+            ...(runtimeOptions.thinking_budget_tokens !== undefined
+                ? { thinkingBudgetTokens: Number(runtimeOptions.thinking_budget_tokens) || 0 } : {}),
         });
         const { emitter, respond, cancel } = handle;
 
@@ -740,6 +834,22 @@ export async function runOpenClaudeAdapter(
 
             emitter.on('text_chunk', (data: any) => {
                 fullText += data.text || '';
+            });
+
+            // FASE 14.0/3a — extended thinking deltas. The CLI emits these
+            // as the model streams its reasoning, BEFORE the final answer.
+            // Persist as a distinct event_type so the UI can render them in
+            // a discreet block separate from the main response, and audit
+            // can replay reasoning vs answer independently. Truncate large
+            // deltas at 2KB to keep the event row small — the full thought
+            // is reconstructible by concatenating chunks if ever needed.
+            emitter.on('thinking_chunk', async (data: any) => {
+                const text = typeof data.text === 'string' ? data.text : '';
+                if (!text) return;
+                await insertWorkItemEvent(pool, orgId, workItemId, 'THINKING', {
+                    text: text.length > 2048 ? text.substring(0, 2048) : text,
+                    truncated: text.length > 2048,
+                }).catch(() => {});
             });
 
             emitter.on('tool_start', async (data: any) => {
@@ -981,6 +1091,14 @@ export async function runOpenClaudeAdapter(
                 fullText = data.full_text || fullText;
                 promptTokens = data.prompt_tokens || 0;
                 completionTokens = data.completion_tokens || 0;
+                // FASE 14.0/3a: the runner reports the session it actually
+                // used. For claude-code-runner this is the CLI session
+                // (resumed or freshly minted); for runners that don't
+                // support sessions yet (openclaude, aider) it's empty
+                // and we skip the column update.
+                const runnerSessionId = typeof data.session_id === 'string'
+                    ? data.session_id.trim()
+                    : '';
 
                 const cl = await pool.connect();
                 try {
@@ -994,12 +1112,14 @@ export async function runOpenClaudeAdapter(
                     await cl.query(
                         `UPDATE runtime_work_items
                          SET status = 'done', completed_at = now(), last_event_at = now(),
+                             session_id = COALESCE(NULLIF($3, '')::uuid, session_id),
                              execution_context = COALESCE(execution_context, '{}'::jsonb) || $1::jsonb
                          WHERE id = $2`,
                         [
                             JSON.stringify({
                                 adapter: 'openclaude',
                                 sessionId,
+                                runnerSessionId: runnerSessionId || null,
                                 input: { instruction: instruction.substring(0, 500) },
                                 output: {
                                     fullText: fullText.substring(0, 2000),
@@ -1008,6 +1128,7 @@ export async function runOpenClaudeAdapter(
                                 tokens: { prompt: promptTokens, completion: completionTokens },
                             }),
                             workItemId,
+                            runnerSessionId,
                         ]
                     );
                 } finally {
@@ -1124,7 +1245,7 @@ export async function runOpenClaudeAdapter(
         if (streamRegistered) {
             unregisterStream(workItemId);
         }
-        if (workspacePath) {
+        if (workspacePath && workspaceCleanupNeeded) {
             cleanupWorkspace(workspacePath);
         }
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});

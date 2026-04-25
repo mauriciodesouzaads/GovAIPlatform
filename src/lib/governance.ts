@@ -28,6 +28,18 @@ export const GovernanceRequestSchema = z.object({
     // 'claude_code_official'). Any other value is passed through and
     // the resolver will fall back to the system default if unknown.
     runtime_profile: z.string().min(1).max(100).optional(),
+    // FASE 14.0/3a — runtime-specific knobs propagated to the runner.
+    // All optional. Today only claude-code-runner reads them; the other
+    // runners ignore unknown fields harmlessly.
+    runtime_options: z.object({
+        // Resume an existing CLI session by ID (continues conversation).
+        resume_session_id: z.string().min(1).max(128).optional(),
+        // Enable extended thinking for the underlying model.
+        enable_thinking: z.boolean().optional(),
+        // Hint for thinking budget; runner maps to the closest CLI
+        // effort tier (low/medium/high/xhigh/max). 0 / unset = default.
+        thinking_budget_tokens: z.number().int().min(0).max(64000).optional(),
+    }).optional(),
 });
 
 export type GovernanceRequest = z.infer<typeof GovernanceRequestSchema>;

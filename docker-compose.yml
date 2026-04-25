@@ -299,6 +299,14 @@ services:
     build:
       context: ./claude-code-runner
       dockerfile: Dockerfile
+    # FASE 14.0/3a: load .env explicitly so ANTHROPIC_API_KEY survives even
+    # when the host shell has the same variable set to empty (which happens
+    # in the dev workflow that runs Claude Code with a stripped env).
+    # Without this, the runner sees an empty key and the CLI 401s.
+    # env_file values are overridden by `environment:` keys below — so
+    # GRPC_*, CLAUDE_CODE_*, etc. still come from the explicit block.
+    env_file:
+      - .env
     environment:
       GRPC_HOST: "0.0.0.0"
       GRPC_PORT: "50051"
@@ -307,15 +315,44 @@ services:
       # FASE 12: CLI 2.x uses --max-budget-usd instead of --max-turns.
       # 0.50 USD per call is a safe ceiling for short Q&A workloads.
       CLAUDE_CODE_MAX_BUDGET_USD: "0.50"
-      # Real Anthropic key — NOT the LiteLLM proxy key. Without this the
-      # CLI will 401 and the adapter surfaces the error.
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # FASE 14.0/3a — Leitura A alignment is DEFERRED for claude-code.
+      # See docs/ADR-025-claude-code-leitura-a.md.
+      #
+      # Short version: CLI 2.1.117 sends `thinking: adaptive` on every
+      # request. Routing through LiteLLM's `govai-llm-anthropic` alias
+      # (claude-sonnet-4-20250514) returns HTTP 400 "adaptive thinking
+      # is not supported on this model" — every Claude Code call dies.
+      # Using the real Anthropic key against api.anthropic.com lets the
+      # newer model resolution happen server-side and the call works.
+      #
+      # ANTHROPIC_API_KEY is intentionally NOT listed here — listing it
+      # here would let an empty host-shell var win over the .env value.
+      # env_file: .env above is the source of truth for the key.
+      #
+      # All other Etapa 3a deliverables (sessions, proto extensions,
+      # adapter wiring, UI thinking renderer) stay intact. Leitura A
+      # for claude-code reopens when LiteLLM exposes a model alias that
+      # supports adaptive thinking; flip env_file back to LITELLM_KEY
+      # + add ANTHROPIC_BASE_URL once that lands.
+      # Redis is needed so the runner can keep an org-scoped session
+      # index (runtime:sessions:<orgId>) for the admin UI to enumerate
+      # resumable sessions in Etapa 5. The session conversation state
+      # itself lives on disk (claude_code_state volume below).
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
     volumes:
       # FASE 13.5b/0: dedicated socket volume (analogous to openclaude).
       # The runner's internal socket path stays /var/run/govai/claude-code.sock;
       # the api mounts this volume at /var/run/govai/claude-code.
       - govai_sockets_claude_code:/var/run/govai
       - govai_workspaces:/tmp/govai-workspaces
+      # FASE 14.0/3a — sessions are written to /tmp/.claude inside the
+      # container's writable layer (HOME=/tmp). They survive `docker
+      # compose restart` but NOT `docker compose down -v` / image rebuild.
+      # Acceptable for the foundation etapa; a named volume here was
+      # tried and rejected because the docker-managed mount lands as
+      # root:root and the CLI (running as uid 1000) silently fails to
+      # write transcripts. Proper persistence (with a chowned init
+      # container or bind mount) is left for Etapa 5.
     networks:
       - govai-net
     restart: unless-stopped

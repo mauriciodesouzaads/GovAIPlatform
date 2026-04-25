@@ -175,6 +175,7 @@ function renderMarkdown(src: string): string {
 function eventIcon(type: string): string {
     switch (type) {
         case 'RUN_STARTED':        return '▸';
+        case 'THINKING':           return '💭';  // FASE 14.0/3a
         case 'TOOL_START':         return '◆';
         case 'TOOL_RESULT':        return '◇';
         case 'ACTION_REQUIRED':    return '!';
@@ -189,6 +190,7 @@ function eventIcon(type: string): string {
 function eventLabel(type: string): string {
     switch (type) {
         case 'RUN_STARTED':        return 'Execução iniciada';
+        case 'THINKING':           return 'Pensando';  // FASE 14.0/3a
         case 'TOOL_START':         return 'Ferramenta invocada';
         case 'TOOL_RESULT':        return 'Resultado recebido';
         case 'ACTION_REQUIRED':    return 'Aguardando aprovação';
@@ -418,6 +420,18 @@ function EventTimeline({ state }: { state: DelegationState }) {
                         {ev.metadata?.question && (
                             <div className="text-muted-foreground mt-0.5 italic truncate">
                                 &quot;{ev.metadata.question}&quot;
+                            </div>
+                        )}
+                        {/* FASE 14.0/3a: render extended thinking deltas as a
+                            discreet italic block under the event row. The
+                            adapter truncates payload.text at 2KB; we cap
+                            display at ~160 chars so the timeline doesn't
+                            get visually overwhelmed by long reasoning. */}
+                        {ev.type === 'THINKING' && typeof ev.metadata?.text === 'string' && (
+                            <div className="text-muted-foreground/80 mt-0.5 italic border-l-2 border-border/40 pl-2 leading-relaxed">
+                                {ev.metadata.text.length > 160
+                                    ? ev.metadata.text.substring(0, 160) + '…'
+                                    : ev.metadata.text}
                             </div>
                         )}
                     </div>
