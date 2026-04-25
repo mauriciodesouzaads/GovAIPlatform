@@ -720,7 +720,31 @@ export async function runOpenClaudeAdapter(
             resume_session_id?: string;
             enable_thinking?: boolean;
             thinking_budget_tokens?: number;
+            // FASE 14.0/3b · Feature 1: MCP server ids selected for this run.
+            mcp_server_ids?: string[];
+            // FASE 14.0/3b · Feature 2: drop --bare + expose Task tool.
+            enable_subagents?: boolean;
         };
+        const isClaudeCode = runtime.runtimeProfileSlug === 'claude_code_official';
+        const isResume = isClaudeCode && Boolean(runtimeOptions.resume_session_id);
+
+        // FASE 14.0/3b · Feature 1 — load MCP server configs by id.
+        // The list is empty for runs that don't use MCP (current default
+        // for openclaude/aider/claude-code-without-mcp). The loader
+        // filters by org_id + enabled=true so a stale/cross-tenant id
+        // silently drops out instead of leaking.
+        const mcpServerIds = Array.isArray(runtimeOptions.mcp_server_ids)
+            ? runtimeOptions.mcp_server_ids
+            : [];
+        let mcpServers: Awaited<ReturnType<typeof import('../routes/mcp-servers.routes')['loadMcpConfigsByIds']>> = [];
+        if (mcpServerIds.length > 0 && isClaudeCode) {
+            try {
+                const { loadMcpConfigsByIds } = await import('../routes/mcp-servers.routes');
+                mcpServers = await loadMcpConfigsByIds(pool, orgId, mcpServerIds);
+            } catch (err) {
+                console.warn('[runtime-delegation] mcp config load failed:', (err as Error).message);
+            }
+        }
 
         // 7. Workspace selection.
         //
@@ -732,9 +756,6 @@ export async function runOpenClaudeAdapter(
         // from a different cwd → "No conversation found with session ID".
         // We pin the workspace to a deterministic session-keyed path and
         // skip cleanup so the next resume finds the transcript.
-        const isClaudeCode = runtime.runtimeProfileSlug === 'claude_code_official';
-        const isResume = isClaudeCode && Boolean(runtimeOptions.resume_session_id);
-
         if (isResume) {
             workspacePath = getSessionWorkspace(
                 orgId,
@@ -816,6 +837,20 @@ export async function runOpenClaudeAdapter(
                 ? { enableThinking: Boolean(runtimeOptions.enable_thinking) } : {}),
             ...(runtimeOptions.thinking_budget_tokens !== undefined
                 ? { thinkingBudgetTokens: Number(runtimeOptions.thinking_budget_tokens) || 0 } : {}),
+            // FASE 14.0/3b · Feature 1
+            ...(mcpServers.length > 0
+                ? { mcpServers: mcpServers.map(c => ({
+                    name: c.name,
+                    transport: c.transport as 'stdio' | 'sse' | 'http',
+                    ...(c.command ? { command: c.command } : {}),
+                    ...(c.args ? { args: c.args } : {}),
+                    ...(c.env ? { env: c.env } : {}),
+                    ...(c.url ? { url: c.url } : {}),
+                    ...(c.headers ? { headers: c.headers } : {}),
+                })) } : {}),
+            // FASE 14.0/3b · Feature 2
+            ...(runtimeOptions.enable_subagents !== undefined
+                ? { enableSubagents: Boolean(runtimeOptions.enable_subagents) } : {}),
         });
         const { emitter, respond, cancel } = handle;
 
@@ -849,6 +884,146 @@ export async function runOpenClaudeAdapter(
                 await insertWorkItemEvent(pool, orgId, workItemId, 'THINKING', {
                     text: text.length > 2048 ? text.substring(0, 2048) : text,
                     truncated: text.length > 2048,
+                }).catch(() => {});
+            });
+
+            // FASE 14.0/3b · Feature 2 — subagent_spawn: insert a child
+            // runtime_work_item linked to the parent for hierarchy
+            // persistence, and emit a SUBAGENT_SPAWN event on the parent
+            // so the timeline preserves the cause/effect chain. We do
+            // NOT redispatch the child via BullMQ — the CLI executes
+            // the subagent inside the same process; we only track the
+            // existence + final result.
+            //
+            // Parent depth lookup is bounded: if depth >= 5 the CLI
+            // already capped recursion, so we just record the event
+            // without inserting a row (the CHECK constraint would
+            // reject anyway).
+            const subagentChildIdByToolUse = new Map<string, string>();
+            emitter.on('subagent_spawn', async (data: any) => {
+                const toolUseId = String(data?.tool_use_id || '');
+                const subType = String(data?.subagent_type || 'general-purpose');
+                const description = typeof data?.description === 'string'
+                    ? data.description.substring(0, 500) : '';
+                const promptText = typeof data?.prompt === 'string'
+                    ? data.prompt.substring(0, 500) : '';
+                if (!toolUseId) return;
+                const cl = await pool.connect();
+                try {
+                    await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                    const parentRow = await cl.query(
+                        `SELECT subagent_depth FROM runtime_work_items WHERE id = $1`,
+                        [workItemId],
+                    );
+                    const parentDepth = Number(parentRow.rows[0]?.subagent_depth ?? 0);
+                    if (parentDepth >= 5) {
+                        // depth ceiling — just emit the event, don't insert a child row
+                        await insertWorkItemEvent(pool, orgId, workItemId, 'SUBAGENT_SPAWN', {
+                            tool_use_id: toolUseId,
+                            subagent_type: subType,
+                            description,
+                            depth_capped: true,
+                        }).catch(() => {});
+                        return;
+                    }
+                    const childRes = await cl.query(
+                        `INSERT INTO runtime_work_items
+                            (org_id, parent_work_item_id, subagent_depth,
+                             node_id, item_type, title, description,
+                             execution_hint, status, runtime_profile_slug,
+                             execution_context)
+                         VALUES ($1, $2, $3, $4, 'compliance_check', $5, $6, $7, 'in_progress', $8, $9)
+                         RETURNING id`,
+                        [
+                            orgId,
+                            workItemId,
+                            parentDepth + 1,
+                            `subagent-${toolUseId.substring(0, 8)}`,
+                            `Subagent: ${description.substring(0, 80)}`,
+                            promptText,
+                            'openclaude',  // legacy hint, same as parent
+                            'claude_code_official',
+                            JSON.stringify({
+                                subagent: true,
+                                subagent_type: subType,
+                                tool_use_id: toolUseId,
+                                parent_work_item_id: workItemId,
+                            }),
+                        ]
+                    );
+                    const childId = childRes.rows[0].id as string;
+                    subagentChildIdByToolUse.set(toolUseId, childId);
+                    await insertWorkItemEvent(pool, orgId, workItemId, 'SUBAGENT_SPAWN', {
+                        tool_use_id: toolUseId,
+                        child_work_item_id: childId,
+                        subagent_type: subType,
+                        description,
+                        depth: parentDepth + 1,
+                    }).catch(() => {});
+                } catch (err) {
+                    console.warn('[runtime-delegation] subagent_spawn handling failed:',
+                        (err as Error).message);
+                } finally {
+                    await cl.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+                    cl.release();
+                }
+            });
+
+            emitter.on('subagent_complete', async (data: any) => {
+                const toolUseId = String(data?.tool_use_id || '');
+                const childId = subagentChildIdByToolUse.get(toolUseId);
+                const isError = Boolean(data?.is_error);
+                const resultText = typeof data?.result_text === 'string'
+                    ? data.result_text.substring(0, 2000) : '';
+                if (!childId) {
+                    // No child row was created (depth-capped, or spawn handler failed).
+                    // Still record the parent event so audit notes the completion.
+                    await insertWorkItemEvent(pool, orgId, workItemId, 'SUBAGENT_COMPLETE', {
+                        tool_use_id: toolUseId,
+                        is_error: isError,
+                        no_child_row: true,
+                    }).catch(() => {});
+                    return;
+                }
+                const cl = await pool.connect();
+                try {
+                    await cl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                    await cl.query(
+                        `UPDATE runtime_work_items
+                            SET status = CASE WHEN $1 THEN 'failed' ELSE 'done' END,
+                                completed_at = NOW(),
+                                last_event_at = NOW(),
+                                execution_context = COALESCE(execution_context, '{}'::jsonb)
+                                                     || jsonb_build_object('result_text', $2::text)
+                          WHERE id = $3`,
+                        [isError, resultText, childId]
+                    );
+                } catch (err) {
+                    console.warn('[runtime-delegation] subagent_complete update failed:',
+                        (err as Error).message);
+                } finally {
+                    await cl.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+                    cl.release();
+                }
+                await insertWorkItemEvent(pool, orgId, workItemId, 'SUBAGENT_COMPLETE', {
+                    tool_use_id: toolUseId,
+                    child_work_item_id: childId,
+                    is_error: isError,
+                    result_excerpt: resultText.substring(0, 200),
+                }).catch(() => {});
+            });
+
+            // FASE 14.0/3b · Feature 3 — workspace file events. We persist
+            // them inline so the UI timeline can render them alongside
+            // tool calls. To avoid event-row explosion on a build that
+            // touches thousands of files, the runner already filters by
+            // depth=10 and ignores dotfiles; here we just write what we
+            // see. A future janitor can dedupe / coalesce if needed.
+            emitter.on('file_changed', async (data: any) => {
+                await insertWorkItemEvent(pool, orgId, workItemId, 'FILE_CHANGED', {
+                    event: String(data?.event || 'unknown'),
+                    path: String(data?.path || ''),
+                    timestamp_unix_ms: Number(data?.timestamp_unix_ms || Date.now()),
                 }).catch(() => {});
             });
 

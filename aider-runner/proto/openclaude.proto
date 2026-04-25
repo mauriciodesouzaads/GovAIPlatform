@@ -50,6 +50,80 @@ message ChatRequest {
   // Thinking budget in tokens (Anthropic API param). 0 = SDK default.
   // Only meaningful when enable_thinking = true.
   optional int32 thinking_budget_tokens = 8;
+
+  // ─── FASE 14.0/3b · Feature 1: MCP servers ─────────────────────────
+  // Optional list of MCP server configs the runner should expose to the
+  // model for this run. Today only claude-code-runner consumes them;
+  // openclaude / aider runners ignore safely.
+  repeated MCPServerConfig mcp_servers = 9;
+
+  // ─── FASE 14.0/3b · Feature 2: subagents ───────────────────────────
+  // When true, claude-code-runner drops --bare and exposes the full
+  // CLI toolset including Task — the model can then dispatch
+  // sub-agents which the runner reports back as SubagentSpawn /
+  // SubagentComplete events for hierarchy persistence in the api.
+  // Default false: current narrow tool surface (Bash/Edit/Read).
+  optional bool enable_subagents = 10;
+}
+
+// FASE 14.0/3b · Feature 2 — sub-agent dispatch event. The parent run
+// invoked the CLI Task tool; the runner emits this so the api creates
+// a child runtime_work_item linked to the parent for audit hierarchy.
+message SubagentSpawn {
+    // Tool-use id correlating the spawn to the parent's tool_start
+    // (which still fires alongside this — adapters that don't know
+    // about subagents see the run as a normal Task tool call).
+    string tool_use_id = 1;
+    // Subagent type label from the model (e.g. "general-purpose",
+    // "Explore"). Useful for the UI; not interpreted by the api.
+    string subagent_type = 2;
+    // Short user-facing description of what the subagent should do.
+    string description = 3;
+    // The full prompt the parent passed to the subagent.
+    string prompt = 4;
+}
+
+// FASE 14.0/3b · Feature 2 — sub-agent completion. Emitted by the
+// runner when the Task tool_result arrives back from the subagent.
+message SubagentComplete {
+    // Same id as the spawn event for correlation.
+    string tool_use_id = 1;
+    // The text the subagent returned (truncated by the api at 2KB
+    // when persisting; full text remains in the parent's tool_result
+    // payload).
+    string result_text = 2;
+    bool is_error = 3;
+}
+
+// FASE 14.0/3b · Feature 3 — workspace file event. The runner uses
+// chokidar to watch the run's cwd; emits one of these per filesystem
+// change. Adapter persists as event_type='FILE_CHANGED'.
+message FileChanged {
+    // 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir'
+    string event = 1;
+    // Path RELATIVE to the workspace root (never absolute — leaking
+    // host paths would expose container internals).
+    string path = 2;
+    int64 timestamp_unix_ms = 3;
+}
+
+// MCP (Model Context Protocol) server definition. Mirrors the shape
+// CLI 2.1.117's --mcp-config JSON expects:
+//   stdio: { "command": "...", "args": [...], "env": {...} }
+//   sse:   { "url": "...", "headers": {...} }
+//   http:  { "url": "...", "headers": {...} }
+message MCPServerConfig {
+    // Logical name the model sees, e.g. "github", "filesystem".
+    string name = 1;
+    // 'stdio' | 'sse' | 'http'.
+    string transport = 2;
+    // stdio fields (ignored when transport != stdio):
+    string command = 3;
+    repeated string args = 4;
+    map<string, string> env = 5;
+    // sse / http fields (ignored when transport == stdio):
+    string url = 6;
+    map<string, string> headers = 7;
 }
 
 message UserInput {
@@ -79,6 +153,18 @@ message ServerMessage {
     // distinct THINKING event; runners that don't emit it (openclaude,
     // aider) simply skip the case.
     ThinkingChunk thinking_chunk = 7;
+    // FASE 14.0/3b · Feature 2 — sub-agent dispatched by the parent
+    // run via the Task tool. Emitted alongside the regular
+    // tool_start (which still fires) so the api adapter can create
+    // a child runtime_work_item for hierarchy persistence.
+    SubagentSpawn subagent_spawn = 8;
+    // FASE 14.0/3b · Feature 2 — sub-agent finished. Carries the
+    // result text the parent run will see as the Task tool_result.
+    SubagentComplete subagent_complete = 9;
+    // FASE 14.0/3b · Feature 3 — workspace file event captured by
+    // the runner's chokidar watcher. Adapter persists as
+    // FILE_CHANGED in runtime_work_item_events.
+    FileChanged file_changed = 10;
   }
 }
 

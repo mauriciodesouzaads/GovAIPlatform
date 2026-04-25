@@ -64,6 +64,10 @@ export interface ExecutionParams {
         resume_session_id?: string;
         enable_thinking?: boolean;
         thinking_budget_tokens?: number;
+        // FASE 14.0/3b · Feature 1: MCP server ids the runner mounts.
+        mcp_server_ids?: string[];
+        // FASE 14.0/3b · Feature 2: drop --bare + expose Task tool.
+        enable_subagents?: boolean;
     };
     log: FastifyBaseLogger;
 }

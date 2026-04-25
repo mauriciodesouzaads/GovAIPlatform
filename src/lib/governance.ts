@@ -39,6 +39,15 @@ export const GovernanceRequestSchema = z.object({
         // Hint for thinking budget; runner maps to the closest CLI
         // effort tier (low/medium/high/xhigh/max). 0 / unset = default.
         thinking_budget_tokens: z.number().int().min(0).max(64000).optional(),
+        // FASE 14.0/3b · Feature 1: subset of mcp_server_configs.id the
+        // runner should mount for this work_item. Cross-tenant ids are
+        // dropped by the loader; disabled servers are skipped.
+        mcp_server_ids: z.array(z.string().uuid()).max(20).optional(),
+        // FASE 14.0/3b · Feature 2: when true, the runner drops --bare
+        // and exposes the Task tool (plus Glob/Grep/WebFetch/Write/...).
+        // Default false (current narrow-tool behavior). Shield's per-
+        // tool classifier still gates each call.
+        enable_subagents: z.boolean().optional(),
     }).optional(),
 });
 

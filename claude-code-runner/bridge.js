@@ -50,6 +50,12 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+// FASE 14.0/3b · Feature 3 — chokidar for workspace file watching.
+// Lazy-required so a future build that drops the dep doesn't crash
+// the runner — file watch then becomes a no-op for that run.
+let chokidar = null;
+try { chokidar = require('chokidar'); } catch { /* watch silently disabled */ }
+
 const PROTO_PATH = path.join(__dirname, 'proto', 'openclaude.proto');
 
 const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
@@ -170,15 +176,44 @@ function handleCliEnvelope(env, call, state) {
                 } catch (e) { /* call already ended */ }
             } else if (block.type === 'tool_use') {
                 const toolUseId = block.id || crypto.randomUUID();
+                const toolName = block.name || 'unknown';
+                // FASE 14.0/3b · Feature 2 — Task tool dispatches a
+                // sub-agent. Emit subagent_spawn ALONGSIDE the regular
+                // tool_start so:
+                //   - adapters that don't yet handle subagent_spawn
+                //     keep seeing a normal Task tool_start (no
+                //     regression for clients that ignore the new
+                //     event variant);
+                //   - adapters that DO handle it can create a child
+                //     runtime_work_item with parent_work_item_id set.
                 try {
                     call.write({
                         tool_start: {
-                            tool_name: block.name || 'unknown',
+                            tool_name: toolName,
                             arguments_json: JSON.stringify(block.input || {}),
                             tool_use_id: toolUseId,
                         },
                     });
                 } catch (e) { /* call already ended */ }
+                if (toolName === 'Task' && block.input && typeof block.input === 'object') {
+                    // Track this id so the matching tool_result can be
+                    // emitted as subagent_complete (block 'user'
+                    // handler below correlates by tool_use_id).
+                    state.taskToolUseIds.add(toolUseId);
+                    try {
+                        call.write({
+                            subagent_spawn: {
+                                tool_use_id: toolUseId,
+                                subagent_type: typeof block.input.subagent_type === 'string'
+                                    ? block.input.subagent_type : 'general-purpose',
+                                description: typeof block.input.description === 'string'
+                                    ? block.input.description : '',
+                                prompt: typeof block.input.prompt === 'string'
+                                    ? block.input.prompt : '',
+                            },
+                        });
+                    } catch (e) { /* call already ended */ }
+                }
             }
         }
         return;
@@ -198,16 +233,33 @@ function handleCliEnvelope(env, call, state) {
                         .filter(Boolean)
                         .join('\n');
                 }
+                const toolUseId = block.tool_use_id || '';
                 try {
                     call.write({
                         tool_result: {
                             tool_name: 'tool_result',
                             output,
                             is_error: Boolean(block.is_error),
-                            tool_use_id: block.tool_use_id || '',
+                            tool_use_id: toolUseId,
                         },
                     });
                 } catch (e) { /* call already ended */ }
+                // FASE 14.0/3b · Feature 2 — if this tool_result
+                // belongs to a Task we earlier flagged, also emit
+                // subagent_complete for the api to mark the child
+                // runtime_work_item done.
+                if (toolUseId && state.taskToolUseIds.has(toolUseId)) {
+                    state.taskToolUseIds.delete(toolUseId);
+                    try {
+                        call.write({
+                            subagent_complete: {
+                                tool_use_id: toolUseId,
+                                result_text: output,
+                                is_error: Boolean(block.is_error),
+                            },
+                        });
+                    } catch (e) { /* call already ended */ }
+                }
             }
         }
         return;
@@ -263,6 +315,7 @@ async function upsertSessionIndex({ orgId, sessionId, workItemId, runtimeSlug, m
 function handleChat(call) {
     let proc = null;
     let cancelled = false;
+    let watcher = null;  // FASE 14.0/3b · Feature 3
     const state = {
         fullText: '',
         promptTokens: 0,
@@ -273,6 +326,10 @@ function handleChat(call) {
         sessionId: '',
         orgId: null,
         workItemId: '',
+        // FASE 14.0/3b · Feature 2 — tracks Task tool_use_ids we've
+        // emitted as subagent_spawn, so the correlated tool_result
+        // (later in the stream) can also fire subagent_complete.
+        taskToolUseIds: new Set(),
     };
 
     call.on('data', (msg) => {
@@ -306,22 +363,35 @@ function handleChat(call) {
             const maxBudgetUsd = String(process.env.CLAUDE_CODE_MAX_BUDGET_USD || '0.50');
             const enableThinking = Boolean(req.enable_thinking);
             const budget = Number(req.thinking_budget_tokens || 0);
+            const enableSubagents = Boolean(req.enable_subagents);
 
             // FASE 14.0/3a: argv changes
             //   - dropped --no-session-persistence (we want sessions to land on disk)
             //   - added --include-partial-messages (so thinking deltas stream)
             //   - --session-id <new uuid> when not resuming, or --resume <id>
             //   - --effort <level> when enable_thinking is set
+            // FASE 14.0/3b · Feature 2:
+            //   - when enable_subagents=true we DROP --bare and pass
+            //     --tools default. --bare strips the Task tool from the
+            //     model's available toolset; without it we get the full
+            //     CLI surface (Bash/Edit/Read/Glob/Grep/WebFetch/Write/Task/...).
+            //     The wider surface is gated by Shield's resolveToolDecision
+            //     classifier server-side: unknown tools default to
+            //     requires_approval, so audit + HITL still apply.
             const args = [
                 '-p',                                       // print / non-interactive
                 '--output-format', 'stream-json',           // one JSON envelope per line
                 '--input-format', 'text',
                 '--dangerously-skip-permissions',           // GovAI owns approvals upstream
                 '--max-budget-usd', maxBudgetUsd,
-                '--bare',
                 '--include-partial-messages',               // FASE 14.0/3a: thinking + partial deltas
                 '--verbose',
             ];
+            if (enableSubagents) {
+                args.push('--tools', 'default');
+            } else {
+                args.push('--bare');
+            }
             if (resumeId) {
                 args.push('--resume', resumeId);
             } else {
@@ -338,6 +408,49 @@ function handleChat(call) {
             // on the runtime path, THINKING events start showing up
             // with zero code change here.
             void enableThinking; void budget;
+            // FASE 14.0/3b · Feature 1 — MCP servers.
+            //
+            // Translate the proto repeated MCPServerConfig list into the
+            // JSON shape `claude --mcp-config <path>` expects. Write it
+            // into the run's cwd and pass --strict-mcp-config so the CLI
+            // ignores any other MCP source (host config, .mcp.json
+            // discovered in CLAUDE.md, etc.) — the registry on the api
+            // side is the only source of truth for which servers this
+            // run can talk to.
+            const mcpServers = Array.isArray(req.mcp_servers) ? req.mcp_servers : [];
+            if (mcpServers.length > 0) {
+                const mcpDoc = {
+                    mcpServers: mcpServers.reduce((acc, s) => {
+                        const name = s.name || '';
+                        if (!name) return acc;
+                        if (s.transport === 'stdio') {
+                            acc[name] = {
+                                command: s.command || '',
+                                args: Array.isArray(s.args) ? s.args : [],
+                                env: s.env || {},
+                            };
+                        } else {
+                            // sse / http: same JSON key shape per CLI docs.
+                            acc[name] = {
+                                type: s.transport,
+                                url: s.url || '',
+                                headers: s.headers || {},
+                            };
+                        }
+                        return acc;
+                    }, {}),
+                };
+                const mcpConfigPath = path.join(cwd, '.govai-mcp-config.json');
+                try {
+                    fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpDoc, null, 2));
+                    args.push('--mcp-config', mcpConfigPath);
+                    args.push('--strict-mcp-config');
+                    console.log(`[claude-code-runner] mcp servers mounted: ${Object.keys(mcpDoc.mcpServers).join(',')}`);
+                } catch (err) {
+                    console.warn(`[claude-code-runner] mcp-config write failed: ${err.message}`);
+                }
+            }
+
             // Model: explicit request, then env fallback. With Option α the
             // env defaults to the LiteLLM virtual model `govai-llm-anthropic`.
             const model = (req.model && req.model.trim()) || process.env.ANTHROPIC_MODEL;
@@ -351,7 +464,43 @@ function handleChat(call) {
                 // container env (Option α points them at LiteLLM).
             };
 
-            console.log(`[claude-code-runner] spawn cwd=${cwd} sid=${state.sessionId}${resumeId ? ' (resume)' : ''} thinking=${enableThinking}`);
+            console.log(`[claude-code-runner] spawn cwd=${cwd} sid=${state.sessionId}${resumeId ? ' (resume)' : ''} thinking=${enableThinking} subagents=${enableSubagents}`);
+
+            // FASE 14.0/3b · Feature 3 — workspace file watch.
+            // Set up before spawn so we don't miss writes the CLI does
+            // immediately after starting. ignoreInitial skips the
+            // emit-on-add for files that already exist when we start.
+            // We DO NOT watch /tmp/.claude (the CLI's own session
+            // dir) — those writes are runner internals, not the
+            // model-driven changes the audit cares about.
+            if (chokidar) {
+                try {
+                    watcher = chokidar.watch(cwd, {
+                        ignored: [/(^|[\/\\])\../, '**/.govai-mcp-config.json'],
+                        persistent: true,
+                        ignoreInitial: true,
+                        followSymlinks: false,
+                        depth: 10,  // bound: never follow into massive vendored trees
+                    });
+                    watcher.on('all', (event, filepath) => {
+                        const rel = path.relative(cwd, filepath);
+                        if (!rel || rel.startsWith('..')) return;  // outside cwd
+                        try {
+                            call.write({
+                                file_changed: {
+                                    event,
+                                    path: rel,
+                                    timestamp_unix_ms: Date.now(),
+                                },
+                            });
+                        } catch (e) { /* call already ended */ }
+                    });
+                } catch (err) {
+                    console.warn('[claude-code-runner] file watch init failed:', err.message);
+                    watcher = null;
+                }
+            }
+
             try {
                 proc = spawn(claudePath, args, {
                     cwd,
@@ -387,6 +536,13 @@ function handleChat(call) {
 
             proc.on('close', async (code) => {
                 if (cancelled) return;
+                // FASE 14.0/3b · Feature 3 — close the watcher.
+                // chokidar holds inotify handles; without explicit close()
+                // they accumulate per-run and eventually exhaust the limit.
+                if (watcher) {
+                    try { await watcher.close(); } catch { /* ignore */ }
+                    watcher = null;
+                }
 
                 // Drain trailing buffered line.
                 if (state.stdoutBuffer.trim()) {
@@ -451,6 +607,10 @@ function handleChat(call) {
             console.log('[claude-code-runner] cancel received:', msg.cancel.reason || '(no reason)');
             if (proc) {
                 try { proc.kill('SIGTERM'); } catch { /* ignore */ }
+            }
+            if (watcher) {
+                watcher.close().catch(() => {});
+                watcher = null;
             }
             try { call.end(); } catch { /* ignore */ }
             return;

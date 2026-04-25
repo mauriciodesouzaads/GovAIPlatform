@@ -599,6 +599,7 @@ import { notificationChannelsRoutes } from './routes/notification-channels.route
 import { skillsRoutes } from './routes/skills.routes';
 // FASE 14.0 Etapa 1: workflow-templates removido junto com o
 // Arquiteto-workflow. Delegação (the legacy delegation module) fica intacta.
+import { mcpServersRoutes } from './routes/mcp-servers.routes';
 import { chatRoutes } from './routes/chat.routes';
 import { runtimeRoutes } from './routes/runtime.routes';
 import { runRetentionArchiving } from './jobs/retention-archive.job';
@@ -622,6 +623,7 @@ fastify.register(monitoringRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(dlpRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(notificationChannelsRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(skillsRoutes, { pgPool, requireRole: requireTenantRole });
+fastify.register(mcpServersRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(chatRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(runtimeRoutes, { pgPool, requireRole: requireTenantRole });
 

@@ -5,14 +5,17 @@
  * Returns an EventEmitter so callers can react to streaming events without blocking.
  *
  * Events emitted:
- *   'text_chunk'       { text: string }
- *   'thinking_chunk'   { text: string }                              (FASE 14.0/3a)
- *   'tool_start'       { tool_name, arguments_json, tool_use_id }
- *   'tool_result'      { tool_name, output, is_error, tool_use_id }
- *   'action_required'  { prompt_id, question, type }
- *   'done'             { full_text, prompt_tokens, completion_tokens, session_id }
- *   'error'            { message, code }
- *   'end'              (stream closed)
+ *   'text_chunk'        { text: string }
+ *   'thinking_chunk'    { text: string }                              (FASE 14.0/3a)
+ *   'tool_start'        { tool_name, arguments_json, tool_use_id }
+ *   'tool_result'       { tool_name, output, is_error, tool_use_id }
+ *   'action_required'   { prompt_id, question, type }
+ *   'subagent_spawn'    { tool_use_id, subagent_type, description, prompt }   (FASE 14.0/3b)
+ *   'subagent_complete' { tool_use_id, result_text, is_error }                (FASE 14.0/3b)
+ *   'file_changed'      { event, path, timestamp_unix_ms }                    (FASE 14.0/3b)
+ *   'done'              { full_text, prompt_tokens, completion_tokens, session_id }
+ *   'error'             { message, code }
+ *   'end'               (stream closed)
  */
 
 import * as grpc from '@grpc/grpc-js';
@@ -78,6 +81,22 @@ export interface OpenClaudeRunConfig {
     // Hint for thinking budget; the runner maps this to the closest
     // CLI effort level (low/medium/high/xhigh/max).
     thinkingBudgetTokens?: number;
+    // ─── FASE 14.0/3b · Feature 2: subagents ──────────────────────────
+    // When true, runner drops --bare and exposes Task tool (and
+    // sibling tools — Glob/Grep/WebFetch/Write/etc.) to the model.
+    enableSubagents?: boolean;
+    // ─── FASE 14.0/3b · Feature 1: MCP servers ──────────────────────────
+    // Optional list of MCP server configs the runner should mount on
+    // this run. Empty / omitted = no MCP servers.
+    mcpServers?: Array<{
+        name: string;
+        transport: 'stdio' | 'sse' | 'http';
+        command?: string;
+        args?: string[];
+        env?: Record<string, string>;
+        url?: string;
+        headers?: Record<string, string>;
+    }>;
 }
 
 /**
@@ -191,6 +210,12 @@ export function executeOpenClaudeRun(config: OpenClaudeRunConfig): OpenClaudeHan
                 ? { enable_thinking: config.enableThinking } : {}),
             ...(config.thinkingBudgetTokens !== undefined
                 ? { thinking_budget_tokens: config.thinkingBudgetTokens } : {}),
+            // FASE 14.0/3b · Feature 1: pass-through MCP server configs.
+            ...(config.mcpServers && config.mcpServers.length > 0
+                ? { mcp_servers: config.mcpServers } : {}),
+            // FASE 14.0/3b · Feature 2: subagents enable flag.
+            ...(config.enableSubagents !== undefined
+                ? { enable_subagents: Boolean(config.enableSubagents) } : {}),
         },
     });
 
@@ -234,6 +259,14 @@ export function executeOpenClaudeRun(config: OpenClaudeRunConfig): OpenClaudeHan
             // separate event_type='THINKING' (auditable separately
             // from the final answer).
             emitter.emit('thinking_chunk', serverMessage.thinking_chunk);
+        } else if (serverMessage.subagent_spawn) {
+            // FASE 14.0/3b · Feature 2
+            emitter.emit('subagent_spawn', serverMessage.subagent_spawn);
+        } else if (serverMessage.subagent_complete) {
+            emitter.emit('subagent_complete', serverMessage.subagent_complete);
+        } else if (serverMessage.file_changed) {
+            // FASE 14.0/3b · Feature 3
+            emitter.emit('file_changed', serverMessage.file_changed);
         } else if (serverMessage.tool_start) {
             emitter.emit('tool_start', serverMessage.tool_start);
         } else if (serverMessage.tool_result) {

@@ -142,6 +142,8 @@ MIGRATIONS=(
     "088_drop_architect_workflow.sql"
     "089_rename_to_runtime_drop_orphans.sql"
     "090_runtime_work_items_session.sql"
+    "091_mcp_server_configs.sql"
+    "092_runtime_work_items_subagent_hierarchy.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
