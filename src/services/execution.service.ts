@@ -347,8 +347,9 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
 
         // ── 6c. Delegation check (FASE 5d) ────────────────────────────────────────
         // If the assistant has delegation enabled and the message matches a pattern,
-        // escalate to the Architect → OpenClaude instead of calling the LLM.
-        // The check runs after governance approves but BEFORE we incur LLM cost.
+        // escalate to the runtime layer (OpenClaude / Claude Code / Aider) instead
+        // of calling the LLM. The check runs after governance approves but BEFORE
+        // we incur LLM cost.
         const delegationDecision = shouldDelegate(message, delegationConfig);
         if (delegationDecision.shouldDelegate) {
             try {
@@ -494,7 +495,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
 
                     recordRequest('success', Date.now() - execStart);
                     log.info({ orgId, assistantId, workItemId, matchedPattern: delegationDecision.matchedPattern },
-                        'Execution delegated to Architect/OpenClaude');
+                        'Execution delegated to runtime layer');
 
                     return {
                         statusCode: 202,
@@ -507,7 +508,7 @@ export async function executeAssistant(params: ExecutionParams): Promise<Executi
                                 index: 0,
                                 message: {
                                     role: 'assistant',
-                                    content: `📋 Tarefa delegada ao Architect para execução autônoma.\n\n**Padrão detectado:** \`${delegationDecision.matchedPattern}\`\n\n**Work Item ID:** \`${workItemId}\`\n\nAcompanhe o progresso em **/architect**.`,
+                                    content: `📋 Tarefa delegada à runtime layer para execução autônoma.\n\n**Padrão detectado:** \`${delegationDecision.matchedPattern}\`\n\n**Work Item ID:** \`${workItemId}\`\n\nAcompanhe o progresso em **/execucoes/${workItemId}**.`,
                                 },
                                 finish_reason: 'stop',
                             }],

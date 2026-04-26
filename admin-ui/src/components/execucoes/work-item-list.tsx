@@ -94,6 +94,22 @@ export function WorkItemList() {
                     icon={<Activity className="w-6 h-6" />}
                     title="Nenhuma execução"
                     description="Inicie uma conversa governada — todo trabalho dos agentes aparecerá aqui."
+                    action={
+                        <div className="flex items-center gap-2">
+                            <a
+                                href="/execucoes/nova"
+                                className="text-xs font-medium px-3 py-1.5 rounded-md bg-violet-500 hover:bg-violet-600 text-white transition-colors"
+                            >
+                                Modo Agente
+                            </a>
+                            <a
+                                href="/execucoes/livre"
+                                className="text-xs font-medium px-3 py-1.5 rounded-md bg-emerald-500 hover:bg-emerald-600 text-white transition-colors"
+                            >
+                                Modo Livre
+                            </a>
+                        </div>
+                    }
                 />
             ) : (
                 <div className="space-y-2">

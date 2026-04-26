@@ -1,7 +1,7 @@
 /**
  * Per-Tenant Concurrency Limiter — FASE 11
  * ---------------------------------------------------------------------------
- * The architect worker has global concurrency=2. On top of that, this limiter
+ * The runtime worker has global concurrency=2. On top of that, this limiter
  * ensures NO single tenant holds more than TENANT_MAX_CONCURRENT active work
  * items at once. Requests beyond the limit are rejected and BullMQ re-queues
  * them — giving other tenants a chance and preventing noisy-neighbor
@@ -15,7 +15,7 @@
 import { redisCache } from './redis';
 
 const TENANT_MAX_CONCURRENT = parseInt(process.env.TENANT_MAX_CONCURRENT || '1', 10);
-const KEY = (orgId: string) => `govai:architect:concurrency:${orgId}`;
+const KEY = (orgId: string) => `govai:runtime:concurrency:${orgId}`;
 /** Safety TTL: if a worker crashes without calling release, the slot
  *  is auto-reclaimed after 15 min. The slot is safe to hold longer
  *  than this in a healthy run — release() refreshes the counter. */

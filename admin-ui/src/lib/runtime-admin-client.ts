@@ -122,6 +122,94 @@ export class RuntimeAdminClient {
         return r.json();
     }
 
+    // ── Work item creation (5b.2) ──────────────────────────────────────
+    //
+    // The body discriminates on `mode`. The backend zod schema validates
+    // the rest; we let the server be authoritative on shape and only
+    // surface a user-friendly error message here.
+    async createWorkItem(body: CreateWorkItemBody): Promise<CreateWorkItemResponse> {
+        const r = await fetch(`${API_BASE}/v1/admin/runtime/work-items`, {
+            method: 'POST',
+            headers: this.headers({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+            const detail = await r.json().catch(() => ({}));
+            const msg = (detail as any)?.error || `HTTP ${r.status}`;
+            throw new Error(`createWorkItem: ${msg}`);
+        }
+        return r.json();
+    }
+
+    // ── HITL approve-action (5b.2) ─────────────────────────────────────
+    //
+    // The legacy /v1/admin/architect/.../approve-action moved here.
+    // Body shape is identical.
+    async approveAction(
+        workItemId: string,
+        body: { prompt_id: string; approved: boolean; approve_mode?: 'single' | 'auto_all' | 'auto_safe' }
+    ): Promise<{ queued: boolean }> {
+        const r = await fetch(`${API_BASE}/v1/admin/runtime/work-items/${workItemId}/approve-action`, {
+            method: 'POST',
+            headers: this.headers({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+            const detail = await r.json().catch(() => ({}));
+            const msg = (detail as any)?.error || `HTTP ${r.status}`;
+            throw new Error(`approveAction: ${msg}`);
+        }
+        return r.json();
+    }
+
+    // ── Assistant catalog (5b.2 — Modo Agente picker) ──────────────────
+    //
+    // GET /v1/admin/assistants returns the full catalog row, including
+    // the new fixture self-description columns added by migration 093.
+    // Modo Agente filters down to status='published' and orders fixtures
+    // first, then user-created agents alphabetically.
+    async listAssistants(): Promise<{ assistants: AssistantSummary[] }> {
+        const r = await fetch(`${API_BASE}/v1/admin/assistants`, {
+            headers: this.headers(),
+        });
+        if (!r.ok) throw new Error(`listAssistants: HTTP ${r.status}`);
+        const raw = await r.json();
+        // The legacy endpoint returns an array directly OR { assistants: [...] }.
+        // Normalize.
+        const list: any[] = Array.isArray(raw) ? raw : (raw?.assistants ?? raw?.items ?? []);
+        const assistants: AssistantSummary[] = list.map(a => ({
+            id: a.id,
+            name: a.name,
+            description: a.description ?? null,
+            status: a.status,
+            lifecycle_state: a.lifecycle_state ?? null,
+            risk_level: a.risk_level ?? null,
+            shield_level: a.shield_level ?? null,
+            runtime_profile_slug: a.runtime_profile_slug ?? null,
+            is_fixture: a.is_fixture ?? false,
+            default_runtime_options: a.default_runtime_options ?? {},
+            default_mcp_server_ids: a.default_mcp_server_ids ?? [],
+        }));
+        return { assistants };
+    }
+
+    // ── MCP server registry (5b.2 — Modo Livre toggles) ────────────────
+    async listMcpServers(): Promise<{ servers: McpServerSummary[] }> {
+        const r = await fetch(`${API_BASE}/v1/admin/mcp-servers`, {
+            headers: this.headers(),
+        });
+        if (!r.ok) throw new Error(`listMcpServers: HTTP ${r.status}`);
+        const raw = await r.json();
+        const list: any[] = Array.isArray(raw) ? raw : (raw?.items ?? raw?.servers ?? []);
+        const servers: McpServerSummary[] = list.map(s => ({
+            id: s.id,
+            name: s.name,
+            transport: s.transport,
+            enabled: s.enabled,
+        }));
+        return { servers };
+    }
+
     /**
      * SSE consumer via fetch + ReadableStream. EventSource can't carry
      * the custom Authorization header (browser API limitation), so we
@@ -201,3 +289,60 @@ export function createRuntimeAdminClient(token: string, orgId: string): RuntimeA
 // Re-export the summary type for convenience in component files that
 // only import from this module.
 export type { RuntimeWorkItemSummary };
+
+// ── Types specific to 5b.2 endpoints ───────────────────────────────────
+
+export interface AssistantSummary {
+    id: string;
+    name: string;
+    description: string | null;
+    status: string;
+    lifecycle_state: string | null;
+    risk_level: string | null;
+    shield_level: number | null;
+    runtime_profile_slug: string | null;
+    is_fixture: boolean;
+    default_runtime_options: Record<string, unknown>;
+    default_mcp_server_ids: string[];
+}
+
+export interface McpServerSummary {
+    id: string;
+    name: string;
+    transport: 'stdio' | 'sse' | 'http';
+    enabled: boolean;
+}
+
+export interface RuntimeOptionsBody {
+    resume_session_id?: string;
+    enable_thinking?: boolean;
+    thinking_budget_tokens?: number;
+    enable_subagents?: boolean;
+}
+
+export type CreateWorkItemBody =
+    | {
+        mode: 'agent';
+        assistant_id: string;
+        message: string;
+        runtime_options?: RuntimeOptionsBody;
+        mcp_server_ids?: string[];
+      }
+    | {
+        mode: 'freeform';
+        runtime_profile_slug: 'openclaude' | 'claude_code_official' | 'aider';
+        message: string;
+        system_prompt?: string;
+        model?: string;
+        runtime_options?: RuntimeOptionsBody;
+        mcp_server_ids?: string[];
+      };
+
+export interface CreateWorkItemResponse {
+    accepted: boolean;
+    work_item_id: string;
+    runtime_profile_slug: string;
+    execution_mode: 'agent' | 'freeform';
+    assistant_id: string | null;
+    mcp_server_ids: string[];
+}

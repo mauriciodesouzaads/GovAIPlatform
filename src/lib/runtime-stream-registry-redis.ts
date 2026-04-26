@@ -1,10 +1,11 @@
 /**
- * Architect Stream Registry — Redis Pub/Sub Layer (FASE 9)
+ * Runtime Stream Registry — Redis Pub/Sub Layer (FASE 9)
+ * (renamed from architect-stream-registry-redis in FASE 14.0/5b.2)
  * ---------------------------------------------------------------------------
  * Solves the multi-replica approval routing problem. See ADR-012 for context.
  *
  * Architecture:
- *   - Every API/worker process subscribes to `govai:architect:control` at startup
+ *   - Every API/worker process subscribes to `govai:runtime:control` at startup
  *   - When a worker picks up a cancel-run or resolve-approval job and the stream
  *     isn't found locally, it publishes a control message to the channel
  *   - All replicas receive the message; the one that owns the stream acts on it
@@ -20,9 +21,9 @@
  */
 
 import IORedis from 'ioredis';
-import { INSTANCE_ID, getStream, unregisterStream } from './architect-stream-registry';
+import { INSTANCE_ID, getStream, unregisterStream } from './runtime-stream-registry';
 
-const CHANNEL = 'govai:architect:control';
+const CHANNEL = 'govai:runtime:control';
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
 // Separate connections for pub and sub — ioredis requires a dedicated

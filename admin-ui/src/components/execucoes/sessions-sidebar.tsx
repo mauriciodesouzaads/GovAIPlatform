@@ -52,15 +52,14 @@ export function SessionsSidebar() {
             <div className="px-4 pt-4 pb-3 border-b border-border/40">
                 <div className="flex items-center justify-between mb-3">
                     <h2 className="text-sm font-semibold text-foreground/90">Sessões</h2>
-                    <button
-                        type="button"
-                        disabled
-                        title="Nova execução (em 5b.2)"
-                        className="text-[11px] text-muted-foreground/60 px-2 py-1 rounded border border-border/40 inline-flex items-center gap-1 cursor-not-allowed"
+                    <Link
+                        href="/execucoes/nova"
+                        title="Nova execução"
+                        className="text-[11px] text-foreground/80 hover:text-foreground px-2 py-1 rounded border border-border/40 hover:bg-violet-500/10 hover:border-violet-500/40 inline-flex items-center gap-1 transition-colors"
                     >
                         <Plus className="w-3 h-3" />
                         Nova
-                    </button>
+                    </Link>
                 </div>
                 <div className="relative">
                     <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/60" />

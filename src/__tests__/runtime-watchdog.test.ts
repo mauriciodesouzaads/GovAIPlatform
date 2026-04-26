@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-describe('Architect Watchdog', () => {
+describe('Runtime Watchdog', () => {
     it('detectAndMarkStuckWorkItems is exported and callable', async () => {
         const mod = await import('../lib/runtime-delegation');
         expect(typeof mod.detectAndMarkStuckWorkItems).toBe('function');

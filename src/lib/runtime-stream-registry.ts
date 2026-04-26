@@ -1,8 +1,9 @@
 /**
- * Architect Stream Registry — FASE 5-hardening + FASE 9 distributed
+ * Runtime Stream Registry — FASE 5-hardening + FASE 9 distributed
+ * (renamed from architect-stream-registry in FASE 14.0/5b.2)
  *
- * Process-local map of active OpenClaude/Claude Code gRPC streams keyed by
- * work_item_id. The adapter (runtime-delegation.ts) registers itself when
+ * Process-local map of active OpenClaude/Claude Code/Aider gRPC streams keyed
+ * by work_item_id. The adapter (runtime-delegation.ts) registers itself when
  * it starts a run; the worker (runtime.worker.ts) reads from it when
  * processing `cancel-run` or `resolve-approval` jobs so it can call
  * cancel() / respond() on the live stream.
@@ -11,7 +12,7 @@
  * both import it without creating a circular dependency.
  *
  * For multi-instance deployments (k8s with >1 replica), see
- * architect-stream-registry-redis.ts which broadcasts cancel/respond via
+ * runtime-stream-registry-redis.ts which broadcasts cancel/respond via
  * Redis pub/sub so any replica can resolve an approval or cancel a run
  * regardless of which replica owns the stream. Feature flag:
  *   STREAM_REGISTRY_MODE=distributed   (default: local)

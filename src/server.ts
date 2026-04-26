@@ -583,7 +583,6 @@ fastify.register(oidcRoutes, { pgPool }); // GA-005/GA-006: unified OIDC with JI
 import { adminRoutes } from './routes/admin.routes';
 import { consultantRoutes } from './routes/consultant.routes';
 import { shieldRoutes } from './routes/shield.routes';
-import { architectRoutes } from './routes/architect.routes';
 import { webhookRoutes } from './routes/webhook.routes';
 import { policiesRoutes } from './routes/policies.routes';
 import { settingsRoutes } from './routes/settings.routes';
@@ -610,7 +609,6 @@ fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, 
 
 fastify.register(consultantRoutes, { pgPool, requireTenantRole });
 fastify.register(shieldRoutes, { pgPool, requireRole: requireTenantRole });
-fastify.register(architectRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(webhookRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(policiesRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(settingsRoutes, { pgPool, requireRole: requireTenantRole });
@@ -627,9 +625,11 @@ fastify.register(skillsRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(mcpServersRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(chatRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(runtimeRoutes, { pgPool, requireRole: requireTenantRole });
-// FASE 14.0/5a — runtime admin API (work-items list/detail/SSE/cancel,
-// sessions index, runners health). Parallel surface to the legacy
-// /v1/admin/architect/work-items/* routes; both work until 5b ships.
+// FASE 14.0/5b.2 — runtime admin API is the SOLE work-item surface.
+// Endpoints: list, detail, SSE stream, cancel, sessions index,
+// runners health, approve-action, mode-discriminated POST work-items.
+// The legacy /v1/admin/architect/work-items/* routes were removed in 5b.2
+// when the playground UI was retired in favor of /execucoes.
 fastify.register(runtimeAdminRoutes, { pgPool, requireRole: requireTenantRole });
 
 // ---------------------------------------------------------------------------
@@ -669,7 +669,7 @@ const start = async () => {
     // defaults to 'local' (no pub/sub overhead in single-instance dev).
     if (process.env.STREAM_REGISTRY_MODE !== 'local') {
         try {
-            const { subscribeToControl, shutdownStreamRegistryRedis } = await import('./lib/architect-stream-registry-redis');
+            const { subscribeToControl, shutdownStreamRegistryRedis } = await import('./lib/runtime-stream-registry-redis');
             await subscribeToControl();
             // Graceful shutdown — close pub/sub connections on termination
             const cleanup = async () => {

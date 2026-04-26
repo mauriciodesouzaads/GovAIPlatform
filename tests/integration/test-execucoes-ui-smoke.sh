@@ -65,12 +65,17 @@ echo "═══ Test 3: admin-ui tsc --noEmit ═══"
     && ok "admin-ui TS clean" \
     || fail "admin-ui TS errors"
 
-# ── Test 4: legacy /playground still works (zero Chat regression) ──────────
+# ── Test 4: /playground was retired in 5b.2 ─────────────────────────────────
+# Up to 5b.1 the playground was the chat surface and this smoke test
+# asserted HTTP 200 to guard against accidental breakage. 5b.2 deleted
+# the page (Modo Agente + Modo Livre under /execucoes replaced it), so
+# we now assert HTTP 404 — anything else means the demolition is
+# incomplete or someone re-introduced the route.
 echo ""
-echo "═══ Test 4: /playground regression ═══"
+echo "═══ Test 4: /playground retired (FASE 14.0/5b.2) ═══"
 HTTP3=$(curl -sS -o /dev/null -w "%{http_code}" "$UI/playground")
-[ "$HTTP3" = "200" ] && ok "/playground: HTTP 200" \
-    || fail "/playground: HTTP $HTTP3 — chat broke"
+[ "$HTTP3" = "404" ] && ok "/playground: HTTP 404 (page deleted in 5b.2)" \
+    || fail "/playground: HTTP $HTTP3 — expected 404 after demolition"
 
 # ── Test 5: backend 5a routes still answer ─────────────────────────────────
 echo ""

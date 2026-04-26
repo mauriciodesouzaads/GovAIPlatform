@@ -172,10 +172,12 @@ export async function runtimeRoutes(
         const { scopeType, scopeId } = request.params as { scopeType: string; scopeId: string };
 
         try {
+            // FASE 14.0/5b.2: case + workflow_template scopes were dropped
+            // along with their tables (088/089). Only assistant/explicit
+            // scopes remain through the resolver; tenant + global_fallback
+            // are inferred from orgId.
             const resolution = await resolveRuntimeForExecution(pgPool, orgId, {
                 assistantId: scopeType === 'assistant' ? scopeId : undefined,
-                caseId: scopeType === 'case' ? scopeId : undefined,
-                workflowTemplateId: scopeType === 'workflow_template' ? scopeId : undefined,
             });
             return reply.send({
                 runtime_slug: resolution.profile.slug,

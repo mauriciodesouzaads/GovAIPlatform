@@ -193,9 +193,11 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         {(isAdmin || showAll) && <SectionLabel label={t('technical')} />}
                         <NavItem href="/"           label={t('dashboard')}   Icon={LayoutDashboard}  isActive={pathname === '/'}           accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                         <NavItem href="/assistants" label={t('assistants')}  Icon={MessageSquareText} isActive={pathname === '/assistants'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
-                        <NavItem href="/playground" label={t('chat')}        Icon={MessageSquareText} isActive={pathname === '/playground'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                         <NavItem href="/api-keys"   label={t('apiKeys')}     Icon={Key}              isActive={pathname === '/api-keys'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
-                        {/* FASE 14.0 Etapa 1: /architect menu entry removed along with the workflow domain. */}
+                        {/* FASE 14.0/5b.2: /playground (and the chat NavItem) was retired
+                            when /execucoes (Modo Agente + Modo Livre) became the sole
+                            governed-conversation surface. /architect was removed in
+                            Etapa 1 alongside the workflow domain. */}
                         <NavItem href="/webhooks"   label={t('webhooks')}    Icon={Bell}             isActive={pathname === '/webhooks'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                     </>
                 )}

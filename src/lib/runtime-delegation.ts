@@ -25,7 +25,7 @@ import { recordEvidence } from './evidence';
 import { resolveShieldLevel, requiresHitlForTool, type ShieldLevel } from './shield-level';
 import { executeOpenClaudeRun, resolveOpenClaudeTarget } from './openclaude-client';
 import { createWorkspace, cleanupWorkspace, getSessionWorkspace } from './workspace-manager';
-import { registerStream, unregisterStream } from './architect-stream-registry';
+import { registerStream, unregisterStream } from './runtime-stream-registry';
 import {
     resolveRuntimeProfile,
     resolveRuntimeForExecution,
@@ -158,7 +158,7 @@ export interface DelegationDecision {
 }
 
 /**
- * Pure function: decides whether a message should be delegated to the Architect.
+ * Pure function: decides whether a message should be delegated to the runtime layer.
  *
  * Rules (in order):
  *   1. delegationConfig null or disabled → no delegation
@@ -322,8 +322,8 @@ export async function runInternalRagAdapter(
         await recordEvidence(pool, {
             orgId,
             category: 'data_access',
-            eventType: 'ARCHITECT_ADAPTER_EXECUTED',
-            resourceType: 'architect_work_item',
+            eventType: 'RUNTIME_ADAPTER_EXECUTED',
+            resourceType: 'runtime_work_item',
             resourceId: workItemId,
             metadata: { adapter: 'internal_rag', snippetCount: snippets.length },
         });
@@ -506,7 +506,7 @@ export async function insertWorkItemEvent(
         );
     } catch (err) {
         // Non-fatal: timeline event logging must never break the run
-        console.warn('[Architect] insertWorkItemEvent failed:', (err as Error).message);
+        console.warn('[Runtime] insertWorkItemEvent failed:', (err as Error).message);
     } finally {
         await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
         client.release();
@@ -665,7 +665,7 @@ export async function runOpenClaudeAdapter(
             orgId,
             category: 'data_access',
             eventType: 'OPENCLAUDE_RUN_STARTED',
-            resourceType: 'architect_work_item',
+            resourceType: 'runtime_work_item',
             resourceId: workItemId,
             metadata: {
                 sessionId,
@@ -1032,7 +1032,7 @@ export async function runOpenClaudeAdapter(
                     orgId,
                     category: 'data_access',
                     eventType: 'OPENCLAUDE_TOOL_START',
-                    resourceType: 'architect_work_item',
+                    resourceType: 'runtime_work_item',
                     resourceId: workItemId,
                     metadata: { tool: data.tool_name, toolUseId: data.tool_use_id, sessionId },
                 }).catch(() => {});
@@ -1051,7 +1051,7 @@ export async function runOpenClaudeAdapter(
                     orgId,
                     category: 'data_access',
                     eventType: 'OPENCLAUDE_TOOL_RESULT',
-                    resourceType: 'architect_work_item',
+                    resourceType: 'runtime_work_item',
                     resourceId: workItemId,
                     metadata: {
                         tool: data.tool_name,
@@ -1101,7 +1101,7 @@ export async function runOpenClaudeAdapter(
                         orgId,
                         category: 'data_access',
                         eventType: 'TOOL_NATIVE_RUNTIME_USE',
-                        resourceType: 'architect_work_item',
+                        resourceType: 'runtime_work_item',
                         resourceId: workItemId,
                         metadata: {
                             tool: toolName,
@@ -1150,7 +1150,7 @@ export async function runOpenClaudeAdapter(
                         orgId,
                         category: 'approval',
                         eventType: 'TOOL_AUTO_APPROVED_BY_USER',
-                        resourceType: 'architect_work_item',
+                        resourceType: 'runtime_work_item',
                         resourceId: workItemId,
                         metadata: {
                             tool: toolName, promptId: data.prompt_id,
@@ -1173,7 +1173,7 @@ export async function runOpenClaudeAdapter(
                         orgId,
                         category: 'approval',
                         eventType: 'TOOL_AUTO_APPROVED_BY_USER',
-                        resourceType: 'architect_work_item',
+                        resourceType: 'runtime_work_item',
                         resourceId: workItemId,
                         metadata: {
                             tool: toolName, promptId: data.prompt_id,
@@ -1196,7 +1196,7 @@ export async function runOpenClaudeAdapter(
                         orgId,
                         category: 'data_access',
                         eventType: 'TOOL_ALLOWED_BY_GRANT',
-                        resourceType: 'architect_work_item',
+                        resourceType: 'runtime_work_item',
                         resourceId: workItemId,
                         metadata: { tool: toolName, promptId: data.prompt_id, reason: decision.reason, sessionId },
                     }).catch(() => {});
@@ -1212,7 +1212,7 @@ export async function runOpenClaudeAdapter(
                         orgId,
                         category: 'policy_enforcement',
                         eventType: 'TOOL_DENIED_BY_POLICY',
-                        resourceType: 'architect_work_item',
+                        resourceType: 'runtime_work_item',
                         resourceId: workItemId,
                         metadata: { tool: toolName, promptId: data.prompt_id, reason: decision.reason, sessionId },
                     }).catch(() => {});
@@ -1243,7 +1243,7 @@ export async function runOpenClaudeAdapter(
                     orgId,
                     category: 'approval',
                     eventType: 'TOOL_AWAITING_APPROVAL',
-                    resourceType: 'architect_work_item',
+                    resourceType: 'runtime_work_item',
                     resourceId: workItemId,
                     metadata: { tool: toolName, promptId: data.prompt_id, question: data.question, sessionId },
                 }).catch(() => {});
@@ -1315,7 +1315,7 @@ export async function runOpenClaudeAdapter(
                     orgId,
                     category: 'data_access',
                     eventType: 'OPENCLAUDE_RUN_COMPLETED',
-                    resourceType: 'architect_work_item',
+                    resourceType: 'runtime_work_item',
                     resourceId: workItemId,
                     metadata: { sessionId, promptTokens, completionTokens, toolCount: toolEvents.length },
                 }).catch(() => {});
@@ -1373,7 +1373,7 @@ export async function runOpenClaudeAdapter(
                     orgId,
                     category: 'data_access',
                     eventType: 'OPENCLAUDE_RUN_FAILED',
-                    resourceType: 'architect_work_item',
+                    resourceType: 'runtime_work_item',
                     resourceId: workItemId,
                     metadata: { sessionId, error: errorMsg, code: data.code },
                 }).catch(() => {});
@@ -1605,7 +1605,7 @@ export async function dispatchWorkItem(
             }
             // Other resolution errors (missing seed, DB issue) still
             // fallback to OpenClaude so the platform degrades gracefully.
-            console.warn('[Architect] runtime resolution failed, falling back to openclaude defaults:', (e as Error).message);
+            console.warn('[Runtime] runtime resolution failed, falling back to openclaude defaults:', (e as Error).message);
             runtimeCtx = {
                 runtimeProfileSlug: 'openclaude',
                 target: resolveOpenClaudeTarget(),
@@ -1644,16 +1644,22 @@ export async function dispatchWorkItem(
  * A work item is considered stuck if:
  *   - status is 'in_progress' or 'awaiting_approval'
  *   - last_event_at (or run_started_at / created_at as fallback) is older
- *     than ARCHITECT_STUCK_THRESHOLD_MIN (default 15 minutes)
+ *     than RUNTIME_STUCK_THRESHOLD_MIN (default 15 minutes)
+ *     (legacy ARCHITECT_STUCK_THRESHOLD_MIN still honored as a fallback).
  *
- * Called periodically by the architect worker (every 5 min by default).
+ * Called periodically by the runtime worker (every 5 min by default).
  * Operators see `dispatch_error` with a clear "Stuck for N minutes" message
  * and can retry the work item manually.
  *
  * Returns the number of items marked blocked in this sweep.
  */
 export async function detectAndMarkStuckWorkItems(pool: Pool): Promise<number> {
-    const thresholdMin = parseInt(process.env.ARCHITECT_STUCK_THRESHOLD_MIN || '15', 10);
+    const thresholdMin = parseInt(
+        process.env.RUNTIME_STUCK_THRESHOLD_MIN
+            ?? process.env.ARCHITECT_STUCK_THRESHOLD_MIN
+            ?? '15',
+        10
+    );
     const client = await pool.connect();
     let marked = 0;
     try {
@@ -1684,7 +1690,7 @@ export async function detectAndMarkStuckWorkItems(pool: Pool): Promise<number> {
                 `, [row.id, row.org_id, `Stuck for ${mins} minutes — watchdog marked blocked`]);
                 if (upd.rowCount && upd.rowCount > 0) marked++;
             } catch (err) {
-                console.warn(`[Architect Watchdog] failed to mark ${row.id} blocked:`, (err as Error).message);
+                console.warn(`[Runtime Watchdog] failed to mark ${row.id} blocked:`, (err as Error).message);
             }
         }
     } finally {
@@ -1715,8 +1721,18 @@ export async function recoverOrphanedPendingWorkItems(
     pool: Pool,
     queue: { add: (name: string, data: any, opts: any) => Promise<unknown>; getJobs: (types: string[], start: number, end: number, asc: boolean) => Promise<Array<{ data?: any }>> },
 ): Promise<{ recovered: number; blocked: number }> {
-    const orphanThresholdMin = parseInt(process.env.ARCHITECT_ORPHAN_THRESHOLD_MIN || '5', 10);
-    const maxRecoveryAttempts = parseInt(process.env.ARCHITECT_MAX_RECOVERY_ATTEMPTS || '3', 10);
+    const orphanThresholdMin = parseInt(
+        process.env.RUNTIME_ORPHAN_THRESHOLD_MIN
+            ?? process.env.ARCHITECT_ORPHAN_THRESHOLD_MIN
+            ?? '5',
+        10
+    );
+    const maxRecoveryAttempts = parseInt(
+        process.env.RUNTIME_MAX_RECOVERY_ATTEMPTS
+            ?? process.env.ARCHITECT_MAX_RECOVERY_ATTEMPTS
+            ?? '3',
+        10
+    );
     const client = await pool.connect();
     let recovered = 0;
     let blocked = 0;
@@ -1748,7 +1764,7 @@ export async function recoverOrphanedPendingWorkItems(
                 );
             } catch (err) {
                 console.warn(
-                    '[Architect Watchdog] failed to list BullMQ jobs — ' +
+                    '[Runtime Watchdog] failed to list BullMQ jobs — ' +
                     'will re-enqueue candidates without dedupe:',
                     (err as Error).message,
                 );
@@ -1780,13 +1796,13 @@ export async function recoverOrphanedPendingWorkItems(
                         },
                     );
                     console.warn(
-                        `[Architect Watchdog] recovered orphaned work_item ${row.id} ` +
+                        `[Runtime Watchdog] recovered orphaned work_item ${row.id} ` +
                         `(attempt ${nextAttempt}/${maxRecoveryAttempts})`,
                     );
                     recovered++;
                 } catch (err) {
                     console.warn(
-                        `[Architect Watchdog] recovery failed for ${row.id}:`,
+                        `[Runtime Watchdog] recovery failed for ${row.id}:`,
                         (err as Error).message,
                     );
                 }

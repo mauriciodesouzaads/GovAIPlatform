@@ -1,16 +1,16 @@
 /**
- * Runtime Admin API — FASE 14.0/5a
+ * Runtime Admin API — FASE 14.0/5a + 5b.2
  * ---------------------------------------------------------------------------
- * Foundation for the /execucoes admin panel. Etapa 5b consumes the
- * endpoints registered here. Legacy /v1/admin/architect/* survives
- * untouched so the playground (its only consumer) keeps working until
- * 5b finishes the cutover.
+ * Sole work-item surface for the /execucoes admin panel. The legacy
+ * /v1/admin/architect/* routes were retired in 5b.2 alongside /playground.
  *
  * Endpoints (all under /v1/admin/runtime):
  *   GET    /work-items                  — paginated list with filters
  *   GET    /work-items/:id              — detail + events + child subagents
  *   GET    /work-items/:id/events/stream — SSE live tail (polling backend)
+ *   POST   /work-items                  — mode-discriminated creator (5b.2)
  *   POST   /work-items/:id/cancel       — graceful cancel (BullMQ job)
+ *   POST   /work-items/:id/approve-action — HITL approval bridge (5b.2)
  *   GET    /sessions                    — claude-code session index from Redis
  *   GET    /runners/health              — per-runtime availability + transport
  *
@@ -27,6 +27,7 @@
 import { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
 import { redisCache } from '../lib/redis';
 import { buildCorsHeaders } from '../lib/cors-config';
 import {
@@ -642,5 +643,334 @@ export async function runtimeAdminRoutes(
 
         const body: RuntimeRunnerHealthResponse = { runners };
         return reply.send(body);
+    });
+
+    // ──────────────────────────────────────────────────────────────────
+    // POST /v1/admin/runtime/work-items/:id/approve-action
+    // ──────────────────────────────────────────────────────────────────
+    //
+    // Bridge between the awaiting_approval state and the gRPC adapter
+    // that holds the suspended stream. Direct port of the legacy
+    // /v1/admin/architect/work-items/:id/approve-action route — same
+    // body shape, same `resolve-approval` BullMQ job, same worker
+    // handler. Only the URL changed.
+    //
+    // approve_mode tri-state mirrors the chat flow:
+    //   - 'single'    — approve this one tool call (default)
+    //   - 'auto_all'  — approve every subsequent prompt on this run
+    //   - 'auto_safe' — approve every read-only tool; writes still prompt
+    //
+    // The mode is persisted into execution_context.approval_mode BEFORE
+    // the BullMQ enqueue so the next ACTION_REQUIRED handler reads it
+    // off the row instead of relying on in-flight BullMQ state.
+    app.post('/v1/admin/runtime/work-items/:id/approve-action', {
+        preHandler: writeAuth,
+    }, async (request: any, reply) => {
+        const { orgId, email: actorEmail } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const id = String((request.params as any).id || '');
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+            return reply.status(400).send({ error: 'invalid id (uuid expected)' });
+        }
+
+        const body = (request.body ?? {}) as {
+            prompt_id?: string;
+            approved?: boolean;
+            approve_mode?: 'single' | 'auto_all' | 'auto_safe';
+        };
+        if (!body.prompt_id || typeof body.approved !== 'boolean') {
+            return reply.status(400).send({ error: 'prompt_id e approved (boolean) são obrigatórios.' });
+        }
+        const approveMode: 'single' | 'auto_all' | 'auto_safe' = body.approve_mode ?? 'single';
+        if (!['single', 'auto_all', 'auto_safe'].includes(approveMode)) {
+            return reply.status(400).send({ error: `approve_mode inválido: ${approveMode}` });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+            const wi = await client.query(
+                `SELECT id, status FROM runtime_work_items WHERE id = $1::uuid AND org_id = $2`,
+                [id, orgId],
+            );
+            if (wi.rows.length === 0) {
+                return reply.status(404).send({ error: 'work_item not found' });
+            }
+            if (wi.rows[0].status !== 'awaiting_approval') {
+                return reply.status(400).send({
+                    error: 'work_item not awaiting approval',
+                    current_status: wi.rows[0].status,
+                });
+            }
+
+            // Persist approval_mode BEFORE enqueueing so the next
+            // action_required handler reads the new mode off the row.
+            if (body.approved && approveMode !== 'single') {
+                await client.query(
+                    `UPDATE runtime_work_items
+                        SET execution_context = COALESCE(execution_context, '{}'::jsonb)
+                                                 || jsonb_build_object('approval_mode', $1::text)
+                      WHERE id = $2::uuid AND org_id = $3`,
+                    [approveMode, id, orgId],
+                );
+            }
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+
+        const { runtimeQueue } = await import('../workers/runtime.worker');
+        await runtimeQueue.add('resolve-approval', {
+            orgId,
+            workItemId: id,
+            promptId: body.prompt_id,
+            approved: body.approved,
+            approveMode,
+            actorEmail: actorEmail ?? null,
+        }, {
+            attempts: 1,
+            removeOnComplete: { count: 50 },
+            removeOnFail: { count: 50 },
+        });
+
+        return reply.send({
+            queued: true,
+            work_item_id: id,
+            prompt_id: body.prompt_id,
+            approved: body.approved,
+            approve_mode: approveMode,
+        });
+    });
+
+    // ──────────────────────────────────────────────────────────────────
+    // POST /v1/admin/runtime/work-items
+    // ──────────────────────────────────────────────────────────────────
+    //
+    // Mode-discriminated work-item creator. Replaces the old
+    // /v1/admin/architect/work-items/:id/dispatch (which assumed an
+    // already-existing row) with a single endpoint that creates the
+    // row AND enqueues dispatch in one go.
+    //
+    // Body discriminator:
+    //   { mode: 'agent', assistant_id, message, runtime_options?, mcp_server_ids? }
+    //   { mode: 'freeform', runtime_profile_slug, message,
+    //     system_prompt?, model?, runtime_options?, mcp_server_ids? }
+    //
+    // Modo Agente:
+    //   - assistant_id is required and must point at a published row.
+    //   - The agent's runtime_profile_slug, default_runtime_options,
+    //     default_mcp_server_ids and current_version_id (→ prompt) are
+    //     read off the assistants table; body fields override per key.
+    //   - Per-tenant policy_versions, RAG, DLP run as part of the
+    //     downstream pipeline (the adapter reads execution_context).
+    //
+    // Modo Livre:
+    //   - runtime_profile_slug is required; assistant_id forbidden.
+    //   - system_prompt + model + runtime_options + mcp_server_ids
+    //     all flow inline. The constraint chk_agent_mode_has_assistant
+    //     ensures the row is honest about the absence of an assistant.
+    //
+    // After insertion, a BullMQ `dispatch-openclaude` job is enqueued.
+    // The dispatcher reads runtime_profile_slug off the row to pick
+    // the right runner (claude-code / openclaude / aider) — the job
+    // name is historical, the routing is data-driven.
+    const RUNTIME_OPTIONS_SCHEMA = z.object({
+        resume_session_id: z.string().min(1).max(128).optional(),
+        enable_thinking: z.boolean().optional(),
+        thinking_budget_tokens: z.number().int().min(0).max(64000).optional(),
+        enable_subagents: z.boolean().optional(),
+    }).strict();
+
+    // We use a permissive UUID-shaped regex instead of z.string().uuid()
+    // because the platform's fixture / partition / org IDs are not RFC
+    // 4122 v4 (e.g., 00000000-0000-0000-0fff-000000000001 — valid UUID
+    // shape, but not v4). Postgres' uuid type accepts them; rejecting
+    // here would force renumbering every test fixture in the codebase.
+    const UUID_LOOSE = z.string().regex(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+        'malformed uuid (expected 36-char hyphenated hex)'
+    );
+
+    const createBodySchema = z.discriminatedUnion('mode', [
+        z.object({
+            mode: z.literal('agent'),
+            assistant_id: UUID_LOOSE,
+            message: z.string().min(1).max(50000),
+            runtime_options: RUNTIME_OPTIONS_SCHEMA.optional(),
+            mcp_server_ids: z.array(UUID_LOOSE).max(20).optional(),
+            // not allowed in agent mode (UI must not send these):
+            runtime_profile_slug: z.undefined().optional(),
+            system_prompt: z.undefined().optional(),
+            model: z.undefined().optional(),
+        }),
+        z.object({
+            mode: z.literal('freeform'),
+            runtime_profile_slug: z.enum(['openclaude', 'claude_code_official', 'aider']),
+            message: z.string().min(1).max(50000),
+            system_prompt: z.string().max(20000).optional(),
+            model: z.string().max(200).optional(),
+            runtime_options: RUNTIME_OPTIONS_SCHEMA.optional(),
+            mcp_server_ids: z.array(UUID_LOOSE).max(20).optional(),
+            assistant_id: z.undefined().optional(),
+        }),
+    ]);
+
+    app.post('/v1/admin/runtime/work-items', { preHandler: writeAuth }, async (request: any, reply) => {
+        const { orgId, email: actorEmail, userId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+
+        const parse = createBodySchema.safeParse(request.body);
+        if (!parse.success) {
+            return reply.status(400).send({
+                error: 'invalid body',
+                details: parse.error.format(),
+            });
+        }
+        const body = parse.data;
+
+        // Resolve effective runtime config based on mode.
+        let resolvedSlug: string;
+        let resolvedAssistantId: string | null = null;
+        let resolvedSystemPrompt: string | null = null;
+        let resolvedRuntimeOptions: Record<string, unknown> = {};
+        let resolvedMcpServerIds: string[] = [];
+
+        const client = await pgPool.connect();
+        try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+
+            if (body.mode === 'agent') {
+                const aRes = await client.query(
+                    `SELECT a.id, a.name, a.runtime_profile_slug,
+                            a.default_runtime_options, a.default_mcp_server_ids,
+                            a.current_version_id, a.status,
+                            av.prompt AS version_prompt
+                       FROM assistants a
+                  LEFT JOIN assistant_versions av ON av.id = a.current_version_id
+                      WHERE a.id = $1::uuid AND a.org_id = $2`,
+                    [body.assistant_id, orgId]
+                );
+                if (aRes.rows.length === 0) {
+                    return reply.status(404).send({ error: 'assistant not found' });
+                }
+                const a = aRes.rows[0];
+                if (a.status !== 'published') {
+                    return reply.status(400).send({
+                        error: 'assistant must be published to run',
+                        current_status: a.status,
+                    });
+                }
+                if (!a.runtime_profile_slug) {
+                    return reply.status(400).send({
+                        error: 'assistant has no runtime_profile_slug — '
+                             + 'configure it in the catalog before running',
+                    });
+                }
+                resolvedSlug         = String(a.runtime_profile_slug);
+                resolvedAssistantId  = String(a.id);
+                resolvedSystemPrompt = a.version_prompt ? String(a.version_prompt) : null;
+                resolvedRuntimeOptions = {
+                    ...(a.default_runtime_options || {}),
+                    ...(body.runtime_options    || {}),
+                };
+                // Body MCP overrides agent defaults entirely (so a user
+                // can run an agent with no MCPs by sending []); falls
+                // back to defaults only when body.mcp_server_ids is unset.
+                resolvedMcpServerIds = Array.isArray(body.mcp_server_ids)
+                    ? body.mcp_server_ids
+                    : (Array.isArray(a.default_mcp_server_ids)
+                        ? (a.default_mcp_server_ids as string[])
+                        : []);
+            } else {
+                // freeform mode
+                resolvedSlug          = body.runtime_profile_slug;
+                resolvedSystemPrompt  = body.system_prompt ?? null;
+                resolvedRuntimeOptions = { ...(body.runtime_options || {}) };
+                if (body.model) {
+                    (resolvedRuntimeOptions as any).model = body.model;
+                }
+                resolvedMcpServerIds  = Array.isArray(body.mcp_server_ids)
+                    ? body.mcp_server_ids
+                    : [];
+            }
+
+            // execution_hint follows the slug→hint convention used by
+            // the legacy delegation pipeline (execution.service.ts:420).
+            const executionHint = resolvedSlug === 'claude_code_official'
+                ? 'claude_code'
+                : 'openclaude';
+
+            const workItemId = randomUUID();
+            const titleSnippet = body.message.length > 100
+                ? body.message.substring(0, 97) + '…'
+                : body.message;
+            const titlePrefix = body.mode === 'freeform' ? '[livre] ' : '';
+
+            const executionContext = {
+                instructions: body.message,
+                ...(resolvedSystemPrompt
+                    ? { system_prompt: resolvedSystemPrompt } : {}),
+                ...(Object.keys(resolvedRuntimeOptions).length > 0
+                    ? { runtime_options: resolvedRuntimeOptions } : {}),
+                runtime_profile: resolvedSlug,
+                execution_mode: body.mode,
+                ...(resolvedAssistantId
+                    ? { assistant_id: resolvedAssistantId } : {}),
+                actor_email: actorEmail ?? null,
+                actor_user_id: userId ?? null,
+                source: '/v1/admin/runtime/work-items',
+            };
+
+            await client.query(
+                `INSERT INTO runtime_work_items (
+                    id, org_id, node_id, item_type, title, description,
+                    execution_hint, status, execution_context,
+                    runtime_profile_slug, mcp_server_ids,
+                    assistant_id, execution_mode
+                 ) VALUES (
+                    $1, $2, $3, 'compliance_check', $4, $5,
+                    $6, 'pending', $7::jsonb,
+                    $8, $9::uuid[],
+                    $10, $11
+                 )`,
+                [
+                    workItemId,
+                    orgId,
+                    `runtime-${workItemId.substring(0, 8)}`,
+                    `${titlePrefix}${titleSnippet}`,
+                    body.message,
+                    executionHint,
+                    JSON.stringify(executionContext),
+                    resolvedSlug,
+                    resolvedMcpServerIds.length > 0 ? resolvedMcpServerIds : null,
+                    resolvedAssistantId,
+                    body.mode,
+                ]
+            );
+
+            // Enqueue async dispatch. The job name is historical
+            // ('dispatch-openclaude') but the dispatcher routes by the
+            // row's runtime_profile_slug, so a slug='aider' run lands
+            // on the aider socket.
+            const { runtimeQueue } = await import('../workers/runtime.worker');
+            await runtimeQueue.add('dispatch-openclaude', { orgId, workItemId }, {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5000 },
+                removeOnComplete: { count: 100 },
+                removeOnFail:     { count: 100 },
+            });
+
+            return reply.status(202).send({
+                accepted: true,
+                work_item_id: workItemId,
+                runtime_profile_slug: resolvedSlug,
+                execution_mode: body.mode,
+                assistant_id: resolvedAssistantId,
+                mcp_server_ids: resolvedMcpServerIds,
+            });
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
     });
 }

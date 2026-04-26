@@ -16,7 +16,7 @@
  * Stream registry: an in-memory Map keyed by work_item_id holds cancel() /
  * respond() handles published by the adapter when it starts the run. Both
  * cancel-run and resolve-approval read from it. The map is process-local —
- * for multi-instance deployments, see comments in architect-stream-registry.ts.
+ * for multi-instance deployments, see comments in runtime-stream-registry.ts.
  *
  * Concurrency: 2 (max 2 simultaneous OpenClaude runs per API instance).
  * lockDuration: 1 hour (must exceed worst-case approval wait + run time).
@@ -30,8 +30,8 @@ import {
     detectAndMarkStuckWorkItems,
     recoverOrphanedPendingWorkItems,
 } from '../lib/runtime-delegation';
-import { getStream } from '../lib/architect-stream-registry';
-import { publishControl } from '../lib/architect-stream-registry-redis';
+import { getStream } from '../lib/runtime-stream-registry';
+import { publishControl } from '../lib/runtime-stream-registry-redis';
 import { cleanupOrphanedWorkspaces } from '../lib/workspace-manager';
 import { recordEvidence } from '../lib/evidence';
 import { acquireTenantSlot, releaseTenantSlot } from '../lib/tenant-concurrency';

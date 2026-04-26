@@ -121,30 +121,12 @@ export const ENDPOINTS = {
     // Public (no admin auth — API key only)
     PUBLIC_ASSISTANT_INFO:    (id: string) => `/v1/public/assistant/${id}`,
 
-    // Architect Domain
-    ARCHITECT_CASES:                  '/v1/admin/architect/cases',
-    ARCHITECT_CASE:                   (id: string) => `/v1/admin/architect/cases/${id}`,
-    ARCHITECT_CASE_STATUS:            (id: string) => `/v1/admin/architect/cases/${id}/status`,
-    ARCHITECT_CASE_CONTRACT:          (id: string) => `/v1/admin/architect/cases/${id}/contract`,
-    ARCHITECT_CASE_CONTRACT_ACCEPT:   (id: string) => `/v1/admin/architect/cases/${id}/contract/accept`,
-    ARCHITECT_CASE_DISCOVER:          (id: string) => `/v1/admin/architect/cases/${id}/discover`,
-    ARCHITECT_CASE_DISCOVER_ANSWER:   (id: string) => `/v1/admin/architect/cases/${id}/discover/answer`,
-    ARCHITECT_CASE_DISCOVER_QUESTIONS:(id: string) => `/v1/admin/architect/cases/${id}/discover/questions`,
-    ARCHITECT_CASE_DISCOVER_STATUS:   (id: string) => `/v1/admin/architect/cases/${id}/discover/status`,
-    ARCHITECT_CASE_DECISIONS:         (id: string) => `/v1/admin/architect/cases/${id}/decisions`,
-    ARCHITECT_CASE_WORK_ITEMS:        (id: string) => `/v1/admin/architect/cases/${id}/work-items`,
-    ARCHITECT_DECISION_PROPOSE:       (id: string) => `/v1/admin/architect/decisions/${id}/propose`,
-    ARCHITECT_DECISION_APPROVE:       (id: string) => `/v1/admin/architect/decisions/${id}/approve`,
-    ARCHITECT_DECISION_REJECT:        (id: string) => `/v1/admin/architect/decisions/${id}/reject`,
-    ARCHITECT_DECISION_COMPILE:       (id: string) => `/v1/admin/architect/decisions/${id}/compile`,
-    ARCHITECT_DECISION_DOCUMENT:      (id: string) => `/v1/admin/architect/decisions/${id}/document`,
-    ARCHITECT_WORK_ITEM:              (id: string) => `/v1/admin/architect/work-items/${id}`,
-    ARCHITECT_WORK_ITEM_DISPATCH:     (id: string) => `/v1/admin/architect/work-items/${id}/dispatch`,
-    ARCHITECT_WORK_ITEM_CANCEL:       (id: string) => `/v1/admin/architect/work-items/${id}/cancel`,
-    ARCHITECT_WORK_ITEM_EVENTS:       (id: string) => `/v1/admin/architect/work-items/${id}/events`,
-    ARCHITECT_WORK_ITEM_APPROVE_ACTION: (id: string) => `/v1/admin/architect/work-items/${id}/approve-action`,
-    ARCHITECT_WORKFLOW_DISPATCH_ALL:  (id: string) => `/v1/admin/architect/cases/${id}/workflow/dispatch-all`,
-    ARCHITECT_CASE_SUMMARY:           (id: string) => `/v1/admin/architect/cases/${id}/summary`,
+    // Runtime Admin (FASE 14.0/5b.2 — replaces the legacy /v1/admin/architect/* surface)
+    // The work-items endpoints now live under /v1/admin/runtime; the SSE / mode-
+    // discriminated POST / approve-action / cancel are consumed via the dedicated
+    // RuntimeAdminClient (see admin-ui/src/lib/runtime-admin-client.ts). No axios
+    // shortcuts here — everything goes through that fetch wrapper because SSE
+    // requires ReadableStream, which axios doesn't expose in the browser.
 
     // Compliance Hub
     COMPLIANCE_HUB_FRAMEWORKS:        '/v1/admin/compliance-hub/frameworks',
@@ -188,10 +170,7 @@ export const ENDPOINTS = {
     CATALOG_SKILL_BIND:               (assistantId: string) => `/v1/admin/catalog/skills/assistants/${assistantId}/bindings`,
     CATALOG_SKILL_UNBIND:             (assistantId: string, skillId: string) => `/v1/admin/catalog/skills/assistants/${assistantId}/bindings/${skillId}`,
 
-    // Architect Workflow Templates (FASE 5c)
-    ARCHITECT_TEMPLATES:              '/v1/admin/architect/templates',
-    ARCHITECT_TEMPLATE:               (id: string) => `/v1/admin/architect/templates/${id}`,
-    ARCHITECT_TEMPLATE_INSTANTIATE:   (id: string) => `/v1/admin/architect/templates/${id}/instantiate`,
+    // FASE 14.0 Etapa 1: ARCHITECT_TEMPLATES_* dropped along with the workflow domain.
 
     // Assistant Delegation Config (FASE 5d)
     ASSISTANT_DELEGATION:             (id: string) => `/v1/admin/assistants/${id}/delegation`,

@@ -508,8 +508,11 @@ export async function resolveRuntimeForExecution(
     orgId: string,
     opts: {
         explicitSlug?: string;
-        caseId?: string;
-        workflowTemplateId?: string;
+        // FASE 14.0/5b.2: caseId + workflowTemplateId removed. The
+        // demand_cases / architect_workflow_templates tables were
+        // dropped in 088/089 — both branches threw "relation does
+        // not exist" if invoked. The resolver now flows:
+        //   explicit → assistant_default → tenant_default → global_fallback.
         assistantId?: string;
     } = {}
 ): Promise<RuntimeResolution> {
@@ -539,43 +542,7 @@ export async function resolveRuntimeForExecution(
             }
         }
 
-        // 2. Case selected (demand_cases.selected_runtime_profile_id).
-        if (opts.caseId) {
-            const r = await client.query(
-                `SELECT rp.* FROM demand_cases dc
-                 JOIN runtime_profiles rp ON rp.id = dc.selected_runtime_profile_id
-                 WHERE dc.id = $1 AND dc.org_id = $2 AND rp.status = 'active'`,
-                [opts.caseId, orgId]
-            );
-            if (r.rows[0]) {
-                const profile = rowToProfile(r.rows[0]);
-                const avail = await isRuntimeAvailableCached(profile);
-                if (avail) {
-                    return { profile, source: 'case_selected', claim_level: profile.config.claim_level, fallbackApplied: false };
-                }
-            }
-        }
-
-        // 3. Template fixed (architect_workflow_templates with mode='fixed').
-        if (opts.workflowTemplateId) {
-            const r = await client.query(
-                `SELECT rp.* FROM architect_workflow_templates wt
-                 JOIN runtime_profiles rp ON rp.id = wt.runtime_profile_id
-                 WHERE wt.id = $1 AND wt.org_id = $2
-                   AND wt.runtime_selection_mode = 'fixed'
-                   AND rp.status = 'active'`,
-                [opts.workflowTemplateId, orgId]
-            );
-            if (r.rows[0]) {
-                const profile = rowToProfile(r.rows[0]);
-                const avail = await isRuntimeAvailableCached(profile);
-                if (avail) {
-                    return { profile, source: 'template_fixed', claim_level: profile.config.claim_level, fallbackApplied: false };
-                }
-            }
-        }
-
-        // 4. Assistant default (assistants.runtime_profile_slug JOIN runtime_profiles).
+        // 2. Assistant default (assistants.runtime_profile_slug JOIN runtime_profiles).
         if (opts.assistantId) {
             const r = await client.query(
                 `SELECT rp.* FROM assistants a
@@ -595,7 +562,7 @@ export async function resolveRuntimeForExecution(
             }
         }
 
-        // 5. Tenant default (runtime_profile_bindings scope_type='tenant').
+        // 3. Tenant default (runtime_profile_bindings scope_type='tenant').
         const tenantBinding = await client.query(
             `SELECT rp.* FROM runtime_profile_bindings rpb
              JOIN runtime_profiles rp ON rp.id = rpb.runtime_profile_id
@@ -614,7 +581,7 @@ export async function resolveRuntimeForExecution(
             }
         }
 
-        // 6. Global fallback → openclaude.
+        // 4. Global fallback → openclaude.
         const fallback = await client.query(
             `SELECT * FROM runtime_profiles WHERE slug = 'openclaude' AND status = 'active' LIMIT 1`
         );

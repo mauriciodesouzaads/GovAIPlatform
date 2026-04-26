@@ -593,9 +593,9 @@ export default function AssistantsPage() {
                                     <>
                                         <div className="bg-violet-500/5 border border-violet-500/20 rounded-lg p-4">
                                             <p className="text-xs text-violet-300/80 leading-relaxed">
-                                                Quando habilitado, mensagens que matchem um dos padrões regex serão escaladas
-                                                para o <strong>Architect → OpenClaude</strong> em vez de chamar o LLM diretamente.
-                                                A execução roda autonomamente e o resultado fica em <code className="text-[11px] bg-violet-500/10 px-1 rounded">/architect</code>.
+                                                Quando habilitado, mensagens que matchem um dos padrões regex serão delegadas
+                                                ao runtime configurado (Claude Code / OpenClaude / Aider) e rodam de forma
+                                                autônoma sob auditoria. O timeline da execução fica em <code className="text-[11px] bg-violet-500/10 px-1 rounded">/execucoes</code>.
                                             </p>
                                         </div>
 

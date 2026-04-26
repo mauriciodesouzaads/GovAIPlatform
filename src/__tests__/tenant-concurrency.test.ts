@@ -27,7 +27,7 @@ describe('Tenant Concurrency Limiter', () => {
         if (!redisAvailable) return;
         // Clean up the test key
         const cleanup = new IORedis(redisUrl);
-        try { await cleanup.del(`govai:architect:concurrency:${testOrgId}`); } catch { /* ignore */ }
+        try { await cleanup.del(`govai:runtime:concurrency:${testOrgId}`); } catch { /* ignore */ }
         try { await cleanup.quit(); } catch { /* ignore */ }
     });
 
