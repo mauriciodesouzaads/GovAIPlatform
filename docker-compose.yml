@@ -26,6 +26,41 @@ services:
       retries: 5
       start_period: 30s
 
+  qdrant:
+    profiles: ["dev", "prod"]
+    image: qdrant/qdrant:v1.13.4
+    # FASE 14.0/6a₁ — vector DB for the RAG pipeline. Multi-tenant via
+    # one collection per org (govai_org_<uuid_compact>). Storage is on
+    # disk for the payload (vectors stay in RAM by default, swappable
+    # via per-collection on_disk=true).
+    ports:
+      # Loopback only — same convention as database/redis. Internal
+      # services hit qdrant:6333 over the docker network.
+      - "127.0.0.1:6333:6333"  # REST
+      - "127.0.0.1:6334:6334"  # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      # API key gates write paths; readonly endpoints are still public
+      # inside the network. Override in .env for production.
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-govai-qdrant-local-dev}
+      QDRANT__LOG_LEVEL: INFO
+      # Enable the on-disk payload store (fast indexing + small RAM).
+      QDRANT__STORAGE__ON_DISK_PAYLOAD: "true"
+    networks:
+      - govai-net
+    restart: unless-stopped
+    healthcheck:
+      # Qdrant's image has bash (Debian-based). Use bash explicitly so the
+      # /dev/tcp pseudo-device works (dash, the default sh, doesn't).
+      # Probes /readyz over a raw TCP socket to avoid pulling curl/wget
+      # which aren't in the upstream image.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333 && printf 'GET /readyz HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q '200'"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
   redis:
     profiles: ["dev", "prod"]
     image: redis:7-alpine
@@ -167,6 +202,20 @@ services:
       GOVAI_WORKSPACE_MAX_AGE_HOURS: ${GOVAI_WORKSPACE_MAX_AGE_HOURS:-24}
       # --- Chat wrapper (FASE 6) ---
       GOVAI_DEMO_API_KEY: ${GOVAI_DEMO_API_KEY:-sk-govai-demo00000000000000000000}
+      # --- RAG / Qdrant (FASE 14.0/6a₁) ---
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-govai-qdrant-local-dev}
+      QDRANT_COLLECTION_PREFIX: ${QDRANT_COLLECTION_PREFIX:-govai_org}
+      EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-gemini}
+      OPENAI_EMBEDDINGS_API_KEY: ${OPENAI_EMBEDDINGS_API_KEY:-}
+      OPENAI_EMBEDDINGS_MODEL: ${OPENAI_EMBEDDINGS_MODEL:-text-embedding-3-small}
+      OPENAI_EMBEDDINGS_DIM: ${OPENAI_EMBEDDINGS_DIM:-1536}
+      RAG_CHUNK_SIZE_TOKENS: ${RAG_CHUNK_SIZE_TOKENS:-512}
+      RAG_CHUNK_OVERLAP_TOKENS: ${RAG_CHUNK_OVERLAP_TOKENS:-64}
+      RAG_RETRIEVAL_TOP_K: ${RAG_RETRIEVAL_TOP_K:-5}
+      RAG_RETRIEVAL_MIN_SCORE: ${RAG_RETRIEVAL_MIN_SCORE:-0.6}
+      RAG_MAX_DOCUMENT_SIZE_MB: ${RAG_MAX_DOCUMENT_SIZE_MB:-50}
+      RAG_STORAGE_PATH: ${RAG_STORAGE_PATH:-/var/govai/rag-storage}
     volumes:
       # FASE 13.5b/0: each runner now owns a dedicated socket volume so
       # EACCES between containers with different uids cannot happen. The
@@ -178,6 +227,11 @@ services:
       - govai_sockets_claude_code:/var/run/govai/claude-code:ro
       - govai_sockets_aider:/var/run/govai/aider:ro
       - govai_workspaces:/tmp/govai-workspaces
+      # FASE 14.0/6a₁ — persistent storage for uploaded RAG documents.
+      # Uploads stream through the api process and are written here keyed
+      # by sha256, so re-uploading the same file is idempotent and the
+      # extractor pipeline can re-read on demand.
+      - rag_storage:/var/govai/rag-storage
     ports:
       - "3000:3000"
     restart: unless-stopped
@@ -185,6 +239,8 @@ services:
       database:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
       # litellm and presidio removed from hard deps — api connects lazily at runtime.
       # This speeds up startup by ~60-90s. If LiteLLM is unavailable, /v1/execute
@@ -440,6 +496,9 @@ volumes:
   govai_sockets_aider:
   govai_workspaces:
   aider_workspaces:
+  # FASE 14.0/6a₁ — RAG document storage + Qdrant data.
+  qdrant_data:
+  rag_storage:
 
 
 networks:

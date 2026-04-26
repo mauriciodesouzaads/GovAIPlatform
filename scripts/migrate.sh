@@ -145,6 +145,7 @@ MIGRATIONS=(
     "091_mcp_server_configs.sql"
     "092_runtime_work_items_subagent_hierarchy.sql"
     "093_runtime_modes_and_fixture_agents.sql"
+    "094_rag_real_qdrant.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

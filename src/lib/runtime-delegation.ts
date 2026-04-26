@@ -652,8 +652,128 @@ export async function runOpenClaudeAdapter(
             }
         }
 
-        // 4. Build instruction from work item fields + skills
+        // 3b. RAG retrieval hook (FASE 14.0/6a₁).
+        //
+        // If the dispatching assistant has knowledge_bases linked via
+        // assistant_knowledge_bases, embed the user query (preferring
+        // ctx.instructions over title) and search across the linked KBs
+        // in Qdrant. The retrieved chunks are prepended to the runner's
+        // instruction string as a "## Contexto recuperado" section.
+        //
+        // The hook is best-effort:
+        //   - assistant has no linked KBs → no-op (critical for Modo
+        //     Livre and agents without RAG)
+        //   - Qdrant unreachable / embedding provider fails / no hits
+        //     above min_score → continue without context
+        //
+        // Failure does NOT block dispatch; the runner just sees the
+        // un-enriched instruction. retrieval_log records every attempt
+        // (including no-op zeros) so operators can audit hit/miss rates.
+        let ragContextBlock = '';
+        if (ctxAssistantId) {
+            const ragStart = Date.now();
+            try {
+                const linkedKbsRes = await client.query(
+                    `SELECT akb.knowledge_base_id, akb.priority,
+                            akb.retrieval_top_k, akb.retrieval_min_score
+                       FROM assistant_knowledge_bases akb
+                      WHERE akb.assistant_id = $1::uuid
+                        AND akb.org_id = $2
+                        AND akb.enabled = TRUE
+                      ORDER BY akb.priority ASC`,
+                    [ctxAssistantId, orgId],
+                );
+                const linkedKbs = linkedKbsRes.rows as Array<{
+                    knowledge_base_id: string;
+                    priority: number;
+                    retrieval_top_k: number | null;
+                    retrieval_min_score: string | null;
+                }>;
+
+                if (linkedKbs.length > 0) {
+                    // Lazy-load embeddings + qdrant so a stack without
+                    // RAG configured (env empty, qdrant down, etc) doesn't
+                    // pay any boot cost.
+                    const { getEmbeddingProvider } = await import('./embeddings');
+                    const { searchAcrossKnowledgeBases } = await import('./qdrant');
+
+                    const queryText = (ctx.instructions as string | undefined)
+                        || item.description as string | undefined
+                        || item.title as string;
+                    const provider = getEmbeddingProvider();
+                    const [queryVec] = await provider.embed([queryText]);
+
+                    const topK = linkedKbs.find(kb => kb.retrieval_top_k != null)?.retrieval_top_k
+                        ?? parseInt(process.env.RAG_RETRIEVAL_TOP_K || '5', 10);
+                    const minScore = linkedKbs.find(kb => kb.retrieval_min_score != null)?.retrieval_min_score
+                        ? parseFloat(linkedKbs.find(kb => kb.retrieval_min_score != null)!.retrieval_min_score!)
+                        : parseFloat(process.env.RAG_RETRIEVAL_MIN_SCORE || '0.6');
+
+                    const hits = await searchAcrossKnowledgeBases(
+                        orgId,
+                        linkedKbs.map(kb => kb.knowledge_base_id),
+                        queryVec,
+                        { topK, minScore },
+                    );
+
+                    if (hits.length > 0) {
+                        ragContextBlock = '\n\n## Contexto recuperado\n\n' +
+                            hits.map((h, i) =>
+                                `[Documento ${i + 1} · score ${h.score.toFixed(3)}]\n${h.payload.content}`,
+                            ).join('\n\n---\n\n');
+                    }
+
+                    // Audit, even on zero hits — operators need to know
+                    // RAG was queried and produced nothing.
+                    await client.query(
+                        `INSERT INTO retrieval_log
+                            (org_id, work_item_id, assistant_id, knowledge_base_id,
+                             query_preview, chunks_retrieved, top_score, latency_ms)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                        [
+                            orgId,
+                            workItemId,
+                            ctxAssistantId,
+                            linkedKbs[0].knowledge_base_id,
+                            queryText.substring(0, 200),
+                            hits.length,
+                            hits[0]?.score ?? null,
+                            Date.now() - ragStart,
+                        ],
+                    );
+                }
+            } catch (ragErr) {
+                console.warn('[Runtime] RAG retrieval failed (non-fatal):', (ragErr as Error).message);
+                // Best-effort log of the failed attempt.
+                try {
+                    await client.query(
+                        `INSERT INTO retrieval_log
+                            (org_id, work_item_id, assistant_id,
+                             query_preview, chunks_retrieved, latency_ms)
+                         VALUES ($1, $2, $3, $4, 0, $5)`,
+                        [
+                            orgId,
+                            workItemId,
+                            ctxAssistantId,
+                            'RAG_ERROR: ' + (ragErr as Error).message.substring(0, 180),
+                            Date.now() - ragStart,
+                        ],
+                    );
+                } catch { /* swallow — never let logging crash dispatch */ }
+            }
+        }
+
+        // 4. Build instruction from work item fields + skills + RAG.
+        // The system prompt for the assistant lives in execution_context.
+        // system_prompt (set by /v1/admin/runtime/work-items in 5b.2),
+        // and the RAG block goes right under it so the model has
+        // grounding data BEFORE the task description.
+        const systemPrompt = (ctx.system_prompt as string | undefined)
+            || (ctx.systemPrompt as string | undefined)
+            || '';
         const instruction = [
+            systemPrompt ? systemPrompt : '',
+            ragContextBlock,
             `## Task: ${item.title}`,
             item.description ? `\n${item.description}` : '',
             (ctx.instructions as string | undefined) ? `\n### Instructions\n${ctx.instructions}` : '',

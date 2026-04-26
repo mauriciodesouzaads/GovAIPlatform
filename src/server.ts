@@ -191,6 +191,16 @@ fastify.register(cors, {
     credentials: true,
 });
 
+// FASE 14.0/6a₁ — multipart for RAG document uploads.
+// Streamed to disk by the route handler; the limit here is the per-file
+// ceiling (env-tunable to match RAG_MAX_DOCUMENT_SIZE_MB).
+fastify.register(import('@fastify/multipart'), {
+    limits: {
+        fileSize: parseInt(process.env.RAG_MAX_DOCUMENT_SIZE_MB || '50', 10) * 1024 * 1024,
+        files: 1,
+    },
+});
+
 // P-12: Global rate limit + Retry-After header in seconds
 fastify.register(rateLimit, {
     max: (request: FastifyRequest) => (request.headers.authorization ? 1000 : 50),
@@ -602,6 +612,7 @@ import { mcpServersRoutes } from './routes/mcp-servers.routes';
 import { chatRoutes } from './routes/chat.routes';
 import { runtimeRoutes } from './routes/runtime.routes';
 import { runtimeAdminRoutes } from './routes/runtime-admin.routes';
+import { knowledgeRoutes } from './routes/knowledge.routes';
 import { runRetentionArchiving } from './jobs/retention-archive.job';
 
 fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, requireRole: requireTenantRole, requirePlatformAdmin });
@@ -631,6 +642,10 @@ fastify.register(runtimeRoutes, { pgPool, requireRole: requireTenantRole });
 // The legacy /v1/admin/architect/work-items/* routes were removed in 5b.2
 // when the playground UI was retired in favor of /execucoes.
 fastify.register(runtimeAdminRoutes, { pgPool, requireRole: requireTenantRole });
+// FASE 14.0/6a₁ — RAG real with Qdrant. Knowledge bases CRUD, document
+// upload pipeline (extract → DLP → chunk → embed → upsert), retrieval
+// search and assistant↔KB linking.
+fastify.register(knowledgeRoutes, { pgPool, requireRole: requireTenantRole });
 
 // ---------------------------------------------------------------------------
 // Global error handler — captures unhandled 500s to Sentry

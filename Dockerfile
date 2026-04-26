@@ -58,8 +58,8 @@ COPY --chown=govai:govai docs/legal ./docs/legal
 # ownership so when docker mounts the named volumes on top, they inherit
 # the right uid/gid. Required because the api process runs as the
 # unprivileged govai user but writes per-work-item workspace dirs there.
-RUN mkdir -p /tmp/govai-workspaces /var/run/govai && \
-    chown -R govai:govai /tmp/govai-workspaces /var/run/govai
+RUN mkdir -p /tmp/govai-workspaces /var/run/govai /var/govai/rag-storage && \
+    chown -R govai:govai /tmp/govai-workspaces /var/run/govai /var/govai
 
 USER govai
 
