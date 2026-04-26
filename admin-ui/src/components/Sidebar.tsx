@@ -6,7 +6,7 @@ import {
     LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck,
     ToggleRight, Play, ScanEye, BookOpen, UserCog, Building2, X, Bell,
     ScrollText, AlertTriangle, Settings, ClipboardCheck, ShieldEllipsis, BellRing, Sparkles,
-    Scale, BadgeCheck, Terminal, Shield,
+    Scale, BadgeCheck, Terminal, Shield, Activity,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
@@ -167,6 +167,8 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         {(isAdmin || showAll) && <SectionLabel label={t('governance')} />}
                         <NavItem href="/shield"     label={t('shield')}         Icon={ScanEye}       isActive={pathname === '/shield'}      accentClass="bg-amber-400" iconActiveClass="text-amber-400" badge={badgeCount}      onClose={onClose} />
                         <NavItem href="/catalog"    label={t('catalog')}        Icon={BookOpen}      isActive={pathname === '/catalog'}     accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
+                        {/* FASE 14.0/5b.1 — superfície de execuções, irmã do Catálogo */}
+                        <NavItem href="/execucoes"  label={t('execucoes')}      Icon={Activity}      isActive={pathname === '/execucoes' || pathname.startsWith('/execucoes/')} accentClass="bg-amber-400" iconActiveClass="text-amber-400" onClose={onClose} />
                         <NavItem href="/approvals"  label={t('approvals')}      Icon={ShieldCheck}   isActive={pathname === '/approvals'}   accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
                         <NavItem href="/reports"    label={t('reports')}        Icon={FileText}      isActive={pathname === '/reports'}     accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
                         <NavItem href="/compliance" label={t('compliance')}     Icon={ToggleRight}   isActive={pathname === '/compliance'}  accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />

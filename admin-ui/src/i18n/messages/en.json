@@ -54,6 +54,7 @@
         "dashboard": "Dashboard",
         "shield": "Risk Posture",
         "catalog": "Agent Catalog",
+        "execucoes": "Executions",
         "approvals": "Approval Queue",
         "reports": "Evidence & Reports",
         "compliance": "LGPD Compliance",
