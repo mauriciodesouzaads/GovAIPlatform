@@ -602,6 +602,7 @@ import { skillsRoutes } from './routes/skills.routes';
 import { mcpServersRoutes } from './routes/mcp-servers.routes';
 import { chatRoutes } from './routes/chat.routes';
 import { runtimeRoutes } from './routes/runtime.routes';
+import { runtimeAdminRoutes } from './routes/runtime-admin.routes';
 import { runRetentionArchiving } from './jobs/retention-archive.job';
 
 fastify.register(adminRoutes, { pgPool, requireAdminAuth: requireAuthenticated, requireRole: requireTenantRole, requirePlatformAdmin });
@@ -626,6 +627,10 @@ fastify.register(skillsRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(mcpServersRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(chatRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(runtimeRoutes, { pgPool, requireRole: requireTenantRole });
+// FASE 14.0/5a — runtime admin API (work-items list/detail/SSE/cancel,
+// sessions index, runners health). Parallel surface to the legacy
+// /v1/admin/architect/work-items/* routes; both work until 5b ships.
+fastify.register(runtimeAdminRoutes, { pgPool, requireRole: requireTenantRole });
 
 // ---------------------------------------------------------------------------
 // Global error handler — captures unhandled 500s to Sentry
