@@ -634,8 +634,17 @@ export async function runOpenClaudeAdapter(
         const shieldLevel: ShieldLevel = await resolveShieldLevel(pool, orgId, ctxAssistantId);
         if (ctxAssistantId) {
             try {
+                // FASE 14.0/6a₂.B — query estendida para hybrid skills.
+                // skill_md_content + skill_md_frontmatter + file_count
+                // chegam só em rows com skill_type='anthropic'; legacy
+                // skills (system + user-created tipo 'prompt') caem no
+                // branch else e funcionam idênticas ao 5c.
+                // Note: assistant_skill_bindings não tem coluna priority
+                // no schema atual (apenas (assistant_id, skill_id, is_active));
+                // ordenamos por cs.name apenas.
                 const skillsRes = await client.query(
-                    `SELECT cs.name, cs.instructions
+                    `SELECT cs.id, cs.name, cs.skill_type, cs.instructions,
+                            cs.skill_md_content, cs.skill_md_frontmatter, cs.file_count
                      FROM catalog_skills cs
                      JOIN assistant_skill_bindings asb ON cs.id = asb.skill_id
                      WHERE asb.assistant_id = $1 AND asb.org_id = $2
@@ -644,8 +653,46 @@ export async function runOpenClaudeAdapter(
                     [ctxAssistantId, orgId]
                 );
                 if (skillsRes.rows.length > 0) {
+                    const skillBlocks: string[] = [];
+                    for (const skill of skillsRes.rows) {
+                        if (skill.skill_type === 'anthropic' && skill.skill_md_content) {
+                            // Skill anthropic-style: lista arquivos + path
+                            // que SERÁ montado no runner em 6a₂.C. Por
+                            // enquanto o caminho /mnt/skills/... é apenas
+                            // referenciado simbolicamente — modelo "sabe"
+                            // da estrutura via SKILL.md inline mas não
+                            // pode tocar arquivos até o volume aparecer.
+                            const filesRes = await client.query(
+                                `SELECT relative_path, mime_type, size_bytes, is_executable
+                                 FROM skill_files
+                                 WHERE skill_id = $1
+                                 ORDER BY relative_path`,
+                                [skill.id]
+                            );
+                            const filesList = filesRes.rows.length > 0
+                                ? '\n\nArquivos disponíveis:\n' +
+                                  filesRes.rows.map((f: any) =>
+                                    `- \`${f.relative_path}\` (${f.mime_type}, ${f.size_bytes}B${f.is_executable ? ', executable' : ''})`
+                                  ).join('\n')
+                                : '';
+                            const skillPath = `/mnt/skills/${orgId}/${skill.id}`;
+                            skillBlocks.push(
+                                `### ${skill.name}\n\n` +
+                                `Skill anthropic-style disponível em \`${skillPath}\`.${filesList}\n\n` +
+                                `SKILL.md:\n${skill.skill_md_content}`
+                            );
+                        } else {
+                            // Skill tipo 'prompt' (legacy + 6a₂.B default):
+                            // instructions inline. As 3 system seedadas
+                            // (Análise Jurídica, FAQ Corporativo, Code
+                            // Review Governado) caem aqui via backfill 096.
+                            skillBlocks.push(
+                                `### ${skill.name}\n${skill.instructions ?? ''}`
+                            );
+                        }
+                    }
                     skillInstructions = '\n\n## Skills Aplicáveis\n\n' +
-                        skillsRes.rows.map(s => `### ${s.name}\n${s.instructions}`).join('\n\n');
+                        skillBlocks.join('\n\n---\n\n');
                 }
             } catch (skillErr) {
                 console.warn('[OpenClaude] failed to resolve skills:', (skillErr as Error).message);
@@ -779,6 +826,35 @@ export async function runOpenClaudeAdapter(
             (ctx.instructions as string | undefined) ? `\n### Instructions\n${ctx.instructions}` : '',
             skillInstructions,
         ].filter(Boolean).join('\n');
+
+        // FASE 14.0/6a₂.B — persist the assembled instruction back to the
+        // work_item so operators can audit exactly what the runner saw
+        // (skills + RAG + system prompt) without having to reconstruct it
+        // from execution_context.* + DB lookups. The full instruction
+        // can be large; we cap at 32k chars to avoid bloating the row.
+        // The cap is well above the realistic ceiling (a 4-skill anthropic
+        // bundle averages ~6k chars including SKILL.md content) but
+        // protects against pathological inputs.
+        try {
+            const persistCl = await pool.connect();
+            try {
+                await persistCl.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                await persistCl.query(
+                    `UPDATE runtime_work_items
+                       SET execution_context = COALESCE(execution_context, '{}'::jsonb)
+                                                || jsonb_build_object('dispatched_instruction', $1::text)
+                     WHERE id = $2 AND org_id = $3`,
+                    [instruction.substring(0, 32_000), workItemId, orgId]
+                );
+            } finally {
+                await persistCl.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+                persistCl.release();
+            }
+        } catch (persistErr) {
+            // Non-fatal: failure to persist the instruction shouldn't
+            // block the run. Log and proceed.
+            console.warn('[Runtime] failed to persist dispatched_instruction:', (persistErr as Error).message);
+        }
 
         // 5. Record evidence: run started
         await recordEvidence(pool, {
