@@ -58,7 +58,17 @@ COPY --chown=govai:govai docs/legal ./docs/legal
 # ownership so when docker mounts the named volumes on top, they inherit
 # the right uid/gid. Required because the api process runs as the
 # unprivileged govai user but writes per-work-item workspace dirs there.
-RUN mkdir -p /tmp/govai-workspaces /var/run/govai /var/govai/rag-storage && \
+#
+# FASE 14.0/6a₂.C added two new dirs:
+#   /var/govai/skills-storage  — anthropic skill bundles (api RW, runner RO)
+#   /var/govai/work-item-outputs — persistent copy of captured outputs that
+#                                  survives workspace cleanup (the ephemeral
+#                                  workspace dir is wiped in the dispatch
+#                                  finally block, so outputs need a permanent
+#                                  home to keep download endpoints honest).
+RUN mkdir -p /tmp/govai-workspaces /var/run/govai \
+             /var/govai/rag-storage /var/govai/skills-storage \
+             /var/govai/work-item-outputs && \
     chown -R govai:govai /tmp/govai-workspaces /var/run/govai /var/govai
 
 USER govai

@@ -232,6 +232,12 @@ services:
       # by sha256, so re-uploading the same file is idempotent and the
       # extractor pipeline can re-read on demand.
       - rag_storage:/var/govai/rag-storage
+      # FASE 14.0/6a₂.C — skills hybrid storage. Anthropic-style skill
+      # bundles imported via /v1/admin/catalog/skills/import-anthropic
+      # land here; the runner mounts the same volume read-only at
+      # /mnt/skills so the agent can reference skill assets via
+      # filesystem paths without any chance of mutating them.
+      - skills_storage:/var/govai/skills-storage
     ports:
       - "3000:3000"
     restart: unless-stopped
@@ -401,6 +407,13 @@ services:
       # the api mounts this volume at /var/run/govai/claude-code.
       - govai_sockets_claude_code:/var/run/govai
       - govai_workspaces:/tmp/govai-workspaces
+      # FASE 14.0/6a₂.C — skills hybrid bundles, read-only mount.
+      # The api populates skills_storage on import; this side only
+      # reads. RO at the docker level guarantees the agent cannot
+      # tamper with shared skill assets even via a compromised tool
+      # call. Path chosen to mirror anthropic/skills convention so
+      # SKILL.md prompts that reference /mnt/skills resolve naturally.
+      - skills_storage:/mnt/skills:ro
       # FASE 14.0/3a — sessions are written to /tmp/.claude inside the
       # container's writable layer (HOME=/tmp). They survive `docker
       # compose restart` but NOT `docker compose down -v` / image rebuild.
@@ -499,6 +512,11 @@ volumes:
   # FASE 14.0/6a₁ — RAG document storage + Qdrant data.
   qdrant_data:
   rag_storage:
+  # FASE 14.0/6a₂.C — Skills hybrid storage. The api writes here on
+  # POST /v1/admin/catalog/skills/import-anthropic; the runner mounts
+  # this read-only at /mnt/skills so the agent can reference skill
+  # bundles by path without any chance of mutating them.
+  skills_storage:
 
 
 networks:

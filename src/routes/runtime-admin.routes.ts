@@ -28,6 +28,8 @@ import { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
+import { promises as fs, createReadStream } from 'fs';
+import path from 'path';
 import { redisCache } from '../lib/redis';
 import { buildCorsHeaders } from '../lib/cors-config';
 import {
@@ -972,5 +974,127 @@ export async function runtimeAdminRoutes(
             await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
             client.release();
         }
+    });
+
+    // ──────────────────────────────────────────────────────────────────
+    // GET /v1/admin/runtime/work-items/:id/files          (FASE 6a₂.C)
+    // ──────────────────────────────────────────────────────────────────
+    //
+    // Lists files captured by captureWorkItemOutputs after the run's
+    // RUN_COMPLETED event. Returns metadata only — actual content is
+    // streamed by the per-file endpoint below.
+    app.get('/v1/admin/runtime/work-items/:id/files', {
+        preHandler: readAuth,
+    }, async (request: any, reply) => {
+        const { orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const id = String((request.params as any).id || '');
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+            return reply.status(400).send({ error: 'invalid id (uuid expected)' });
+        }
+
+        const client = await pgPool.connect();
+        try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+
+            // Confirm the work_item belongs to this org BEFORE leaking
+            // file existence — RLS on work_item_outputs already gates
+            // SELECT, but a 404 with a wrong-org id is friendlier than
+            // returning [] silently.
+            const wi = await client.query(
+                `SELECT 1 FROM runtime_work_items WHERE id = $1::uuid AND org_id = $2`,
+                [id, orgId]
+            );
+            if (wi.rows.length === 0) {
+                return reply.status(404).send({ error: 'work_item not found' });
+            }
+
+            const result = await client.query(
+                `SELECT id, filename, mime_type, size_bytes, sha256, created_at
+                   FROM work_item_outputs
+                  WHERE work_item_id = $1::uuid AND org_id = $2
+                  ORDER BY filename ASC`,
+                [id, orgId]
+            );
+            return reply.send({
+                files: result.rows.map(r => ({
+                    id: r.id,
+                    filename: r.filename,
+                    mime_type: r.mime_type,
+                    size_bytes: Number(r.size_bytes),
+                    sha256: r.sha256,
+                    created_at: r.created_at instanceof Date
+                        ? r.created_at.toISOString()
+                        : String(r.created_at),
+                })),
+            });
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+    });
+
+    // ──────────────────────────────────────────────────────────────────
+    // GET /v1/admin/runtime/work-items/:id/files/:fileId  (FASE 6a₂.C)
+    // ──────────────────────────────────────────────────────────────────
+    //
+    // Streams a single output file to the caller with
+    // Content-Disposition: attachment so the browser saves rather than
+    // navigating into the file. We address by output id (UUID) rather
+    // than by filename because filenames can contain slashes when the
+    // agent organises outputs into subdirs (e.g. "reports/q4.pdf") —
+    // routing on a filename would force ugly URL encoding everywhere.
+    app.get('/v1/admin/runtime/work-items/:id/files/:fileId', {
+        preHandler: readAuth,
+    }, async (request: any, reply) => {
+        const { orgId } = request.user ?? {};
+        if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
+        const id     = String((request.params as any).id || '');
+        const fileId = String((request.params as any).fileId || '');
+        const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRe.test(id) || !uuidRe.test(fileId)) {
+            return reply.status(400).send({ error: 'invalid id / fileId (uuid expected)' });
+        }
+
+        const client = await pgPool.connect();
+        let row: { filename: string; mime_type: string; storage_path: string; size_bytes: number };
+        try {
+            await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+            const result = await client.query(
+                `SELECT filename, mime_type, storage_path, size_bytes
+                   FROM work_item_outputs
+                  WHERE id = $1::uuid AND work_item_id = $2::uuid AND org_id = $3`,
+                [fileId, id, orgId]
+            );
+            if (result.rows.length === 0) {
+                return reply.status(404).send({ error: 'file not found' });
+            }
+            row = result.rows[0];
+        } finally {
+            await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+            client.release();
+        }
+
+        // Confirm the file is still on disk. After a docker compose
+        // down -v the volume is wiped but rows in work_item_outputs
+        // persist; surface 410 Gone in that case so the UI can flag
+        // it accurately rather than spinning on a broken stream.
+        try {
+            await fs.access(row.storage_path);
+        } catch {
+            return reply.status(410).send({ error: 'file no longer available on disk' });
+        }
+
+        // Sanitize filename for the Content-Disposition header — the
+        // browser uses this name when saving. Strip path separators
+        // (basename) and any character that could escape the quoted
+        // string (quotes, control chars, etc.).
+        const baseName = path.basename(row.filename).replace(/[^a-zA-Z0-9._-]/g, '_');
+
+        return reply
+            .type(row.mime_type || 'application/octet-stream')
+            .header('Content-Length', String(row.size_bytes))
+            .header('Content-Disposition', `attachment; filename="${baseName}"`)
+            .send(createReadStream(row.storage_path));
     });
 }

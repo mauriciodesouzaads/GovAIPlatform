@@ -1519,6 +1519,27 @@ export async function runOpenClaudeAdapter(
                     promptTokens, completionTokens, toolCount: toolEvents.length,
                 });
 
+                // FASE 14.0/6a₂.C — capture files generated in the work_item's
+                // workspace into work_item_outputs so the UI can list +
+                // download them. Failure here is non-fatal: the run is already
+                // `done` and the outputs scan is a best-effort UX feature.
+                try {
+                    const { captureWorkItemOutputs } = await import('./workspace-outputs');
+                    const result = await captureWorkItemOutputs(pool, orgId, workItemId);
+                    if (result.captured > 0) {
+                        await insertWorkItemEvent(pool, orgId, workItemId, 'OUTPUTS_CAPTURED', {
+                            captured: result.captured,
+                            skipped: result.skipped,
+                            total_bytes: result.total_bytes,
+                        }).catch(() => {});
+                    }
+                } catch (captureErr) {
+                    console.warn(
+                        '[Runtime] captureWorkItemOutputs failed (non-fatal):',
+                        (captureErr as Error).message
+                    );
+                }
+
                 resolvePromise({
                     success: true,
                     output: {
