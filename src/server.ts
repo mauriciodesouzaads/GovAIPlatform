@@ -187,8 +187,33 @@ fastify.register(cors, {
     // FASE 13.5a2: allow-list consumed from src/lib/cors-config.ts so
     // the plugin registration and hijacked SSE (chat.routes.ts) share
     // exactly one source of truth.
+    //
+    // FASE 14.0/6a₂: methods + allowedHeaders + exposedHeaders + maxAge
+    // explicit so PUT / PATCH / DELETE preflight pass cross-origin.
+    // Default @fastify/cors only echoes GET,HEAD,POST in
+    // Access-Control-Allow-Methods, which made the 6a₁ admin endpoints
+    // (DELETE knowledge-bases, PUT assistants/:id/knowledge-bases) fail
+    // from the browser. Reusing getCorsAllowOrigins() — single source
+    // of truth — so hijacked SSE buildCorsHeaders() stays in sync.
     origin: getCorsAllowOrigins(),
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'x-org-id',
+        'x-request-id',
+        'x-api-key',
+        'Accept',
+        'Origin',
+    ],
+    exposedHeaders: [
+        'x-request-id',
+        'x-rate-limit-remaining',
+        'x-rate-limit-reset',
+    ],
+    maxAge: 86400, // 24h preflight cache — heavy admin pages avoid OPTIONS spam
+    optionsSuccessStatus: 204,
 });
 
 // FASE 14.0/6a₁ — multipart for RAG document uploads.

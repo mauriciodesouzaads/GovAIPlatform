@@ -13,6 +13,11 @@
 
 import { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
+import { promises as fs, createReadStream } from 'fs';
+import path from 'path';
+import { randomUUID, createHash } from 'crypto';
+import AdmZip from 'adm-zip';
+import yaml from 'js-yaml';
 
 interface SkillBody {
     name?: string;
@@ -23,6 +28,65 @@ interface SkillBody {
     tags?: string[];
     version?: string;
     is_active?: boolean;
+    // FASE 14.0/6a₂ — hybrid skills
+    skill_type?: 'prompt' | 'anthropic';
+    skill_md_content?: string;
+}
+
+const SKILLS_STORAGE_BASE = process.env.SKILLS_STORAGE_PATH || '/var/govai/skills-storage';
+
+// Heuristic: file extension → "is text" decision for content_preview population.
+const TEXT_EXTS = new Set([
+    '.md', '.markdown', '.txt', '.json', '.yaml', '.yml', '.csv',
+    '.js', '.ts', '.py', '.sh', '.html', '.xml', '.toml', '.ini',
+]);
+
+function mimeForExt(ext: string): string {
+    const lower = ext.toLowerCase();
+    const map: Record<string, string> = {
+        '.md': 'text/markdown', '.markdown': 'text/markdown',
+        '.txt': 'text/plain',
+        '.json': 'application/json',
+        '.yaml': 'application/yaml', '.yml': 'application/yaml',
+        '.csv': 'text/csv',
+        '.js': 'application/javascript',
+        '.ts': 'application/typescript',
+        '.py': 'text/x-python',
+        '.sh': 'application/x-sh',
+        '.html': 'text/html',
+        '.xml': 'application/xml',
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif', '.svg': 'image/svg+xml',
+        '.pdf': 'application/pdf',
+        '.zip': 'application/zip',
+    };
+    return map[lower] || 'application/octet-stream';
+}
+
+/**
+ * Parse YAML frontmatter at the head of a SKILL.md. Returns
+ * { frontmatter, body }. If no frontmatter, frontmatter is {} and
+ * body is the full input.
+ */
+function parseFrontmatter(text: string): { frontmatter: Record<string, unknown>; body: string } {
+    const m = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
+    if (!m) return { frontmatter: {}, body: text };
+    let parsed: Record<string, unknown> = {};
+    try {
+        const loaded = yaml.load(m[1]);
+        if (loaded && typeof loaded === 'object') {
+            parsed = loaded as Record<string, unknown>;
+        }
+    } catch { /* invalid yaml — leave fm empty, downstream validation catches */ }
+    return { frontmatter: parsed, body: text.slice(m[0].length) };
+}
+
+/** Reject paths that try to break out of the skill dir via .. or absolute paths. */
+function isSafeRelativePath(rel: string): boolean {
+    if (!rel || rel.startsWith('/') || rel.startsWith('\\')) return false;
+    if (rel.includes('..')) return false;
+    if (rel.includes('\0')) return false;
+    return true;
 }
 
 export async function skillsRoutes(
