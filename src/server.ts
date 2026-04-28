@@ -211,6 +211,17 @@ fastify.register(cors, {
         'x-request-id',
         'x-rate-limit-remaining',
         'x-rate-limit-reset',
+        // FASE 14.0/6a₂.C-fix: download endpoints
+        // (/v1/admin/runtime/work-items/:id/files/:fileId,
+        //  /v1/admin/catalog/skills/:id/files/:fileId)
+        // emit Content-Disposition: attachment; filename="…" so the
+        // browser knows what name to suggest. Without exposing the
+        // header here, the UI 6b/6c can't read it via
+        // `response.headers.get('content-disposition')` and has to
+        // fall back to a generic filename. Content-Length is exposed
+        // for progress bars during large-file downloads.
+        'Content-Disposition',
+        'Content-Length',
     ],
     maxAge: 86400, // 24h preflight cache — heavy admin pages avoid OPTIONS spam
     optionsSuccessStatus: 204,
