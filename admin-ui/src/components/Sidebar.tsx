@@ -6,7 +6,7 @@ import {
     LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck,
     ToggleRight, Play, ScanEye, BookOpen, UserCog, Building2, X, Bell,
     ScrollText, AlertTriangle, Settings, ClipboardCheck, ShieldEllipsis, BellRing, Sparkles,
-    Scale, BadgeCheck, Terminal, Shield, Activity,
+    Scale, BadgeCheck, Terminal, Shield, Activity, MessageCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
@@ -193,11 +193,16 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         {(isAdmin || showAll) && <SectionLabel label={t('technical')} />}
                         <NavItem href="/"           label={t('dashboard')}   Icon={LayoutDashboard}  isActive={pathname === '/'}           accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                         <NavItem href="/assistants" label={t('assistants')}  Icon={MessageSquareText} isActive={pathname === '/assistants'} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
+                        {/* FASE 14.0/6c.A — /chat é o produto Claude Desktop-like
+                            governado, distinto de /execucoes (que é o admin panel
+                            de runtime work items). Usa MessageCircle (Lucide) pra
+                            diferenciar visualmente do MessageSquareText do /assistants. */}
+                        <NavItem href="/chat"       label={t('chat')}        Icon={MessageCircle}     isActive={pathname === '/chat' || pathname.startsWith('/chat/')} accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                         <NavItem href="/api-keys"   label={t('apiKeys')}     Icon={Key}              isActive={pathname === '/api-keys'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
-                        {/* FASE 14.0/5b.2: /playground (and the chat NavItem) was retired
-                            when /execucoes (Modo Agente + Modo Livre) became the sole
-                            governed-conversation surface. /architect was removed in
-                            Etapa 1 alongside the workflow domain. */}
+                        {/* FASE 14.0/5b.2: /playground retirado — /execucoes
+                            (Modo Agente + Livre) é o admin panel governance.
+                            FASE 14.0/6c.A reintroduz /chat como produto user-facing
+                            estilo Claude Desktop, distinto e complementar. */}
                         <NavItem href="/webhooks"   label={t('webhooks')}    Icon={Bell}             isActive={pathname === '/webhooks'}   accentClass="bg-emerald-500" iconActiveClass="text-emerald-500" onClose={onClose} />
                     </>
                 )}
