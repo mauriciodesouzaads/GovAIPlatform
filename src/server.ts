@@ -646,6 +646,11 @@ import { skillsRoutes } from './routes/skills.routes';
 // Arquiteto-workflow. Delegação (the legacy delegation module) fica intacta.
 import { mcpServersRoutes } from './routes/mcp-servers.routes';
 import { chatRoutes } from './routes/chat.routes';
+// FASE 14.0/6c.A — chat nativo (sob /v1/chat) com persistência em
+// chat_conversations / chat_messages, multi-LLM via LiteLLM, SSE
+// streaming, attachments. Convive com o legacy /v1/admin/chat/*
+// (sessões em Redis, admin-only) que segue ativo até deprecation.
+import { chatNativeRoutes } from './routes/chat-native.routes';
 import { runtimeRoutes } from './routes/runtime.routes';
 import { runtimeAdminRoutes } from './routes/runtime-admin.routes';
 import { knowledgeRoutes } from './routes/knowledge.routes';
@@ -671,6 +676,7 @@ fastify.register(notificationChannelsRoutes, { pgPool, requireRole: requireTenan
 fastify.register(skillsRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(mcpServersRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(chatRoutes, { pgPool, requireRole: requireTenantRole });
+fastify.register(chatNativeRoutes, { pgPool, requireRole: requireTenantRole });
 fastify.register(runtimeRoutes, { pgPool, requireRole: requireTenantRole });
 // FASE 14.0/5b.2 — runtime admin API is the SOLE work-item surface.
 // Endpoints: list, detail, SSE stream, cancel, sessions index,

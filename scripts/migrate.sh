@@ -148,6 +148,7 @@ MIGRATIONS=(
     "094_rag_real_qdrant.sql"
     "095_documents_kb_id_cascade.sql"
     "096_skills_hybrid_and_outputs.sql"
+    "097_chat_native_ui.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

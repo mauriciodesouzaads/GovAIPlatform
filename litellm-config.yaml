@@ -105,6 +105,43 @@ model_list:
       model: openai/gpt-4o
       api_key: os.environ/OPENAI_API_KEY
 
+  # ── User-facing chat aliases (FASE 14.0/6c.A) ───────────────────────────
+  # These names show up in the chat UI's model selector and are seeded
+  # in `llm_providers` (migration 097). Prefix-free so they read clean
+  # in the dropdown ("Claude Sonnet 4.6" instead of "govai-llm-anthropic").
+  #
+  # Why a separate alias for each instead of reusing govai-llm-anthropic:
+  #   - The chat selector lets the user pick a *specific* model (Opus
+  #     vs Sonnet vs Haiku trade off cost/capability differently); a
+  #     single govai-llm-anthropic alias hides that choice.
+  #   - When OpenAI / Gemini keys are unset, the fallback in `general
+  #     _settings.fallbacks` below routes any of these to a working
+  #     model, so the UI doesn't 500 on missing creds.
+  - model_name: claude-opus-4-7
+    litellm_params:
+      model: anthropic/claude-opus-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: gemini-2-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+
   # ── OpenRouter (optional — multi-provider marketplace) ──────────────────
   # FASE 11: OpenRouter provides access to 500+ models via a single key.
   # Disabled by default (OPENROUTER_API_KEY not set in .env). When enabled,

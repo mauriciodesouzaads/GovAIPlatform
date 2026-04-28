@@ -68,7 +68,7 @@ COPY --chown=govai:govai docs/legal ./docs/legal
 #                                  home to keep download endpoints honest).
 RUN mkdir -p /tmp/govai-workspaces /var/run/govai \
              /var/govai/rag-storage /var/govai/skills-storage \
-             /var/govai/work-item-outputs && \
+             /var/govai/work-item-outputs /var/govai/chat-attachments && \
     chown -R govai:govai /tmp/govai-workspaces /var/run/govai /var/govai
 
 USER govai
