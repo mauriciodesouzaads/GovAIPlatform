@@ -858,7 +858,8 @@ export async function chatNativeRoutes(
             }
             const r = await client.query(
                 `SELECT id, role, content, model, tokens_in, tokens_out, latency_ms,
-                        finish_reason, tool_calls, attachments_ids, created_at
+                        finish_reason, tool_calls, attachments_ids, created_at,
+                        mode, work_item_id, metadata
                    FROM chat_messages
                   WHERE conversation_id = $1::uuid AND org_id = $2
                   ORDER BY created_at ASC

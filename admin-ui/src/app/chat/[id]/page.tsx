@@ -2,13 +2,22 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Loader2, MessageSquare, Edit2, Check, AlertTriangle } from 'lucide-react';
+import {
+    Loader2, MessageSquare, Edit2, Check, AlertTriangle,
+    Terminal, ExternalLink,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useChatClient } from '../_components/use-chat-client';
 import { ChatMarkdown } from '../_components/ChatMarkdown';
 import { ChatInput } from '../_components/ChatInput';
 import { ModelSelector } from '../_components/ModelSelector';
-import type { ChatMessage, Conversation } from '@/lib/chat-client';
+import { TimelineView } from '@/components/execucoes/timeline-view';
+import type {
+    ChatMessage, Conversation, CodeRuntimeEvent,
+} from '@/lib/chat-client';
+import type { RuntimeWorkItemEvent } from '@/types/runtime-admin';
+
+type TurnMode = 'chat' | 'code';
 
 interface UIMessage {
     id: string;
@@ -19,6 +28,16 @@ interface UIMessage {
     tokens?: { in?: number | null; out?: number | null };
     latency_ms?: number | null;
     model?: string | null;
+    // 6c.B: discriminador do turn — 'chat' (delta) vs 'code' (timeline).
+    mode?: TurnMode | 'cowork';
+    work_item_id?: string | null;
+    // Eventos coletados durante o stream em mode='code'. Para mensagens
+    // históricas vindas do GET /messages essa lista fica vazia — UI
+    // renderiza apenas a resposta final + link "Ver detalhes técnicos".
+    code_events?: CodeRuntimeEvent[];
+    // Metadata persistida (ex: { tool_count: 3 }) — útil para
+    // mensagens históricas em mode='code' onde não temos os eventos.
+    metadata?: Record<string, unknown> | null;
 }
 
 export default function ChatConversationPage() {
@@ -33,6 +52,11 @@ export default function ChatConversationPage() {
     const [streaming, setStreaming] = useState(false);
     const [editingTitle, setEditingTitle] = useState(false);
     const [titleDraft, setTitleDraft] = useState('');
+    // 6c.B: modo do próximo turn. 'chat' = LiteLLM passthrough (default),
+    // 'code' = dispatchWorkItem com Claude Code SDK nativo. Persistido
+    // só no client; cada turn carrega o mode escolhido no momento do
+    // submit. Conversas podem alternar entre turns chat e code livremente.
+    const [turnMode, setTurnMode] = useState<TurnMode>('chat');
 
     const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -72,7 +96,11 @@ export default function ChatConversationPage() {
         el.scrollTop = el.scrollHeight;
     }, [messages, streaming]);
 
-    async function send(content: string, attachmentIds: string[]) {
+    async function send(
+        content: string,
+        attachmentIds: string[],
+        mode: TurnMode = turnMode,
+    ) {
         if (!client || !conv) return;
         const userMsg: UIMessage = {
             id: `user-${Date.now()}`,
@@ -85,6 +113,8 @@ export default function ChatConversationPage() {
             content: '',
             pending: true,
             model: conv.default_model,
+            mode,
+            code_events: mode === 'code' ? [] : undefined,
         };
         setMessages(prev => [...prev, userMsg, assistantMsg]);
         setStreaming(true);
@@ -94,6 +124,7 @@ export default function ChatConversationPage() {
                 content,
                 model: conv.default_model,
                 attachments_ids: attachmentIds,
+                mode,
             })) {
                 if (env.type === 'delta') {
                     setMessages(prev => {
@@ -101,6 +132,37 @@ export default function ChatConversationPage() {
                         const last = next[next.length - 1];
                         if (last?.role === 'assistant') {
                             next[next.length - 1] = { ...last, content: last.content + env.content };
+                        }
+                        return next;
+                    });
+                } else if (env.type === 'mode_code_started') {
+                    // 6c.B: backend confirmou que o turn entrou no
+                    // pipeline de dispatchWorkItem. Anotamos o
+                    // work_item_id para o link "Ver detalhes técnicos"
+                    // e a renderização passa a usar a TimelineView.
+                    setMessages(prev => {
+                        const next = [...prev];
+                        const last = next[next.length - 1];
+                        if (last?.role === 'assistant') {
+                            next[next.length - 1] = {
+                                ...last,
+                                work_item_id: env.work_item_id,
+                                id: env.message_id,
+                            };
+                        }
+                        return next;
+                    });
+                } else if (env.type === 'code_event') {
+                    // Cada evento do runtime_work_item_events que o
+                    // backend forwarda. TimelineView consome.
+                    setMessages(prev => {
+                        const next = [...prev];
+                        const last = next[next.length - 1];
+                        if (last?.role === 'assistant' && last.mode === 'code') {
+                            next[next.length - 1] = {
+                                ...last,
+                                code_events: [...(last.code_events ?? []), env.event],
+                            };
                         }
                         return next;
                     });
@@ -115,6 +177,7 @@ export default function ChatConversationPage() {
                                 tokens: env.tokens,
                                 latency_ms: env.latency_ms,
                                 id: env.assistant_message_id ?? last.id,
+                                work_item_id: env.work_item_id ?? last.work_item_id,
                             };
                         }
                         return next;
@@ -242,7 +305,10 @@ export default function ChatConversationPage() {
                         )}
                     </div>
                 </div>
-                <ModelSelector value={conv.default_model} onChange={changeModel} />
+                <div className="flex items-center gap-3">
+                    <ModeTabs value={turnMode} onChange={setTurnMode} />
+                    <ModelSelector value={conv.default_model} onChange={changeModel} />
+                </div>
             </header>
 
             {/* Messages */}
@@ -261,9 +327,21 @@ export default function ChatConversationPage() {
                         />
                     ) : (
                         <div className="space-y-6">
-                            {messages.map(m => (
-                                <MessageBubble key={m.id} msg={m} streaming={streaming} />
-                            ))}
+                            {messages.map(m =>
+                                m.role === 'assistant' && m.mode === 'code' ? (
+                                    <CodeMessageBubble
+                                        key={m.id}
+                                        msg={m}
+                                        streaming={streaming}
+                                    />
+                                ) : (
+                                    <MessageBubble
+                                        key={m.id}
+                                        msg={m}
+                                        streaming={streaming}
+                                    />
+                                ),
+                            )}
                         </div>
                     )}
                 </div>
@@ -409,5 +487,150 @@ function toUIMessage(m: ChatMessage): UIMessage {
         model: m.model,
         tokens: { in: m.tokens_in, out: m.tokens_out },
         latency_ms: m.latency_ms,
+        mode: m.mode,
+        work_item_id: m.work_item_id ?? null,
+        metadata: m.metadata ?? null,
     };
+}
+
+// ── 6c.B: Mode tabs ────────────────────────────────────────────────────────
+//
+// Pílula compacta com Chat/Code. Posicionada no header do lado direito,
+// antes do ModelSelector. O mode escolhido aplica-se ao próximo turn.
+function ModeTabs({
+    value,
+    onChange,
+}: {
+    value: TurnMode;
+    onChange: (v: TurnMode) => void;
+}) {
+    const tabs: { key: TurnMode; label: string; icon: React.ReactNode }[] = [
+        { key: 'chat', label: 'Chat', icon: <MessageSquare className="w-3 h-3" /> },
+        { key: 'code', label: 'Code', icon: <Terminal className="w-3 h-3" /> },
+    ];
+    return (
+        <div className="inline-flex items-center gap-0.5 bg-[#141820] border border-white/10 rounded-md p-0.5">
+            {tabs.map(t => (
+                <button
+                    key={t.key}
+                    onClick={() => onChange(t.key)}
+                    className={
+                        'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors ' +
+                        (value === t.key
+                            ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                            : 'text-zinc-400 hover:text-zinc-200 border border-transparent')
+                    }
+                    title={
+                        t.key === 'code'
+                            ? 'Modo Code — executa via Claude Code SDK com ferramentas (Bash, Read, Write…)'
+                            : 'Modo Chat — resposta conversacional do LLM escolhido'
+                    }
+                >
+                    {t.icon}
+                    {t.label}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+// ── 6c.B: Bolha de mensagem em mode='code' ─────────────────────────────────
+//
+// Layout:
+//   1. Avatar Terminal + label "Code"
+//   2. Timeline inline com tools, thinking, run lifecycle (TimelineView do
+//      módulo /execucoes — mesma renderização que o admin)
+//   3. Resposta final em markdown (msg.content)
+//   4. Footer: tokens · latency · botão "Ver detalhes técnicos" → /execucoes
+//
+// Para mensagens históricas (vindas do GET /messages), code_events fica
+// vazia — mostramos só a resposta final + tool_count + link.
+function CodeMessageBubble({
+    msg,
+    streaming,
+}: {
+    msg: UIMessage;
+    streaming: boolean;
+}) {
+    const isLive = (msg.code_events?.length ?? 0) > 0;
+    const showCursor = msg.pending && streaming && !msg.error;
+    const toolCount =
+        (msg.metadata && typeof (msg.metadata as { tool_count?: number }).tool_count === 'number')
+            ? (msg.metadata as { tool_count: number }).tool_count
+            : null;
+
+    return (
+        <div className="flex gap-3">
+            <div className="flex-shrink-0 w-7 h-7 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center">
+                <Terminal className="w-3.5 h-3.5 text-amber-300" />
+            </div>
+            <div className="flex-1 min-w-0 space-y-3">
+                <div className="text-[10px] uppercase tracking-wider text-amber-300/80 font-medium">
+                    Code · Claude Code SDK
+                </div>
+
+                {/* Timeline (apenas durante stream — para histórico fica
+                    o link "Ver detalhes técnicos") */}
+                {isLive && (
+                    <div className="rounded-md border border-white/5 bg-[#0E1218] p-3">
+                        <TimelineView
+                            events={msg.code_events as RuntimeWorkItemEvent[]}
+                            mode="normal"
+                        />
+                    </div>
+                )}
+
+                {/* Loading inicial — antes do primeiro evento chegar */}
+                {!isLive && msg.pending && !msg.content && !msg.error && (
+                    <div className="flex items-center gap-2 text-xs text-zinc-500">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Despachando para o runtime…
+                    </div>
+                )}
+
+                {/* Resposta final em markdown */}
+                {msg.error ? (
+                    <div className="rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-200 flex items-start gap-2">
+                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                        <span>{msg.error}</span>
+                    </div>
+                ) : msg.content ? (
+                    <div>
+                        <ChatMarkdown content={msg.content} />
+                        {showCursor && (
+                            <span className="inline-block w-1.5 h-4 bg-amber-400 align-middle animate-pulse ml-1" />
+                        )}
+                    </div>
+                ) : null}
+
+                {/* Footer: tokens · latency · contador de tools · link */}
+                {(msg.tokens || msg.latency_ms || msg.work_item_id || toolCount != null) &&
+                    !msg.pending && (
+                    <div className="text-[10px] text-zinc-600 flex items-center gap-3 flex-wrap">
+                        {msg.model && <span>{msg.model}</span>}
+                        {msg.tokens?.in != null && (
+                            <span>{msg.tokens.in} → {msg.tokens.out ?? 0} tokens</span>
+                        )}
+                        {msg.latency_ms != null && (
+                            <span>{(msg.latency_ms / 1000).toFixed(2)}s</span>
+                        )}
+                        {toolCount != null && (
+                            <span>{toolCount} ferramenta{toolCount === 1 ? '' : 's'}</span>
+                        )}
+                        {msg.work_item_id && (
+                            <a
+                                href={`/execucoes/${msg.work_item_id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300"
+                            >
+                                Ver detalhes técnicos
+                                <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }

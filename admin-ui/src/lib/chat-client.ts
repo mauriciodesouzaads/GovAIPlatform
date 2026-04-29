@@ -55,6 +55,29 @@ export interface ChatMessage {
     tool_calls: unknown;
     attachments_ids: string[];
     created_at: string;
+    // FASE 14.0/6c.B — discriminador do turn:
+    //   'chat'   = LiteLLM passthrough (delta tokens via SSE)
+    //   'code'   = dispatchWorkItem (timeline de tools via SSE)
+    //   'cowork' = futuro
+    mode?: 'chat' | 'code' | 'cowork';
+    // Set em mode='code': link para o runtime_work_items que executou
+    // este turn. UI renderiza CodeMessageBubble e botão "Ver detalhes
+    // técnicos" → /execucoes/<work_item_id>.
+    work_item_id?: string | null;
+    metadata?: Record<string, unknown> | null;
+}
+
+// Eventos do runtime_work_item_events forwarded via SSE quando
+// mode='code'. Shape espelha o RuntimeWorkItemEvent do runtime-admin
+// (TimelineView consome esse mesmo formato).
+export interface CodeRuntimeEvent {
+    id: string;
+    seq: number;
+    type: string;
+    tool_name: string | null;
+    prompt_id: string | null;
+    payload: Record<string, unknown>;
+    timestamp: string;
 }
 
 export interface LlmProvider {
@@ -74,12 +97,31 @@ export type StreamEnvelope =
     | { type: 'delta'; content: string }
     | {
         type: 'done';
-        user_message_id: string;
-        assistant_message_id: string | null;
-        tokens: { in: number; out: number };
-        finish_reason: string | null;
-        latency_ms: number;
+        user_message_id?: string;
+        assistant_message_id?: string | null;
+        // 6c.A: tokens vem em 'chat' mode; 'code' mode emite 'done'
+        // sem tokens detalhados (consultar /v1/admin/runtime/work-items
+        // /:id se quiser drill-down completo).
+        tokens?: { in: number; out: number };
+        finish_reason?: string | null;
+        latency_ms?: number;
+        // 6c.B: presente em 'done' do mode='code'
+        work_item_id?: string;
       }
+    // 6c.B: envelope inicial de mode='code'
+    | {
+        type: 'mode_code_started';
+        work_item_id: string;
+        message_id: string;
+        runtime_profile_slug: string;
+      }
+    // 6c.B: cada evento do runtime_work_item_events forwarded.
+    // Os types possíveis ('RUN_STARTED', 'TOOL_START', etc.) são
+    // emitidos pela dispatch worker — TimelineView consome direto.
+    // Usamos 'code_event' como discriminador wrapper para não confundir
+    // a discriminated union com o 'done'/'error'/'delta' das outras
+    // variantes; o cliente extrai o evento real do campo .event.
+    | { type: 'code_event'; event: CodeRuntimeEvent }
     | { type: 'error'; error: string };
 
 export class ChatClient {
@@ -191,7 +233,16 @@ export class ChatClient {
      */
     async *sendMessage(
         convId: string,
-        body: { content: string; model: string; attachments_ids?: string[] },
+        body: {
+            content: string;
+            model?: string;
+            attachments_ids?: string[];
+            // 6c.B: 'code' dispatcha via dispatchWorkItem (Claude Code
+            // SDK nativo) em vez de LiteLLM passthrough. Stream emite
+            // mode_code_started + RUN_STARTED + TOOL_START/RESULT +
+            // RUN_COMPLETED + done. Default 'chat'.
+            mode?: 'chat' | 'code';
+        },
         signal?: AbortSignal,
     ): AsyncGenerator<StreamEnvelope, void, unknown> {
         const r = await fetch(`${API_BASE}/v1/chat/conversations/${convId}/messages`, {
@@ -226,7 +277,21 @@ export class ChatClient {
                     const payload = line.slice(6).trim();
                     if (!payload) continue;
                     try {
-                        const env = JSON.parse(payload) as StreamEnvelope;
+                        const raw = JSON.parse(payload);
+                        // 6c.B: o backend forwarda eventos de runtime_work_item_events
+                        // direto sem envelope wrapper. Detectamos pela ausência dos
+                        // type literals do chat (delta/done/error/mode_code_started).
+                        // Tudo que tem `seq` numérico é um runtime event — empacota
+                        // sob 'code_event' para o consumidor saber que é timeline.
+                        const knownTypes = new Set([
+                            'delta', 'done', 'error', 'mode_code_started',
+                        ]);
+                        let env: StreamEnvelope;
+                        if (raw && typeof raw.seq === 'number' && !knownTypes.has(raw.type)) {
+                            env = { type: 'code_event', event: raw as CodeRuntimeEvent };
+                        } else {
+                            env = raw as StreamEnvelope;
+                        }
                         yield env;
                         if (env.type === 'done' || env.type === 'error') return;
                     } catch {
