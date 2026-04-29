@@ -366,10 +366,12 @@ async function handleCodeTurn(
                 `INSERT INTO runtime_work_items (
                     id, org_id, node_id, item_type, title, description,
                     execution_hint, status, execution_context,
-                    runtime_profile_slug, assistant_id, execution_mode
+                    runtime_profile_slug, assistant_id, execution_mode,
+                    source
                  ) VALUES (
                     $1, $2, $3, 'compliance_check', $4, $5,
-                    $6, 'pending', $7::jsonb, $8, $9, 'agent'
+                    $6, 'pending', $7::jsonb, $8, $9, 'agent',
+                    'chat'
                  )`,
                 [
                     wiId, orgId,

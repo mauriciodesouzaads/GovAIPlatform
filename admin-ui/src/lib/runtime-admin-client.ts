@@ -36,6 +36,9 @@ export interface ListWorkItemsFilters {
     until?: string;
     limit?: number;
     cursor?: string;
+    // 6c.B.2 — filtros das 3 sub-abas em /evidencias
+    source?: 'chat' | 'admin' | 'api' | 'test' | 'all';
+    q?: string;  // busca substring em title (ILIKE)
 }
 
 export interface SseEvent {
@@ -71,6 +74,9 @@ export class RuntimeAdminClient {
         if (filters.until) params.set('until', filters.until);
         if (filters.limit) params.set('limit', String(filters.limit));
         if (filters.cursor) params.set('cursor', filters.cursor);
+        // 6c.B.2 — sub-abas /evidencias
+        if (filters.source && filters.source !== 'all') params.set('source', filters.source);
+        if (filters.q) params.set('q', filters.q);
 
         const url = `${API_BASE}/v1/admin/runtime/work-items?${params.toString()}`;
         const r = await fetch(url, { headers: this.headers(), signal });

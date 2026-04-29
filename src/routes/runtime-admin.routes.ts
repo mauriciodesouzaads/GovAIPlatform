@@ -66,6 +66,14 @@ const listQuerySchema = z.object({
     until: z.string().datetime().optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50),
     cursor: z.string().uuid().optional(),
+    // 6c.B.2 — sub-aba de /evidencias (rebrand de /execucoes). Filtra
+    // pela coluna source (migration 100). 'all' = sem filtro (default
+    // backward-compat com clients antigos que não passam ?source=).
+    source: z.enum(['chat', 'admin', 'api', 'test', 'all']).default('all'),
+    // Busca substring case-insensitive em title (ILIKE). Limit conservador
+    // p/ evitar regex injection — z.string já bloqueia ataques de LIKE
+    // (% e _ entram na busca como literais via ESCAPE '\\').
+    q: z.string().min(1).max(200).optional(),
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -96,6 +104,7 @@ interface RowToSummary {
     tool_count: string | number;
     event_count: string | number;
     tokens: any;
+    source?: string;  // 6c.B.2 — chat | admin | api | test
 }
 
 function rowToSummary(r: RowToSummary): RuntimeWorkItemSummary {
@@ -124,6 +133,8 @@ function rowToSummary(r: RowToSummary): RuntimeWorkItemSummary {
         event_count: Number(r.event_count ?? 0),
         tokens,
         has_error: r.status === 'failed' || r.status === 'blocked' || Boolean(r.dispatch_error),
+        // 6c.B.2 — origem do work_item p/ filtragem das 3 sub-abas em /evidencias
+        source: (r.source as RuntimeWorkItemSummary['source']) ?? 'admin',
     };
 }
 
@@ -132,6 +143,7 @@ const SUMMARY_SELECT = `
         wi.id, wi.status, wi.runtime_profile_slug, wi.title, wi.description,
         wi.parent_work_item_id, wi.subagent_depth, wi.worker_session_id,
         wi.session_id, wi.created_at, wi.completed_at, wi.dispatch_error,
+        wi.source,
         (SELECT COUNT(*) FROM runtime_work_item_events e
             WHERE e.work_item_id = wi.id
               AND e.event_type IN ('TOOL_START', 'TOOL_RESULT')) AS tool_count,
@@ -201,6 +213,19 @@ export async function runtimeAdminRoutes(
             params.push(q.until);
             where.push(`wi.created_at <= $${params.length}::timestamptz`);
         }
+        // 6c.B.2 — filtro por origem do work_item (sub-abas /evidencias).
+        // 'all' não adiciona predicado p/ preservar backward compat
+        // com clients que não conhecem o filtro.
+        if (q.source && q.source !== 'all') {
+            params.push(q.source);
+            where.push(`wi.source = $${params.length}`);
+        }
+        // 6c.B.2 — busca textual em title. ESCAPE '\\' impede que % e _
+        // do termo sejam interpretados como wildcards do LIKE.
+        if (q.q) {
+            params.push(`%${q.q.replace(/[\\%_]/g, '\\$&')}%`);
+            where.push(`wi.title ILIKE $${params.length} ESCAPE '\\'`);
+        }
 
         // Cursor pagination uses (created_at, id) so rows with identical
         // created_at don't get skipped or duplicated. The cursor encodes
@@ -257,10 +282,36 @@ export async function runtimeAdminRoutes(
                 ? rows[rows.length - 1]?.id ?? null
                 : null;
 
+            // 6c.B.2 — counts_by_source: agregação numa única query p/ a UI
+            // mostrar contadores em cada sub-aba sem disparar 4 requests.
+            // Calcula apenas filtrado por org (não pelo source corrente),
+            // já que o user precisa do count de TODAS as tabs simultaneamente.
+            // Demais filtros (status/runtime/q) não entram propositalmente:
+            // o número refletido é "quanto existe no bucket inteiro".
+            const countsBySource: Record<'chat'|'admin'|'api'|'test', number> = {
+                chat: 0, admin: 0, api: 0, test: 0,
+            };
+            try {
+                const cs = await client.query(
+                    `SELECT source, COUNT(*)::int AS n
+                       FROM runtime_work_items
+                      WHERE org_id = $1 AND parent_work_item_id IS NULL
+                      GROUP BY source`,
+                    [orgId],
+                );
+                for (const row of cs.rows) {
+                    const src = row.source as 'chat'|'admin'|'api'|'test';
+                    if (src && (src in countsBySource) && typeof row.n === 'number') {
+                        countsBySource[src] = row.n;
+                    }
+                }
+            } catch { /* best-effort — UI degrades graciosamente */ }
+
             const body: RuntimeWorkItemListResponse = {
                 items,
                 next_cursor: nextCursor,
                 total_estimate: totalEstimate,
+                counts_by_source: countsBySource,
             };
             return reply.send(body);
         } finally {

@@ -31,6 +31,8 @@ export interface RuntimeWorkItemSummary {
     event_count: number;
     tokens: { prompt: number; completion: number } | null;
     has_error: boolean;
+    // 6c.B.2 — origem do work_item p/ filtragem nas 3 sub-abas em /evidencias
+    source: 'chat' | 'admin' | 'api' | 'test';
 }
 
 export interface RuntimeWorkItemListResponse {
@@ -38,6 +40,8 @@ export interface RuntimeWorkItemListResponse {
     next_cursor: string | null;
     /** Approximate count for the current filter set (NULL when expensive). */
     total_estimate: number | null;
+    /** 6c.B.2 — counts by source para drive das pílulas das sub-abas */
+    counts_by_source?: Record<'chat' | 'admin' | 'api' | 'test', number>;
 }
 
 export interface RuntimeWorkItemEvent {
