@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
     Loader2, MessageSquare, Edit2, Check, AlertTriangle,
@@ -307,7 +307,11 @@ export default function ChatConversationPage() {
                 </div>
                 <div className="flex items-center gap-3">
                     <ModeTabs value={turnMode} onChange={setTurnMode} />
-                    <ModelSelector value={conv.default_model} onChange={changeModel} />
+                    <ModelSelector
+                        value={conv.default_model}
+                        onChange={changeModel}
+                        mode={turnMode}
+                    />
                 </div>
             </header>
 
@@ -559,6 +563,26 @@ function CodeMessageBubble({
             ? (msg.metadata as { tool_count: number }).tool_count
             : null;
 
+    // 6c.B.1 — separar streaming text (MESSAGE_DELTA) dos eventos de
+    // ferramentas. A TimelineView só renderiza tools/thinking/run_*; o
+    // texto do assistant aparece num bloco markdown logo abaixo, em
+    // paralelo. Quando o stream encerra (msg.content já consolidado),
+    // descartamos o bloco intermediário e renderizamos só o final.
+    const { toolEvents, streamingText } = useMemo(() => {
+        const events = msg.code_events ?? [];
+        const tools = events.filter(
+            e => e.type !== 'MESSAGE_DELTA' && e.type !== 'MESSAGE_BLOCK',
+        );
+        const text = events
+            .filter(e => e.type === 'MESSAGE_DELTA' || e.type === 'MESSAGE_BLOCK')
+            .map(e => {
+                const p = e.payload as { text?: string } | undefined;
+                return typeof p?.text === 'string' ? p.text : '';
+            })
+            .join('');
+        return { toolEvents: tools, streamingText: text };
+    }, [msg.code_events]);
+
     return (
         <div className="flex gap-3">
             <div className="flex-shrink-0 w-7 h-7 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center">
@@ -570,11 +594,12 @@ function CodeMessageBubble({
                 </div>
 
                 {/* Timeline (apenas durante stream — para histórico fica
-                    o link "Ver detalhes técnicos") */}
-                {isLive && (
+                    o link "Ver detalhes técnicos"). Filtra MESSAGE_DELTA
+                    p/ não duplicar com o bloco de prosa abaixo. */}
+                {isLive && toolEvents.length > 0 && (
                     <div className="rounded-md border border-white/5 bg-[#0E1218] p-3">
                         <TimelineView
-                            events={msg.code_events as RuntimeWorkItemEvent[]}
+                            events={toolEvents as RuntimeWorkItemEvent[]}
                             mode="normal"
                         />
                     </div>
@@ -588,7 +613,11 @@ function CodeMessageBubble({
                     </div>
                 )}
 
-                {/* Resposta final em markdown */}
+                {/* 6c.B.1: texto streaming do assistant (MESSAGE_DELTA
+                    acumulado) — aparece em paralelo à timeline durante o
+                    stream. Pós-stream, msg.content já carrega o texto
+                    consolidado, então preferimos esse e descartamos o
+                    streamingText pra evitar duplicação. */}
                 {msg.error ? (
                     <div className="rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-200 flex items-start gap-2">
                         <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
@@ -597,6 +626,13 @@ function CodeMessageBubble({
                 ) : msg.content ? (
                     <div>
                         <ChatMarkdown content={msg.content} />
+                        {showCursor && (
+                            <span className="inline-block w-1.5 h-4 bg-amber-400 align-middle animate-pulse ml-1" />
+                        )}
+                    </div>
+                ) : streamingText ? (
+                    <div className="rounded-md border border-amber-500/10 bg-amber-500/5 px-3 py-2">
+                        <ChatMarkdown content={streamingText} />
                         {showCursor && (
                             <span className="inline-block w-1.5 h-4 bg-amber-400 align-middle animate-pulse ml-1" />
                         )}
