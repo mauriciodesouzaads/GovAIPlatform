@@ -93,6 +93,19 @@ export interface LlmProvider {
     sort_order: number;
 }
 
+// 6c.B.1: arquivo gerado por turn em mode='code'. Backend persiste via
+// captureWorkItemOutputs após RUN_COMPLETED (workspace-outputs.ts), e o
+// /v1/admin/runtime/work-items/<wi>/files endpoint serve. UI renderiza
+// como chips clicáveis com download abaixo da CodeMessageBubble.
+export interface WorkItemFile {
+    id: string;
+    filename: string;
+    mime_type: string;
+    size_bytes: number;
+    sha256?: string;
+    created_at?: string;
+}
+
 export type StreamEnvelope =
     | { type: 'delta'; content: string }
     | {
@@ -317,6 +330,43 @@ export class ChatClient {
         });
         if (!r.ok) throw new Error(`uploadAttachment: HTTP ${r.status}`);
         return r.json();
+    }
+
+    // 6c.B.1: lista arquivos gerados por um work_item (Modo Code). Chamado
+    // após RUN_COMPLETED para popular a seção "Arquivos gerados" da
+    // CodeMessageBubble. Endpoint reusa o /v1/admin/runtime existente
+    // (criado em 6a₂.C); RLS já filtra por org no backend.
+    async listWorkItemFiles(
+        workItemId: string,
+        signal?: AbortSignal,
+    ): Promise<{ files: WorkItemFile[] }> {
+        const r = await fetch(
+            `${API_BASE}/v1/admin/runtime/work-items/${workItemId}/files`,
+            { headers: this.headers(), signal },
+        );
+        if (!r.ok) throw new Error(`listWorkItemFiles: HTTP ${r.status}`);
+        return r.json();
+    }
+
+    // 6c.B.1: download autenticado. Retorna Blob — o componente OutputChip
+    // converte em object URL + dispara <a download>. Não usamos <a href>
+    // direto porque o GET precisa Authorization+x-org-id headers que
+    // navegadores não enviam em download de link comum.
+    async downloadWorkItemFile(
+        workItemId: string,
+        fileId: string,
+    ): Promise<{ blob: Blob; filename: string }> {
+        const r = await fetch(
+            `${API_BASE}/v1/admin/runtime/work-items/${workItemId}/files/${fileId}`,
+            { headers: this.headers() },
+        );
+        if (!r.ok) throw new Error(`downloadWorkItemFile: HTTP ${r.status}`);
+        // Content-Disposition: attachment; filename="..." — extraímos o
+        // nome para preservar o filename original quando o usuário salva.
+        const cd = r.headers.get('content-disposition') || '';
+        const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+        const filename = m ? decodeURIComponent(m[1]) : 'download';
+        return { blob: await r.blob(), filename };
     }
 }
 

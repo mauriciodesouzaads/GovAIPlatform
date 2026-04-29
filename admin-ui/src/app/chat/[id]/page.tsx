@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
     Loader2, MessageSquare, Edit2, Check, AlertTriangle,
-    Terminal, ExternalLink,
+    Terminal, ExternalLink, Download, FileText, FileImage,
+    FileCode, FileArchive, FileSpreadsheet, File as FileIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useChatClient } from '../_components/use-chat-client';
@@ -13,7 +14,8 @@ import { ChatInput } from '../_components/ChatInput';
 import { ModelSelector } from '../_components/ModelSelector';
 import { TimelineView } from '@/components/execucoes/timeline-view';
 import type {
-    ChatMessage, Conversation, CodeRuntimeEvent,
+    ChatClient, ChatMessage, Conversation, CodeRuntimeEvent,
+    WorkItemFile,
 } from '@/lib/chat-client';
 import type { RuntimeWorkItemEvent } from '@/types/runtime-admin';
 
@@ -38,6 +40,9 @@ interface UIMessage {
     // Metadata persistida (ex: { tool_count: 3 }) — útil para
     // mensagens históricas em mode='code' onde não temos os eventos.
     metadata?: Record<string, unknown> | null;
+    // 6c.B.1: arquivos gerados no workspace, populados após RUN_COMPLETED
+    // via listWorkItemFiles. Para mensagens históricas, lazy-load no mount.
+    outputs?: WorkItemFile[];
 }
 
 export default function ChatConversationPage() {
@@ -73,7 +78,16 @@ export default function ChatConversationPage() {
                 ]);
                 if (cancelled) return;
                 setConv(c);
-                setMessages(msgs.map(toUIMessage));
+                const ui = msgs.map(toUIMessage);
+                setMessages(ui);
+                // 6c.B.1: lazy-load outputs para mensagens code históricas.
+                // Disparamos em paralelo (não bloqueia o paint inicial); cada
+                // resultado dispara um setMessages individual. Mensagens sem
+                // arquivos não geram update.
+                ui.filter(m => m.role === 'assistant' && m.mode === 'code' && m.work_item_id)
+                    .forEach(m => {
+                        loadOutputs(client, m.work_item_id!, m.id, setMessages);
+                    });
             } catch (err) {
                 if ((err as Error).name === 'AbortError') return;
                 if ((err as Error).message.includes('not found')) {
@@ -167,6 +181,8 @@ export default function ChatConversationPage() {
                         return next;
                     });
                 } else if (env.type === 'done') {
+                    const wi = env.work_item_id;
+                    const newId = env.assistant_message_id;
                     setMessages(prev => {
                         const next = [...prev];
                         const last = next[next.length - 1];
@@ -176,12 +192,38 @@ export default function ChatConversationPage() {
                                 pending: false,
                                 tokens: env.tokens,
                                 latency_ms: env.latency_ms,
-                                id: env.assistant_message_id ?? last.id,
-                                work_item_id: env.work_item_id ?? last.work_item_id,
+                                id: newId ?? last.id,
+                                work_item_id: wi ?? last.work_item_id,
                             };
                         }
                         return next;
                     });
+                    // 6c.B.1: após RUN_COMPLETED em mode='code', buscar
+                    // arquivos gerados e popular o array msg.outputs. UI
+                    // renderiza chips clicáveis abaixo da bubble. Falha
+                    // silenciosa: se /files retorna [] ou erro, a seção
+                    // simplesmente não aparece.
+                    if (wi && mode === 'code') {
+                        try {
+                            const r = await client.listWorkItemFiles(wi);
+                            if (r.files?.length) {
+                                setMessages(prev => {
+                                    const next = [...prev];
+                                    // localiza a msg pelo work_item_id (id pode ter
+                                    // sido renomeado pelo `newId` acima neste mesmo turn)
+                                    const idx = next.findIndex(
+                                        m => m.work_item_id === wi && m.role === 'assistant',
+                                    );
+                                    if (idx >= 0) {
+                                        next[idx] = { ...next[idx], outputs: r.files };
+                                    }
+                                    return next;
+                                });
+                            }
+                        } catch (err) {
+                            console.warn('[chat code] listWorkItemFiles failed:', err);
+                        }
+                    }
                 } else if (env.type === 'error') {
                     setMessages(prev => {
                         const next = [...prev];
@@ -497,6 +539,110 @@ function toUIMessage(m: ChatMessage): UIMessage {
     };
 }
 
+// 6c.B.1: helper de lazy-load de outputs para mensagens code históricas.
+// Faz fire-and-forget; se /files retorna vazio ou der erro, simplesmente
+// não atualiza o estado (a seção "Arquivos gerados" só aparece quando há
+// pelo menos 1 arquivo).
+function loadOutputs(
+    client: ChatClient,
+    workItemId: string,
+    msgId: string,
+    setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>,
+) {
+    client
+        .listWorkItemFiles(workItemId)
+        .then(r => {
+            if (!r.files?.length) return;
+            setMessages(prev => {
+                const next = [...prev];
+                const idx = next.findIndex(m => m.id === msgId);
+                if (idx >= 0) next[idx] = { ...next[idx], outputs: r.files };
+                return next;
+            });
+        })
+        .catch(() => { /* falha silenciosa — UI degrada graciosamente */ });
+}
+
+function fileIconFor(mime: string, filename: string) {
+    if (mime.startsWith('image/')) return FileImage;
+    if (mime === 'application/pdf') return FileText;
+    if (mime.startsWith('text/csv') || filename.endsWith('.csv') || filename.endsWith('.xlsx')) {
+        return FileSpreadsheet;
+    }
+    if (mime.startsWith('text/') || /\.(md|txt|json|yaml|yml|log)$/.test(filename)) {
+        return FileText;
+    }
+    if (/\.(js|ts|jsx|tsx|py|go|rs|java|cpp|c|h)$/.test(filename)) return FileCode;
+    if (/\.(zip|tar|gz|7z|rar)$/.test(filename)) return FileArchive;
+    return FileIcon;
+}
+
+function formatBytes(n: number): string {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function OutputChip({
+    file,
+    workItemId,
+}: {
+    file: WorkItemFile;
+    workItemId: string;
+}) {
+    const client = useChatClient();
+    const [downloading, setDownloading] = useState(false);
+    const Icon = fileIconFor(file.mime_type, file.filename);
+
+    async function onDownload() {
+        if (!client || downloading) return;
+        setDownloading(true);
+        try {
+            const { blob } = await client.downloadWorkItemFile(workItemId, file.id);
+            // Object URL → <a download> trigger → revoke. Padrão fetch-then-save
+            // que evita problemas de CORS/auth que <a href> direto teria.
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = file.filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            toast.error(`Falha ao baixar: ${(err as Error).message}`);
+        } finally {
+            setDownloading(false);
+        }
+    }
+
+    return (
+        <button
+            onClick={onDownload}
+            disabled={downloading}
+            className={
+                'inline-flex items-center gap-2 px-3 py-2 rounded-md ' +
+                'border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 ' +
+                'transition-colors text-xs disabled:opacity-50 disabled:cursor-wait'
+            }
+            title={`Baixar ${file.filename}`}
+        >
+            <Icon className="w-4 h-4 text-amber-300 flex-shrink-0" />
+            <div className="flex flex-col items-start min-w-0">
+                <span className="text-zinc-100 font-medium truncate max-w-[180px]">
+                    {file.filename}
+                </span>
+                <span className="text-zinc-500 text-[10px]">
+                    {formatBytes(file.size_bytes)}
+                </span>
+            </div>
+            {downloading
+                ? <Loader2 className="w-3 h-3 text-amber-400 ml-1 animate-spin" />
+                : <Download className="w-3 h-3 text-amber-400 ml-1" />}
+        </button>
+    );
+}
+
 // ── 6c.B: Mode tabs ────────────────────────────────────────────────────────
 //
 // Pílula compacta com Chat/Code. Posicionada no header do lado direito,
@@ -638,6 +784,27 @@ function CodeMessageBubble({
                         )}
                     </div>
                 ) : null}
+
+                {/* 6c.B.1: outputs (arquivos gerados no workspace).
+                    Só renderiza quando há pelo menos 1 arquivo —
+                    evita seção vazia. Cada chip é clicável p/ download
+                    autenticado via Blob (downloadWorkItemFile). */}
+                {(msg.outputs?.length ?? 0) > 0 && msg.work_item_id && (
+                    <div className="space-y-2 pt-1">
+                        <div className="text-[10px] uppercase tracking-wider text-amber-300/80 font-medium">
+                            Arquivos gerados ({msg.outputs!.length})
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {msg.outputs!.map(f => (
+                                <OutputChip
+                                    key={f.id}
+                                    file={f}
+                                    workItemId={msg.work_item_id!}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {/* Footer: tokens · latency · contador de tools · link */}
                 {(msg.tokens || msg.latency_ms || msg.work_item_id || toolCount != null) &&
