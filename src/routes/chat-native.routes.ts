@@ -57,6 +57,8 @@ const conversationCreateSchema = z.object({
     mode: z.enum(['chat', 'code', 'cowork']).optional(),
     default_model: z.string().min(1).max(100).optional(),
     knowledge_base_ids: z.array(z.string().uuid()).max(20).optional(),
+    // FASE 14.0/6c.A.1 — vínculo opcional com agente vertical
+    assistant_id: z.string().uuid().optional(),
 });
 
 const conversationUpdateSchema = z.object({
@@ -65,6 +67,7 @@ const conversationUpdateSchema = z.object({
     archived: z.boolean().optional(),
     default_model: z.string().min(1).max(100).optional(),
     knowledge_base_ids: z.array(z.string().uuid()).max(20).optional(),
+    assistant_id: z.string().uuid().nullable().optional(),
 });
 
 const sendMessageSchema = z.object({
@@ -228,12 +231,23 @@ export async function chatNativeRoutes(
             }
 
             params.push(limit);
+            // 6c.A.1 LEFT JOIN assistants para enriquecer a sidebar com
+            // avatar emoji + nome do agente quando conversation tem
+            // assistant_id. Valores ficam null para chat livre.
             const r = await client.query(
-                `SELECT id, title, mode, default_model, knowledge_base_ids,
-                        pinned, archived, created_at, updated_at, last_message_at
-                   FROM chat_conversations
-                  WHERE ${where.join(' AND ')}
-                  ORDER BY pinned DESC, last_message_at DESC NULLS LAST, created_at DESC
+                `SELECT cc.id, cc.title, cc.mode, cc.default_model,
+                        cc.knowledge_base_ids, cc.assistant_id,
+                        cc.pinned, cc.archived, cc.created_at, cc.updated_at,
+                        cc.last_message_at,
+                        a.name AS assistant_name,
+                        a.avatar_emoji AS assistant_avatar,
+                        a.category AS assistant_category
+                   FROM chat_conversations cc
+              LEFT JOIN assistants a ON cc.assistant_id = a.id
+                  WHERE ${where.map(w => w.replace(/\borg_id\b/g, 'cc.org_id')
+                                         .replace(/\barchived\b/g, 'cc.archived')
+                                         .replace(/\btitle\b/g, 'cc.title')).join(' AND ')}
+                  ORDER BY cc.pinned DESC, cc.last_message_at DESC NULLS LAST, cc.created_at DESC
                   LIMIT $${params.length}`,
                 params,
             );
@@ -244,6 +258,13 @@ export async function chatNativeRoutes(
     // ──────────────────────────────────────────────────────────────────
     // POST /v1/chat/conversations
     // ──────────────────────────────────────────────────────────────────
+    //
+    // FASE 14.0/6c.A.1 — quando body inclui assistant_id, fazemos resolver:
+    //   * default_model herda de assistants.default_model (se body não
+    //     sobrescrever explicitamente)
+    //   * title inicial = nome do agente (operador renomeia depois)
+    // Mantém os defaults globais (sonnet-4-6, "Nova conversa") para
+    // conversation livre. Validamos que o agente pertence à org.
     app.post('/v1/chat/conversations', { preHandler: auth }, async (request: any, reply) => {
         const { orgId, userId } = request.user ?? {};
         if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
@@ -254,19 +275,43 @@ export async function chatNativeRoutes(
         const body = parse.data;
 
         return await withOrg(pgPool, orgId, async client => {
+            // Resolução de defaults a partir do agente vinculado.
+            let resolvedTitle = body.title ?? 'Nova conversa';
+            let resolvedModel = body.default_model ?? 'claude-sonnet-4-6';
+            let resolvedAssistantId: string | null = null;
+
+            if (body.assistant_id) {
+                const a = await client.query(
+                    `SELECT id, name, default_model FROM assistants
+                      WHERE id = $1::uuid AND org_id = $2`,
+                    [body.assistant_id, orgId],
+                );
+                if (a.rows.length === 0) {
+                    return reply.status(404).send({ error: 'assistant not found' });
+                }
+                resolvedAssistantId = a.rows[0].id;
+                if (!body.title) resolvedTitle = a.rows[0].name;
+                if (!body.default_model && a.rows[0].default_model) {
+                    resolvedModel = a.rows[0].default_model;
+                }
+            }
+
             const r = await client.query(
                 `INSERT INTO chat_conversations
-                    (org_id, user_id, title, mode, default_model, knowledge_base_ids)
-                 VALUES ($1, $2, $3, $4, $5, $6)
+                    (org_id, user_id, title, mode, default_model,
+                     knowledge_base_ids, assistant_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                  RETURNING id, title, mode, default_model, knowledge_base_ids,
-                           pinned, archived, created_at, updated_at, last_message_at`,
+                           assistant_id, pinned, archived, created_at,
+                           updated_at, last_message_at`,
                 [
                     orgId,
                     userId ?? null,
-                    body.title ?? 'Nova conversa',
+                    resolvedTitle,
                     body.mode ?? 'chat',
-                    body.default_model ?? 'claude-sonnet-4-6',
+                    resolvedModel,
                     body.knowledge_base_ids ?? [],
+                    resolvedAssistantId,
                 ],
             );
             return reply.status(201).send(r.rows[0]);
@@ -281,11 +326,22 @@ export async function chatNativeRoutes(
         if (!orgId) return reply.status(401).send({ error: 'orgId ausente no token.' });
         const id = String((request.params as any).id || '');
         return await withOrg(pgPool, orgId, async client => {
+            // 6c.A.1 — detail enriquecido com agente vinculado +
+            // suggested_prompts para o empty state da UI renderizar
+            // chips clicáveis quando há agente.
             const r = await client.query(
-                `SELECT id, title, mode, default_model, knowledge_base_ids,
-                        pinned, archived, created_at, updated_at, last_message_at, metadata
-                   FROM chat_conversations
-                  WHERE id = $1::uuid AND org_id = $2`,
+                `SELECT cc.id, cc.title, cc.mode, cc.default_model,
+                        cc.knowledge_base_ids, cc.assistant_id,
+                        cc.pinned, cc.archived, cc.created_at, cc.updated_at,
+                        cc.last_message_at, cc.metadata,
+                        a.name AS assistant_name,
+                        a.avatar_emoji AS assistant_avatar,
+                        a.category AS assistant_category,
+                        a.description AS assistant_description,
+                        a.suggested_prompts AS assistant_suggested_prompts
+                   FROM chat_conversations cc
+              LEFT JOIN assistants a ON cc.assistant_id = a.id
+                  WHERE cc.id = $1::uuid AND cc.org_id = $2`,
                 [id, orgId],
             );
             if (r.rows.length === 0) {
@@ -426,17 +482,36 @@ export async function chatNativeRoutes(
 
         // 2-4. Pre-stream DB work, all under one connection so RLS is
         // set once and the conversation lookup + history fetch + user
-        // INSERT are consistent.
-        let conv: { default_model: string; knowledge_base_ids: string[] };
+        // INSERT + agent resolution are consistent.
+        //
+        // 6c.A.1 — quando conversation tem assistant_id, resolvemos:
+        //   * system_prompt do agente (assistants.system_prompt)
+        //   * KBs do agente (assistant_knowledge_bases) usadas como
+        //     fallback para o RAG quando a conversation não tem KBs
+        //     próprias setadas
+        //   * skills do agente (assistant_skill_bindings + catalog_skills)
+        // Tudo num único client connection para minimizar latência
+        // antes do streaming abrir.
+        interface ConvCtx {
+            default_model: string;
+            knowledge_base_ids: string[];
+            assistant_id: string | null;
+            assistant_system_prompt: string | null;
+        }
+        let conv: ConvCtx;
         let history: Array<{ role: string; content: string }>;
         let userMsgId: string;
+        let agentKbIds: string[] = [];
+        let agentSkillBlocks: string[] = [];
 
         try {
             await withOrg(pgPool, orgId, async client => {
                 const c = await client.query(
-                    `SELECT default_model, knowledge_base_ids
-                       FROM chat_conversations
-                      WHERE id = $1::uuid AND org_id = $2`,
+                    `SELECT cc.default_model, cc.knowledge_base_ids, cc.assistant_id,
+                            a.system_prompt AS assistant_system_prompt
+                       FROM chat_conversations cc
+                  LEFT JOIN assistants a ON cc.assistant_id = a.id
+                      WHERE cc.id = $1::uuid AND cc.org_id = $2`,
                     [convId, orgId],
                 );
                 if (c.rows.length === 0) {
@@ -462,6 +537,53 @@ export async function chatNativeRoutes(
                     [convId, orgId, content, attachments_ids, dlp.has_pii ? JSON.stringify(dlp) : null],
                 );
                 userMsgId = u.rows[0].id;
+
+                // Carrega KBs + skills do agente apenas se conversation
+                // está vinculada. Fallback de KBs: se conversation não
+                // tem KBs próprias, usamos do agente.
+                if (conv.assistant_id) {
+                    if (!conv.knowledge_base_ids || conv.knowledge_base_ids.length === 0) {
+                        const akb = await client.query(
+                            `SELECT knowledge_base_id
+                               FROM assistant_knowledge_bases
+                              WHERE assistant_id = $1::uuid AND org_id = $2
+                                AND enabled = TRUE
+                              ORDER BY priority NULLS LAST`,
+                            [conv.assistant_id, orgId],
+                        );
+                        agentKbIds = akb.rows.map(r => r.knowledge_base_id);
+                    }
+
+                    // Reusa o hook de skills da 6a₂.B (mesma query) —
+                    // monta o bloco "## Skills Aplicáveis" inline para
+                    // injetar no system prompt do chat.
+                    const skillsRes = await client.query(
+                        `SELECT cs.id, cs.name, cs.skill_type, cs.instructions,
+                                cs.skill_md_content
+                           FROM catalog_skills cs
+                           JOIN assistant_skill_bindings asb ON cs.id = asb.skill_id
+                          WHERE asb.assistant_id = $1::uuid AND asb.org_id = $2
+                            AND cs.is_active = TRUE AND asb.is_active = TRUE
+                          ORDER BY cs.name`,
+                        [conv.assistant_id, orgId],
+                    );
+                    if (skillsRes.rows.length > 0) {
+                        for (const s of skillsRes.rows) {
+                            if (s.skill_type === 'anthropic' && s.skill_md_content) {
+                                const skillPath = `/mnt/skills/${orgId}/${s.id}`;
+                                agentSkillBlocks.push(
+                                    `### ${s.name}\n\n` +
+                                    `Skill anthropic-style disponível em \`${skillPath}\`.\n\n` +
+                                    `SKILL.md:\n${s.skill_md_content}`
+                                );
+                            } else {
+                                agentSkillBlocks.push(
+                                    `### ${s.name}\n${s.instructions ?? ''}`
+                                );
+                            }
+                        }
+                    }
+                }
             });
         } catch (err) {
             if ((err as Error).message === 'NOT_FOUND') {
@@ -471,21 +593,46 @@ export async function chatNativeRoutes(
         }
 
         // 5. RAG retrieval (best-effort, off-thread of the SSE).
-        const ragChunks = await retrieveChunks(orgId, content, conv!.knowledge_base_ids ?? []);
+        // Prioridade: KBs explicitamente setadas na conversation > KBs
+        // herdadas do agente. Vazio = no retrieval.
+        const effectiveKbIds = (conv!.knowledge_base_ids && conv!.knowledge_base_ids.length > 0)
+            ? conv!.knowledge_base_ids
+            : agentKbIds;
+        const ragChunks = await retrieveChunks(orgId, content, effectiveKbIds);
 
-        // 6. Compose final messages array. System message carries any
-        // RAG context — the assistant sees grounding documents BEFORE
-        // the conversation history.
+        // 6. Compose final messages array. Order:
+        //   1. agent system_prompt (se tem agente vinculado)
+        //   2. RAG context block (se houver hits)
+        //   3. skills block (se agente tem skills vinculadas)
+        //   4. history
+        //   5. user message
+        // Tudo isso prepended como uma única system message para LiteLLM
+        // — alguns providers (Gemini) só aceitam um system role no
+        // início do array, então concatenamos em vez de empilhar.
         const messages: Array<{ role: string; content: string }> = [];
+        const systemParts: string[] = [];
+        if (conv!.assistant_system_prompt) {
+            systemParts.push(conv!.assistant_system_prompt);
+        }
         if (ragChunks.length > 0) {
             const ctx = ragChunks
                 .map((c, i) => `[Documento ${i + 1} · score ${c.score.toFixed(3)}]\n${c.content}`)
                 .join('\n\n---\n\n');
+            systemParts.push(
+                '## Contexto recuperado da base de conhecimento da organização\n\n' +
+                'Use estes documentos para fundamentar suas respostas — cite-os explicitamente quando aplicável:\n\n' +
+                ctx
+            );
+        }
+        if (agentSkillBlocks.length > 0) {
+            systemParts.push(
+                '## Skills Aplicáveis\n\n' + agentSkillBlocks.join('\n\n---\n\n')
+            );
+        }
+        if (systemParts.length > 0) {
             messages.push({
                 role: 'system',
-                content:
-                    'Contexto recuperado da base de conhecimento da organização — ' +
-                    'use estes documentos para fundamentar suas respostas:\n\n' + ctx,
+                content: systemParts.join('\n\n---\n\n'),
             });
         }
         for (const m of history!) {
