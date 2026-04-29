@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, XCircle, Loader2 } from 'lucide-react';
+import {
+    ChevronLeft, XCircle, Loader2, MessageSquare, ArrowUpRight,
+} from 'lucide-react';
 import { useRuntimeClient } from '@/hooks/execucoes/use-runtime-client';
 import { useWorkItemDetail } from '@/hooks/execucoes/use-work-item-detail';
 import { TimelineView } from './timeline-view';
@@ -48,6 +50,15 @@ export function WorkItemDetail({ id }: { id: string }) {
 
     const wi = detail.work_item;
     const canCancel = ACTIVE_STATUSES.has(wi.status);
+    // 6c.B: quando o turn foi disparado pelo /chat (handleCodeTurn marcou
+    // execution_context.source='chat'), mostramos um banner com link de
+    // volta para a conversa. Permite ao usuário pular entre o panel
+    // técnico e a conversa que originou a execução sem ter que navegar
+    // pelo histórico.
+    const ctx = wi.execution_context as Record<string, unknown> | null;
+    const chatConversationId = ctx?.source === 'chat'
+        ? (ctx.conversation_id as string | undefined)
+        : undefined;
 
     async function onCancel() {
         if (!client) return;
@@ -106,6 +117,23 @@ export function WorkItemDetail({ id }: { id: string }) {
                     </span>
                 </div>
             </div>
+
+            {/* 6c.B: Back-link banner para origens em /chat */}
+            {chatConversationId && (
+                <Link
+                    href={`/chat/${chatConversationId}`}
+                    className="mb-4 flex items-center gap-2 px-3 py-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 text-xs text-emerald-300 hover:bg-emerald-500/10 transition-colors flex-shrink-0"
+                >
+                    <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="flex-1">
+                        Esta execução foi iniciada a partir de uma conversa no Chat.
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-emerald-400 group-hover:underline">
+                        Voltar à conversa
+                        <ArrowUpRight className="w-3 h-3" />
+                    </span>
+                </Link>
+            )}
 
             {/* Body — 2 cols */}
             <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 flex-1 min-h-0">
