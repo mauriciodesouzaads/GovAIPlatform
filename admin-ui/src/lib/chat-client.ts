@@ -31,6 +31,16 @@ export interface Conversation {
     created_at: string;
     updated_at: string;
     last_message_at: string | null;
+    // FASE 14.0/6c.A.1 — vínculo opcional com agente vertical.
+    // Quando setado, a UI renderiza header com avatar+nome do agente
+    // e empty state com suggested_prompts. Backend injeta system_prompt
+    // do agente + KBs + skills automaticamente em POST /messages.
+    assistant_id?: string | null;
+    assistant_name?: string | null;
+    assistant_avatar?: string | null;
+    assistant_category?: string | null;
+    assistant_description?: string | null;
+    assistant_suggested_prompts?: string[];
 }
 
 export interface ChatMessage {
@@ -123,7 +133,14 @@ export class ChatClient {
     }
 
     async createConversation(
-        body: { title?: string; default_model?: string; knowledge_base_ids?: string[] } = {},
+        body: {
+            title?: string;
+            default_model?: string;
+            knowledge_base_ids?: string[];
+            // 6c.A.1 — vínculo com agente. Backend resolve title +
+            // default_model do agente quando body não sobrescreve.
+            assistant_id?: string;
+        } = {},
     ): Promise<Conversation> {
         const r = await fetch(`${API_BASE}/v1/chat/conversations`, {
             method: 'POST',

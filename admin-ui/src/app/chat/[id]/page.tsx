@@ -195,39 +195,52 @@ export default function ChatConversationPage() {
         <div className="flex flex-col h-full min-h-0">
             {/* Header */}
             <header className="flex items-center justify-between px-6 py-3 border-b border-white/5">
-                <div className="flex items-center gap-2 min-w-0">
-                    {editingTitle ? (
-                        <div className="flex items-center gap-1">
-                            <input
-                                value={titleDraft}
-                                onChange={e => setTitleDraft(e.target.value)}
-                                onKeyDown={e => {
-                                    if (e.key === 'Enter') saveTitle();
-                                    if (e.key === 'Escape') setEditingTitle(false);
-                                }}
-                                autoFocus
-                                className="bg-[#141820] border border-white/10 rounded-md px-2 py-1 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/40"
-                            />
-                            <button
-                                onClick={saveTitle}
-                                className="p-1 text-emerald-400 hover:bg-white/5 rounded"
-                            >
-                                <Check className="w-4 h-4" />
-                            </button>
+                <div className="flex items-center gap-2.5 min-w-0">
+                    {/* 6c.A.1 — avatar emoji do agente quando vinculado */}
+                    {conv.assistant_id && conv.assistant_avatar && (
+                        <div className="w-8 h-8 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-base flex-shrink-0">
+                            {conv.assistant_avatar}
                         </div>
-                    ) : (
-                        <button
-                            onClick={() => {
-                                setTitleDraft(conv.title);
-                                setEditingTitle(true);
-                            }}
-                            className="text-sm font-medium text-zinc-100 hover:bg-white/5 px-2 py-1 rounded inline-flex items-center gap-1.5 group truncate max-w-[400px]"
-                            title={conv.title}
-                        >
-                            <span className="truncate">{conv.title}</span>
-                            <Edit2 className="w-3 h-3 text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                        </button>
                     )}
+                    <div className="flex flex-col min-w-0">
+                        {editingTitle ? (
+                            <div className="flex items-center gap-1">
+                                <input
+                                    value={titleDraft}
+                                    onChange={e => setTitleDraft(e.target.value)}
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter') saveTitle();
+                                        if (e.key === 'Escape') setEditingTitle(false);
+                                    }}
+                                    autoFocus
+                                    className="bg-[#141820] border border-white/10 rounded-md px-2 py-1 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/40"
+                                />
+                                <button
+                                    onClick={saveTitle}
+                                    className="p-1 text-emerald-400 hover:bg-white/5 rounded"
+                                >
+                                    <Check className="w-4 h-4" />
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => {
+                                    setTitleDraft(conv.title);
+                                    setEditingTitle(true);
+                                }}
+                                className="text-sm font-medium text-zinc-100 hover:bg-white/5 px-1.5 py-0.5 rounded inline-flex items-center gap-1.5 group truncate max-w-[400px] -ml-1.5"
+                                title={conv.title}
+                            >
+                                <span className="truncate">{conv.title}</span>
+                                <Edit2 className="w-3 h-3 text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                            </button>
+                        )}
+                        {conv.assistant_id && conv.assistant_category && (
+                            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium px-1.5">
+                                Agente · {conv.assistant_category}
+                            </div>
+                        )}
+                    </div>
                 </div>
                 <ModelSelector value={conv.default_model} onChange={changeModel} />
             </header>
@@ -236,7 +249,16 @@ export default function ChatConversationPage() {
             <div ref={scrollRef} className="flex-1 overflow-y-auto">
                 <div className="max-w-3xl mx-auto px-6 py-8">
                     {messages.length === 0 ? (
-                        <EmptyState />
+                        <EmptyState
+                            conv={conv}
+                            onPromptClick={(p) => {
+                                // Permite o usuário enviar diretamente
+                                // ou apenas pré-preencher o input — aqui
+                                // optamos por enviar imediatamente para
+                                // reduzir cliques no fluxo "demo do agente".
+                                send(p, []);
+                            }}
+                        />
                     ) : (
                         <div className="space-y-6">
                             {messages.map(m => (
@@ -311,7 +333,60 @@ function MessageBubble({ msg, streaming }: { msg: UIMessage; streaming: boolean 
     );
 }
 
-function EmptyState() {
+/**
+ * Empty state — duas variantes:
+ *   - Conversa livre: ícone genérico + saudação simples
+ *   - Conversa vinculada a agente: avatar grande do agente + saudação
+ *     personalizada + chips clicáveis com suggested_prompts. Cada chip
+ *     dispara onSend imediato para reduzir fricção no demo "Catálogo →
+ *     Usar agente → Pergunta funcionando".
+ */
+function EmptyState({
+    conv,
+    onPromptClick,
+}: {
+    conv: Conversation;
+    onPromptClick: (prompt: string) => void;
+}) {
+    const hasAgent = Boolean(conv.assistant_id);
+    const suggestions = conv.assistant_suggested_prompts ?? [];
+
+    if (hasAgent) {
+        return (
+            <div className="text-center py-12 space-y-5">
+                <div className="mx-auto w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-3xl">
+                    {conv.assistant_avatar ?? '✦'}
+                </div>
+                <div className="space-y-1">
+                    <h2 className="text-lg font-semibold text-zinc-100">
+                        Olá. Sou {conv.assistant_name ?? conv.title}.
+                    </h2>
+                    {conv.assistant_description && (
+                        <p className="text-sm text-zinc-400 max-w-xl mx-auto leading-relaxed">
+                            {conv.assistant_description}
+                        </p>
+                    )}
+                </div>
+                {suggestions.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl mx-auto pt-2">
+                        {suggestions.map((p, i) => (
+                            <button
+                                key={i}
+                                onClick={() => onPromptClick(p)}
+                                className="text-left text-sm text-zinc-300 bg-[#141820] border border-white/10 rounded-lg px-3 py-2.5 hover:bg-[#1a1f2a] hover:border-emerald-500/30 transition-colors"
+                            >
+                                {p}
+                            </button>
+                        ))}
+                    </div>
+                )}
+                <p className="text-[11px] text-zinc-600 pt-2">
+                    Esta conversa é auditada e passa por DLP. Mude o modelo no canto superior direito.
+                </p>
+            </div>
+        );
+    }
+
     return (
         <div className="text-center py-16 space-y-3">
             <div className="mx-auto w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">

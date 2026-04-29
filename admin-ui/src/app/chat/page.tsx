@@ -1,19 +1,31 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, MessageSquare } from 'lucide-react';
 import { useChatClient } from './_components/use-chat-client';
 
 /**
- * /chat — entry point. If the user already has conversations, redirect
- * to the most recent. If empty, show a clean welcome with a "Iniciar"
- * CTA that creates a new conversation. Avoids landing the user on a
- * blank page or auto-creating a throwaway conv on every visit.
+ * /chat — entry point.
+ *
+ * Three behaviors:
+ *   1. ?assistant_id=<uuid> in querystring (deep-link from /catalog
+ *      "Usar" or external share): create new conversation linked to
+ *      the agent + redirect. This is the canonical entry for users
+ *      who clicked an agent card.
+ *   2. No querystring + has existing conversations: redirect to the
+ *      most recent.
+ *   3. No querystring + no conversations: welcome with "Iniciar" CTA
+ *      that creates a free (unlinked) conversation.
+ *
+ * Avoids landing the user on a blank page or auto-creating a throwaway
+ * conv on every visit.
  */
 export default function ChatEntryPage() {
     const client = useChatClient();
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const assistantIdParam = searchParams?.get('assistant_id') ?? null;
     const [phase, setPhase] = useState<'loading' | 'empty' | 'creating'>('loading');
 
     useEffect(() => {
@@ -21,6 +33,20 @@ export default function ChatEntryPage() {
         let cancelled = false;
         (async () => {
             try {
+                // 1. Deep-link with assistant_id — always create a fresh
+                // conversation pinned to the agent and redirect. No
+                // attempt to "find existing conversation with same agent"
+                // because each click on "Usar" should start a clean
+                // session, not resume a stale one.
+                if (assistantIdParam) {
+                    const conv = await client.createConversation({
+                        assistant_id: assistantIdParam,
+                    });
+                    if (!cancelled) router.replace(`/chat/${conv.id}`);
+                    return;
+                }
+
+                // 2. No deep-link — fall back to most recent conv or empty.
                 const list = await client.listConversations({ archived: false, limit: 1 });
                 if (cancelled) return;
                 if (list.length > 0) {
@@ -37,7 +63,7 @@ export default function ChatEntryPage() {
         })();
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [client]);
+    }, [client, assistantIdParam]);
 
     async function startConversation() {
         if (!client) return;

@@ -500,14 +500,14 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                     <div className="bg-card/30 border border-border rounded-lg p-3 font-mono text-xs text-muted-foreground break-all">
                                         {typeof window !== 'undefined'
                                             ? `${window.location.origin}/chat/${assistant.id}?key=`
-                                            : `/chat/${assistant.id}?key=`
+                                            : `/chat?assistant_id=${assistant.id}`
                                         }
                                     </div>
                                     <button
                                         onClick={() => {
                                             const url = typeof window !== 'undefined'
                                                 ? `${window.location.origin}/chat/${assistant.id}?key=`
-                                                : `/chat/${assistant.id}?key=`;
+                                                : `/chat?assistant_id=${assistant.id}`;
                                             navigator.clipboard.writeText(url).then(() => {
                                                 toast('Link base copiado!', 'success');
                                             }).catch(() => {
@@ -533,7 +533,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                             <div className="space-y-2">
                                 {state === 'official' ? (
                                     <a
-                                        href={`/chat/${assistant.id}?key=`}
+                                        href={`/chat?assistant_id=${assistant.id}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-foreground font-semibold text-sm transition-colors"
@@ -925,7 +925,22 @@ function AssistantCard({ assistant, onManage, onToggleFavorite, onOpenExitModal,
                 {isOfficial ? (
                     <>
                         <button
-                            onClick={() => router.push(`/chat/${assistant.id}?key=${apiKey}`)}
+                            onClick={async () => {
+                                // FASE 14.0/6c.A.1 — "Usar" cria conversation
+                                // vinculada ao agente via POST /v1/chat/conversations
+                                // (substitui redirect direto que ficou quebrado
+                                // após /chat/[assistantId] demolido em 6c.A).
+                                try {
+                                    const r = await api.post('/v1/chat/conversations', {
+                                        assistant_id: assistant.id,
+                                    });
+                                    router.push(`/chat/${r.data.id}`);
+                                } catch (err) {
+                                    console.error('[catalog] failed to create conv:', err);
+                                    // Fallback: leva para /chat (entry point)
+                                    router.push('/chat');
+                                }
+                            }}
                             className="flex-1 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
                         >
                             💬 Usar

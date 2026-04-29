@@ -134,6 +134,11 @@ export function ChatSidebar() {
 }
 
 function ConvCard({ item, active }: { item: Conversation; active: boolean }) {
+    // 6c.A.1 — quando conversation tem agente vinculado, mostrar avatar
+    // emoji do agente em vez do icone genérico (Pin/MessageSquare).
+    // Pinned ainda tem ícone próprio que se sobrepõe (decisão UX:
+    // pin é estado, agente é identidade).
+    const hasAgent = Boolean(item.assistant_id && item.assistant_avatar);
     return (
         <Link
             href={`/chat/${item.id}`}
@@ -147,6 +152,10 @@ function ConvCard({ item, active }: { item: Conversation; active: boolean }) {
             <div className="flex items-start gap-2">
                 {item.pinned ? (
                     <Pin className="w-3 h-3 text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                ) : hasAgent ? (
+                    <span className="text-[14px] leading-none flex-shrink-0 mt-0.5" aria-hidden>
+                        {item.assistant_avatar}
+                    </span>
                 ) : (
                     <MessageSquare className="w-3 h-3 text-zinc-600 flex-shrink-0 mt-0.5" />
                 )}

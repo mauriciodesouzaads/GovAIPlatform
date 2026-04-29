@@ -52,13 +52,22 @@ const HISTORY_LIMIT = 50;
 
 // ── Validation schemas ──────────────────────────────────────────────────────
 
+// FASE 14.0/6c.A.1 — UUID loose regex (não exige RFC 4122 v4 strict)
+// porque fixture IDs como 00000000-0000-0000-0fff-000000000007 são
+// uuid-shaped mas não cumprem a versão. Postgres aceita; zod strict
+// rejeita sem essa relaxação. Mesmo padrão usado em runtime-admin.routes.
+const UUID_LOOSE = z.string().regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    'malformed uuid (expected 36-char hyphenated hex)',
+);
+
 const conversationCreateSchema = z.object({
     title: z.string().min(1).max(200).optional(),
     mode: z.enum(['chat', 'code', 'cowork']).optional(),
     default_model: z.string().min(1).max(100).optional(),
-    knowledge_base_ids: z.array(z.string().uuid()).max(20).optional(),
+    knowledge_base_ids: z.array(UUID_LOOSE).max(20).optional(),
     // FASE 14.0/6c.A.1 — vínculo opcional com agente vertical
-    assistant_id: z.string().uuid().optional(),
+    assistant_id: UUID_LOOSE.optional(),
 });
 
 const conversationUpdateSchema = z.object({
@@ -66,14 +75,14 @@ const conversationUpdateSchema = z.object({
     pinned: z.boolean().optional(),
     archived: z.boolean().optional(),
     default_model: z.string().min(1).max(100).optional(),
-    knowledge_base_ids: z.array(z.string().uuid()).max(20).optional(),
-    assistant_id: z.string().uuid().nullable().optional(),
+    knowledge_base_ids: z.array(UUID_LOOSE).max(20).optional(),
+    assistant_id: UUID_LOOSE.nullable().optional(),
 });
 
 const sendMessageSchema = z.object({
     content: z.string().min(1).max(50_000),
     model: z.string().min(1).max(100),
-    attachments_ids: z.array(z.string().uuid()).max(10).optional(),
+    attachments_ids: z.array(UUID_LOOSE).max(10).optional(),
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -103,13 +112,21 @@ interface RetrievalChunk {
  * Retrieve RAG chunks scoped to the conversation's linked KBs.
  * Failure is non-fatal — chat continues without grounding context if
  * Qdrant is down or embeddings fail.
+ *
+ * 6c.A.1 — escreve em retrieval_log quando há hits, para que chat
+ * conversations apareçam na mesma trilha de auditoria que
+ * dispatchWorkItem. Sem isso, retrievals via /chat ficam invisíveis
+ * para o painel de governança.
  */
 async function retrieveChunks(
+    pool: Pool,
     orgId: string,
     query: string,
     kbIds: string[],
+    convId: string,
 ): Promise<RetrievalChunk[]> {
     if (!kbIds || kbIds.length === 0) return [];
+    const startTs = Date.now();
     try {
         const provider = getEmbeddingProvider();
         const [vec] = await provider.embed([query]);
@@ -119,6 +136,39 @@ async function retrieveChunks(
             topK: top,
             minScore,
         });
+
+        // Audit log — written to retrieval_log so chat retrievals show
+        // up in the governance panel alongside Modo Agente dispatch
+        // retrievals. Best-effort: if the INSERT fails (RLS, transient
+        // DB error), the chat continues without breaking. retrieval_log
+        // doesn't have a chat_conversation_id column (was designed for
+        // work_item_id only); we stash conv id under metadata via
+        // query_preview prefix to preserve the link.
+        if (hits.length > 0) {
+            try {
+                // RLS força app.current_org_id ser igual a org_id no
+                // INSERT. Usar withOrg para setar antes da query.
+                await withOrg(pool, orgId, async client => {
+                    await client.query(
+                        `INSERT INTO retrieval_log
+                            (org_id, knowledge_base_id, query_preview,
+                             chunks_retrieved, top_score, latency_ms)
+                         VALUES ($1, $2, $3, $4, $5, $6)`,
+                        [
+                            orgId,
+                            kbIds[0],
+                            `[chat:${convId.substring(0, 8)}] ${query.substring(0, 180)}`,
+                            hits.length,
+                            hits[0].score,
+                            Date.now() - startTs,
+                        ],
+                    );
+                });
+            } catch (logErr) {
+                console.warn('[chat] retrieval_log write failed (non-fatal):', (logErr as Error).message);
+            }
+        }
+
         return hits.map(h => ({
             score: h.score,
             content: (h.payload as any)?.content ?? '',
@@ -598,7 +648,7 @@ export async function chatNativeRoutes(
         const effectiveKbIds = (conv!.knowledge_base_ids && conv!.knowledge_base_ids.length > 0)
             ? conv!.knowledge_base_ids
             : agentKbIds;
-        const ragChunks = await retrieveChunks(orgId, content, effectiveKbIds);
+        const ragChunks = await retrieveChunks(pgPool, orgId, content, effectiveKbIds, convId);
 
         // 6. Compose final messages array. Order:
         //   1. agent system_prompt (se tem agente vinculado)
