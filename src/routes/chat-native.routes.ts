@@ -265,6 +265,7 @@ async function handleCodeTurn(
     request: any,
     reply: any,
     dlp: ReturnType<typeof scanDocumentForPII>,
+    bodyModel?: string,
 ): Promise<void> {
     // Default fixture for free conversations: Claude Code Auditado
     // (id 00000000-0000-0000-0fff-000000000002, runtime profile
@@ -272,10 +273,33 @@ async function handleCodeTurn(
     // has assistant_id, that assistant runs.
     const FALLBACK_AGENT_ID = '00000000-0000-0000-0fff-000000000002';
 
+    // 6c.B.1 — Modo Code é arquiteturalmente Anthropic-only via Claude
+    // Code SDK. O agente contribui APENAS com system_prompt + KBs +
+    // skills + suggested_prompts. O runtime configurado no agente
+    // (que pode ser openclaude ou aider) é IGNORADO em Modo Code para:
+    //   1. Não haver divergência entre o agente do /catalog e o que o
+    //      user vê executando (filosofia: Code = sempre Claude Code SDK)
+    //   2. Tool Approval policies de OpenClaude não bloquearem
+    //      silenciosamente quando o usuário só queria Bash/Edit
+    //   3. Governança homogênea: 1 motor, 1 política, 1 trilha de audit
+    //
+    // Modo Chat continua respeitando o runtime+modelo do agente
+    // (LiteLLM passthrough), permitindo GPT-4/Gemini/Cerebras etc.
+    const FORCED_RUNTIME_SLUG = 'claude_code_official';
+    const FORCED_EXECUTION_HINT = 'claude_code';
+    // Modelos Anthropic permitidos em Modo Code. Outros modelos do body
+    // são ignorados em favor do default_model do agente (se Anthropic)
+    // ou fallback p/ Sonnet 4.6.
+    const ANTHROPIC_MODEL_PREFIXES = ['claude-'];
+    const FALLBACK_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+    const isAnthropic = (m: string | null | undefined) =>
+        !!m && ANTHROPIC_MODEL_PREFIXES.some(p => m.startsWith(p));
+
     // 1+2. Pre-stream DB writes (single connection, single transaction
     // boundary for consistency between user msg, WI, assistant msg).
     let ctx: CodeStreamCtx;
     let runtimeProfileSlug: string;
+    let resolvedModel: string;
     try {
         ctx = await withOrg(pgPool, orgId, async client => {
             // Resolve the assistant: conv.assistant_id if linked,
@@ -289,9 +313,10 @@ async function handleCodeTurn(
             if (convRow.rows.length === 0) throw new Error('NOT_FOUND');
 
             const assistantId = convRow.rows[0].assistant_id ?? FALLBACK_AGENT_ID;
+            const convDefaultModel: string | null = convRow.rows[0].default_model ?? null;
 
             const ar = await client.query(
-                `SELECT id, runtime_profile_slug
+                `SELECT id, runtime_profile_slug, default_model
                    FROM assistants
                   WHERE id = $1::uuid AND org_id = $2`,
                 [assistantId, orgId],
@@ -299,13 +324,21 @@ async function handleCodeTurn(
             if (ar.rows.length === 0) {
                 throw new Error('AGENT_NOT_FOUND');
             }
-            const slug = ar.rows[0].runtime_profile_slug ?? 'claude_code_official';
+            // 6c.B.1: ignore agent's runtime — sempre Claude Code SDK.
+            const slug = FORCED_RUNTIME_SLUG;
             runtimeProfileSlug = slug;
-            // execution_hint follows the slug→hint convention
-            // (see runtime-admin POST /work-items + execution.service.ts).
-            const executionHint = slug === 'claude_code_official'
-                ? 'claude_code'
-                : 'openclaude';
+            const executionHint = FORCED_EXECUTION_HINT;
+            // 6c.B.1: model resolution para Modo Code:
+            //   1) body.model se for Anthropic
+            //   2) conv.default_model se for Anthropic
+            //   3) assistant.default_model se for Anthropic
+            //   4) fallback claude-sonnet-4-6
+            const agentDefault: string | null = ar.rows[0].default_model ?? null;
+            resolvedModel =
+                isAnthropic(bodyModel) ? bodyModel! :
+                isAnthropic(convDefaultModel) ? convDefaultModel! :
+                isAnthropic(agentDefault) ? agentDefault! :
+                FALLBACK_ANTHROPIC_MODEL;
 
             // INSERT user message (role='user', mode='code'). DLP scan
             // result attached if any PII was masked (action='allow' or
@@ -350,6 +383,16 @@ async function handleCodeTurn(
                         chat_user_message_id: userMsgId,
                         instructions: content,
                         assistant_id: assistantId,
+                        // 6c.B.1 — registrar override do runtime do agente
+                        // p/ trilha de audit. Mostra ao operador que o
+                        // agente tinha runtime X mas Modo Code forçou
+                        // claude_code_official.
+                        forced_runtime: true,
+                        agent_original_runtime: ar.rows[0].runtime_profile_slug ?? null,
+                        // O modelo resolvido aqui é o que será passado ao
+                        // claude-code-runner via gRPC (--model). Persistido
+                        // no execution_context p/ debug + UI footer.
+                        resolved_model: resolvedModel,
                     }),
                     slug,
                     assistantId,
@@ -366,7 +409,7 @@ async function handleCodeTurn(
                      work_item_id)
                  VALUES ($1, $2, 'assistant', '', 'code', $3, $4)
                  RETURNING id`,
-                [convId, orgId, slug, wiId],
+                [convId, orgId, resolvedModel, wiId],
             );
             const asstMsgId = asstMsg.rows[0].id;
 
@@ -425,6 +468,10 @@ async function handleCodeTurn(
         work_item_id: ctx.workItemId,
         message_id: ctx.assistantMsgId,
         runtime_profile_slug: runtimeProfileSlug!,
+        // 6c.B.1 — modelo Anthropic resolvido (body.model > conv.default >
+        // assistant.default > sonnet-4-6). UI usa para reflectir no
+        // ModelSelector + CodeMessageBubble footer.
+        model: resolvedModel!,
     });
 
     // 5. Poll runtime_work_item_events at 500ms, forwarding each event.
@@ -920,6 +967,7 @@ export async function chatNativeRoutes(
             return await handleCodeTurn(
                 pgPool, orgId, convId, content, attachments_ids,
                 request, reply, dlp,
+                model,  // 6c.B.1 — body.model validado dentro do handler
             );
         }
 

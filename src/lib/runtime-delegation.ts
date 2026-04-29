@@ -1020,6 +1020,15 @@ export async function runOpenClaudeAdapter(
             // Should never reach here — every branch above sets workspacePath.
             return { success: false, output: {}, error: 'workspace setup failed' };
         }
+        // 6c.B.1 — quando o turn veio do /chat em Modo Code, o handler
+        // resolve o modelo Anthropic apropriado e grava em
+        // execution_context.resolved_model. Repassamos via gRPC para que
+        // o claude-code-runner use --model <slug> em vez do default
+        // ANTHROPIC_MODEL do container. Se ausente (caminho legado de
+        // /execucoes/livre etc.), o runner cai no env default.
+        const resolvedModel = typeof ctx.resolved_model === 'string'
+            ? ctx.resolved_model.trim()
+            : '';
         const handle = executeOpenClaudeRun({
             host: target.host,
             socketPath: target.socketPath,
@@ -1027,6 +1036,7 @@ export async function runOpenClaudeAdapter(
             workingDirectory: workspacePath,
             sessionId,
             timeoutMs,
+            ...(resolvedModel ? { model: resolvedModel } : {}),
             ...(runtimeOptions.resume_session_id
                 ? { resumeSessionId: runtimeOptions.resume_session_id } : {}),
             ...(runtimeOptions.enable_thinking !== undefined
@@ -1063,8 +1073,24 @@ export async function runOpenClaudeAdapter(
 
         const result = await new Promise<AdapterResult>((resolvePromise) => {
 
-            emitter.on('text_chunk', (data: any) => {
-                fullText += data.text || '';
+            emitter.on('text_chunk', async (data: any) => {
+                const text = typeof data?.text === 'string' ? data.text : '';
+                if (!text) return;
+                fullText += text;
+                // 6c.B.1 — persist como event row para que /chat polling
+                // (chat-native.routes:430-486) forwarde como envelope
+                // 'code_event' / type='MESSAGE_DELTA'. A UI acumula esses
+                // chunks num bloco markdown ao lado da TimelineView,
+                // dando UX Claude-Desktop-style: prosa fluindo entre
+                // tool_use blocks.
+                //
+                // Truncamos cada chunk a 4KB; o full text consolidado
+                // continua disponível em execution_context.output.fullText
+                // (gravado no RUN_COMPLETED handler abaixo, ~linha 1490).
+                await insertWorkItemEvent(pool, orgId, workItemId, 'MESSAGE_DELTA', {
+                    text: text.length > 4096 ? text.substring(0, 4096) : text,
+                    truncated: text.length > 4096,
+                }).catch(() => {});
             });
 
             // FASE 14.0/3a — extended thinking deltas. The CLI emits these
@@ -1488,7 +1514,15 @@ export async function runOpenClaudeAdapter(
                          WHERE id = $2`,
                         [
                             JSON.stringify({
-                                adapter: 'openclaude',
+                                // 6c.B.1 — adapter reflete o runtime real,
+                                // não o legado 'openclaude'. claude-code
+                                // para Claude Code SDK; openclaude para
+                                // os outros runners (que reusam este path
+                                // adapter histórico). Fecha a divergência
+                                // execution_context.adapter vs runtime_profile_slug.
+                                adapter: runtime.runtimeProfileSlug === 'claude_code_official'
+                                    ? 'claude_code'
+                                    : 'openclaude',
                                 sessionId,
                                 runnerSessionId: runnerSessionId || null,
                                 input: { instruction: instruction.substring(0, 500) },
