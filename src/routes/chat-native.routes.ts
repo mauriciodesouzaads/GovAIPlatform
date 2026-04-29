@@ -81,8 +81,15 @@ const conversationUpdateSchema = z.object({
 
 const sendMessageSchema = z.object({
     content: z.string().min(1).max(50_000),
-    model: z.string().min(1).max(100),
+    // model é obrigatório em mode='chat' (LiteLLM passthrough); em
+    // mode='code' o model fica determinado pelo agente vinculado
+    // (default Claude Code Auditado se conversation é livre).
+    model: z.string().min(1).max(100).optional(),
     attachments_ids: z.array(UUID_LOOSE).max(10).optional(),
+    // FASE 14.0/6c.B — discriminador do turn:
+    //   chat (default) → LiteLLM passthrough multi-LLM (6c.A)
+    //   code           → dispatchWorkItem (Claude Code SDK nativo, 5b.2)
+    mode: z.enum(['chat', 'code']).optional(),
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -213,6 +220,378 @@ async function streamFromLitellm(
         throw new Error('LiteLLM returned no body');
     }
     return res;
+}
+
+// ── Code mode turn handler (FASE 14.0/6c.B) ─────────────────────────────────
+//
+// Mode Code reuses the 5b.2 pipeline:
+//   1. INSERT runtime_work_items with execution_context.source='chat'
+//      so anyone reading the row knows it came from /chat (operations
+//      panel can offer "Open in chat" link, audit trail is unified).
+//   2. INSERT chat_messages assistant placeholder with mode='code',
+//      work_item_id pointing at the new WI. Persists immediately so
+//      a refresh of /chat/<id> mid-stream still loads the correct
+//      shape (tool timeline placeholder + work_item_id).
+//   3. Enqueue dispatch-openclaude BullMQ job — the worker calls
+//      dispatchWorkItem which runs Claude Code SDK + writes events
+//      to runtime_work_item_events.
+//   4. Hijack reply for SSE; poll runtime_work_item_events @500ms
+//      forwarding each event as a JSON envelope. Same shape as the
+//      existing /v1/admin/runtime/work-items/:id/events/stream endpoint
+//      (5a) so the UI client can reuse parsing logic.
+//   5. On RUN_COMPLETED/RUN_FAILED, persist final aggregated text in
+//      chat_messages.content + tokens + tool_count + emit `done` and
+//      end the stream.
+//
+// Why polling DB instead of subscribing to the in-process emitter:
+// the dispatch worker can run in a different process (multi-instance
+// k8s) — runtime_work_item_events is the system-of-record. The 500ms
+// poll matches the existing /events/stream endpoint and is invisible
+// to humans for chat latency.
+
+interface CodeStreamCtx {
+    workItemId: string;
+    assistantMsgId: string;
+    convId: string;
+    orgId: string;
+}
+
+async function handleCodeTurn(
+    pgPool: Pool,
+    orgId: string,
+    convId: string,
+    content: string,
+    attachmentsIds: string[],
+    request: any,
+    reply: any,
+    dlp: ReturnType<typeof scanDocumentForPII>,
+): Promise<void> {
+    // Default fixture for free conversations: Claude Code Auditado
+    // (id 00000000-0000-0000-0fff-000000000002, runtime profile
+    // claude_code_official, audit hooks enabled). When conversation
+    // has assistant_id, that assistant runs.
+    const FALLBACK_AGENT_ID = '00000000-0000-0000-0fff-000000000002';
+
+    // 1+2. Pre-stream DB writes (single connection, single transaction
+    // boundary for consistency between user msg, WI, assistant msg).
+    let ctx: CodeStreamCtx;
+    let runtimeProfileSlug: string;
+    try {
+        ctx = await withOrg(pgPool, orgId, async client => {
+            // Resolve the assistant: conv.assistant_id if linked,
+            // else fallback. Validate it belongs to the org.
+            const convRow = await client.query(
+                `SELECT cc.assistant_id, cc.default_model
+                   FROM chat_conversations cc
+                  WHERE cc.id = $1::uuid AND cc.org_id = $2`,
+                [convId, orgId],
+            );
+            if (convRow.rows.length === 0) throw new Error('NOT_FOUND');
+
+            const assistantId = convRow.rows[0].assistant_id ?? FALLBACK_AGENT_ID;
+
+            const ar = await client.query(
+                `SELECT id, runtime_profile_slug
+                   FROM assistants
+                  WHERE id = $1::uuid AND org_id = $2`,
+                [assistantId, orgId],
+            );
+            if (ar.rows.length === 0) {
+                throw new Error('AGENT_NOT_FOUND');
+            }
+            const slug = ar.rows[0].runtime_profile_slug ?? 'claude_code_official';
+            runtimeProfileSlug = slug;
+            // execution_hint follows the slug→hint convention
+            // (see runtime-admin POST /work-items + execution.service.ts).
+            const executionHint = slug === 'claude_code_official'
+                ? 'claude_code'
+                : 'openclaude';
+
+            // INSERT user message (role='user', mode='code'). DLP scan
+            // result attached if any PII was masked (action='allow' or
+            // 'redact' — block was rejected before reaching here).
+            const userMsg = await client.query(
+                `INSERT INTO chat_messages
+                    (conversation_id, org_id, role, content, mode,
+                     attachments_ids, dlp_scan)
+                 VALUES ($1, $2, 'user', $3, 'code', $4, $5)
+                 RETURNING id`,
+                [
+                    convId, orgId, content, attachmentsIds,
+                    dlp.has_pii ? JSON.stringify(dlp) : null,
+                ],
+            );
+            const userMsgId = userMsg.rows[0].id;
+
+            // INSERT runtime_work_item — the unit of work the
+            // dispatch worker will process.
+            const wiId = randomUUID();
+            const titleSnippet = content.length > 80
+                ? content.substring(0, 77) + '…'
+                : content;
+            await client.query(
+                `INSERT INTO runtime_work_items (
+                    id, org_id, node_id, item_type, title, description,
+                    execution_hint, status, execution_context,
+                    runtime_profile_slug, assistant_id, execution_mode
+                 ) VALUES (
+                    $1, $2, $3, 'compliance_check', $4, $5,
+                    $6, 'pending', $7::jsonb, $8, $9, 'agent'
+                 )`,
+                [
+                    wiId, orgId,
+                    `chat-${wiId.substring(0, 8)}`,
+                    `[chat] ${titleSnippet}`,
+                    content,
+                    executionHint,
+                    JSON.stringify({
+                        source: 'chat',
+                        conversation_id: convId,
+                        chat_user_message_id: userMsgId,
+                        instructions: content,
+                        assistant_id: assistantId,
+                    }),
+                    slug,
+                    assistantId,
+                ],
+            );
+
+            // INSERT assistant placeholder linked to the WI. content=''
+            // until RUN_COMPLETED; UI shows streaming timeline based on
+            // work_item_events. mode='code' so the renderer picks the
+            // tool-timeline component instead of the markdown bubble.
+            const asstMsg = await client.query(
+                `INSERT INTO chat_messages
+                    (conversation_id, org_id, role, content, mode, model,
+                     work_item_id)
+                 VALUES ($1, $2, 'assistant', '', 'code', $3, $4)
+                 RETURNING id`,
+                [convId, orgId, slug, wiId],
+            );
+            const asstMsgId = asstMsg.rows[0].id;
+
+            return { workItemId: wiId, assistantMsgId: asstMsgId, convId, orgId };
+        });
+    } catch (err) {
+        const m = (err as Error).message;
+        if (m === 'NOT_FOUND') return reply.status(404).send({ error: 'conversation not found' });
+        if (m === 'AGENT_NOT_FOUND') return reply.status(404).send({ error: 'assistant not found' });
+        throw err;
+    }
+
+    // 3. Enqueue dispatch BullMQ job. The worker handles the actual
+    // gRPC call to claude-code-runner and writes events to the
+    // runtime_work_item_events table.
+    const { runtimeQueue } = await import('../workers/runtime.worker');
+    await runtimeQueue.add('dispatch-openclaude',
+        { orgId, workItemId: ctx.workItemId },
+        {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 5000 },
+            removeOnComplete: { count: 100 },
+            removeOnFail:     { count: 100 },
+        },
+    );
+
+    // 4. Hijack response for SSE streaming.
+    const corsHeaders = buildCorsHeaders(request.headers.origin);
+    reply.hijack();
+    reply.raw.writeHead(200, {
+        ...corsHeaders,
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+    });
+
+    const writeEnv = (env: Record<string, unknown>): boolean => {
+        try {
+            reply.raw.write(`data: ${JSON.stringify(env)}\n\n`);
+            return true;
+        } catch {
+            return false;
+        }
+    };
+
+    let aborted = false;
+    request.raw.on('close', () => { aborted = true; });
+
+    // Initial keep-alive comment + start envelope so the client knows
+    // the work_item_id and message_id immediately (used to deep-link
+    // to /execucoes/<work_item_id> for full panel view).
+    try { reply.raw.write(`: connected ${Date.now()}\n\n`); } catch { aborted = true; }
+    writeEnv({
+        type: 'mode_code_started',
+        work_item_id: ctx.workItemId,
+        message_id: ctx.assistantMsgId,
+        runtime_profile_slug: runtimeProfileSlug!,
+    });
+
+    // 5. Poll runtime_work_item_events at 500ms, forwarding each event.
+    const POLL_MS = 500;
+    const MAX_DURATION_MS = 30 * 60 * 1000; // 30min — code runs longer than chat
+    const startedAt = Date.now();
+    let lastSeq = -1;
+    let finalStatus = '';
+    const finalStatuses = new Set(['done', 'failed', 'blocked', 'cancelled']);
+
+    try {
+        while (!aborted && (Date.now() - startedAt) < MAX_DURATION_MS) {
+            const client = await pgPool.connect();
+            try {
+                await client.query("SELECT set_config('app.current_org_id', $1, false)", [orgId]);
+                const evRes = await client.query(
+                    `SELECT id, event_seq AS seq, event_type AS type,
+                            tool_name, prompt_id, payload, created_at
+                       FROM runtime_work_item_events
+                      WHERE work_item_id = $1::uuid AND org_id = $2
+                        AND event_seq > $3
+                      ORDER BY event_seq ASC
+                      LIMIT 200`,
+                    [ctx.workItemId, orgId, lastSeq],
+                );
+                for (const e of evRes.rows) {
+                    if (aborted) break;
+                    const ev = {
+                        id: e.id,
+                        seq: Number(e.seq),
+                        type: e.type,
+                        tool_name: e.tool_name,
+                        prompt_id: e.prompt_id,
+                        payload: e.payload || {},
+                        timestamp: e.created_at instanceof Date
+                            ? e.created_at.toISOString()
+                            : String(e.created_at),
+                    };
+                    if (!writeEnv(ev)) { aborted = true; break; }
+                    lastSeq = ev.seq;
+                }
+
+                const stRes = await client.query(
+                    `SELECT status FROM runtime_work_items
+                      WHERE id=$1::uuid AND org_id=$2`,
+                    [ctx.workItemId, orgId],
+                );
+                finalStatus = stRes.rows[0]?.status || '';
+            } finally {
+                await client.query("SELECT set_config('app.current_org_id', '', false)").catch(() => {});
+                client.release();
+            }
+
+            if (aborted) break;
+            if (finalStatuses.has(finalStatus)) break;
+
+            await new Promise(r => setTimeout(r, POLL_MS));
+        }
+    } catch (err) {
+        writeEnv({ type: 'error', error: (err as Error).message });
+    }
+
+    // 5.5 Persist consolidated text on the assistant chat_message so
+    // history reload (refresh /chat/<id>) shows the final answer
+    // alongside the live event timeline (events are still queryable
+    // via the work_item link).
+    if (!aborted) {
+        try {
+            await persistAssistantFromWorkItem(pgPool, orgId, ctx);
+        } catch (err) {
+            console.warn('[chat code] persist final failed:', (err as Error).message);
+        }
+    }
+
+    // Emit terminal envelope.
+    if (!aborted) {
+        if (finalStatus === 'done') {
+            writeEnv({ type: 'done', work_item_id: ctx.workItemId });
+        } else {
+            writeEnv({
+                type: 'error',
+                error: `run ended with status=${finalStatus || 'unknown'}`,
+            });
+        }
+    }
+    try { reply.raw.end(); } catch { /* already ended */ }
+}
+
+/**
+ * After RUN_COMPLETED, distill the run's final text into
+ * chat_messages.content so the conversation reloads cleanly.
+ *
+ * Strategy: read aggregated tool count + tokens + the last
+ * MESSAGE_DELTA-equivalent text from execution_context (the dispatch
+ * pipeline writes both `dispatched_instruction` for audit and the
+ * final assistant text into execution_context.output.fullText —
+ * see runtime-delegation.ts:1497).
+ */
+async function persistAssistantFromWorkItem(
+    pool: Pool,
+    orgId: string,
+    ctx: CodeStreamCtx,
+): Promise<void> {
+    await withOrg(pool, orgId, async client => {
+        const wi = await client.query(
+            `SELECT execution_context, dispatch_error
+               FROM runtime_work_items
+              WHERE id = $1::uuid AND org_id = $2`,
+            [ctx.workItemId, orgId],
+        );
+        const ec = (wi.rows[0]?.execution_context ?? {}) as Record<string, any>;
+        const finalText: string =
+            ec.output?.fullText
+            ?? ec.final_text
+            ?? wi.rows[0]?.dispatch_error
+            ?? '';
+
+        // Aggregate tool count from runtime_work_item_events instead
+        // of trusting execution_context shape.
+        const counts = await client.query(
+            `SELECT
+                SUM(CASE WHEN event_type='TOOL_START' THEN 1 ELSE 0 END) AS tool_count
+               FROM runtime_work_item_events
+              WHERE work_item_id = $1::uuid AND org_id = $2`,
+            [ctx.workItemId, orgId],
+        );
+
+        await client.query(
+            `UPDATE chat_messages
+                SET content = $1,
+                    tokens_in = $2,
+                    tokens_out = $3,
+                    finish_reason = 'stop',
+                    metadata = COALESCE(metadata, '{}'::jsonb) ||
+                               jsonb_build_object('tool_count', $4::int)
+              WHERE id = $5::uuid AND org_id = $6`,
+            [
+                finalText,
+                ec.tokens?.prompt ?? null,
+                ec.tokens?.completion ?? null,
+                Number(counts.rows[0]?.tool_count ?? 0),
+                ctx.assistantMsgId,
+                orgId,
+            ],
+        );
+
+        // Bump conversation last_message_at + auto-title.
+        const autoTitle = ec.input?.instruction
+            ? String(ec.input.instruction).substring(0, 57) + '…'
+            : null;
+        if (autoTitle) {
+            await client.query(
+                `UPDATE chat_conversations
+                    SET last_message_at = NOW(),
+                        title = CASE WHEN title = 'Nova conversa' THEN $2 ELSE title END
+                  WHERE id = $1::uuid AND org_id = $3`,
+                [ctx.convId, autoTitle, orgId],
+            );
+        } else {
+            await client.query(
+                `UPDATE chat_conversations
+                    SET last_message_at = NOW()
+                  WHERE id = $1::uuid AND org_id = $2`,
+                [ctx.convId, orgId],
+            );
+        }
+    });
 }
 
 // ── Routes ──────────────────────────────────────────────────────────────────
@@ -519,15 +898,28 @@ export async function chatNativeRoutes(
             return reply.status(400).send({ error: 'invalid body', details: parse.error.format() });
         }
         const { content, model, attachments_ids = [] } = parse.data;
+        const turnMode = parse.data.mode ?? 'chat';
 
         // 1. DLP scan — reuse the document scanner so chat input applies
         // the same CPF/CNPJ/credit_card block policy as RAG upload.
+        // Same policy applies whether the turn is chat or code.
         const dlp = scanDocumentForPII(content);
         if (dlp.action === 'block') {
             return reply.status(422).send({
                 error: 'message blocked by DLP',
                 hits: dlp.hits,
             });
+        }
+
+        // 6c.B — branch para Modo Code. Dispara dispatchWorkItem (5b.2
+        // pipeline) em vez de LiteLLM passthrough. Stream SSE diferente
+        // — em vez de delta tokens, emite tool_use_start, tool_use_output,
+        // thinking_delta, etc. forwarded from runtime_work_item_events.
+        if (turnMode === 'code') {
+            return await handleCodeTurn(
+                pgPool, orgId, convId, content, attachments_ids,
+                request, reply, dlp,
+            );
         }
 
         // 2-4. Pre-stream DB work, all under one connection so RLS is
@@ -692,9 +1084,12 @@ export async function chatNativeRoutes(
 
         // Pre-flight LiteLLM upstream so connection errors surface as
         // JSON 502 instead of a half-open SSE the client has to abort.
+        // 6c.B — model agora é optional no schema; fallback para o
+        // default da conversation (que herdou do agente quando vinculada).
+        const effectiveModel = model ?? conv!.default_model;
         let upstream: Response;
         try {
-            upstream = await streamFromLitellm(model, messages);
+            upstream = await streamFromLitellm(effectiveModel, messages);
         } catch (err) {
             return reply.status(502).send({
                 error: 'LLM upstream failed',
@@ -790,7 +1185,7 @@ export async function chatNativeRoutes(
                          VALUES ($1, $2, 'assistant', $3, $4, $5, $6, $7, $8)
                          RETURNING id`,
                         [
-                            convId, orgId, assistantContent, model,
+                            convId, orgId, assistantContent, effectiveModel,
                             promptTokens || null,
                             completionTokens || null,
                             Date.now() - startTs,
