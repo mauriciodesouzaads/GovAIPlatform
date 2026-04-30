@@ -1,49 +1,161 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* ============================================================================
+   FASE 14.0/6c.B.3 CP1 — Theme System
+   ----------------------------------------------------------------------------
+   Tailwind v4: tokens declarados em @theme geram utilities (bg-bg-100, etc).
+   Modo claro (light) é o default. Modo escuro (dark) é ativado por classe
+   .dark no <html> (mutada pelo ThemeProvider em src/lib/theme.tsx).
+
+   Paleta replica a do Claude.ai (extraída via getComputedStyle) — bg
+   warm white #F8F8F4 + text #121212 (light), bg #1F1F1E + text #F8F8F4
+   (dark), com accents universais que não mudam por modo.
+
+   Compat retroativo: aliases `--color-background`, `--color-foreground`,
+   `--color-card`, `--color-border`, `--color-primary`, etc continuam
+   funcionando (mapeiam para os novos tokens semânticos), permitindo
+   refactor incremental sem quebrar páginas legadas.
+============================================================================ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
-  /* Warm dark navy — not pure black */
-  --color-background: #0C0F14;
-  --color-foreground: #F0F2F5;
+  /* ===== Backgrounds (light mode default) ============================= */
+  --color-bg-0:   hsl(0 0% 100%);          /* popover/modal */
+  --color-bg-100: hsl(60 14% 97%);         /* main content — #F8F8F4 */
+  --color-bg-200: hsl(60 11% 95%);         /* sidebar — #F2F2EE */
+  --color-bg-300: hsl(45 12% 93%);         /* hover — #EBE9E2 */
+  --color-bg-400: hsl(50 11% 89%);         /* active item — #DEDBD0 */
+  --color-bg-500: hsl(50 11% 89%);
 
-  --color-card: #141820;
-  --color-card-foreground: #F0F2F5;
+  /* ===== Text (light mode default) ===================================== */
+  --color-text-0:   hsl(0 0% 7%);          /* primário — #121212 */
+  --color-text-100: hsl(0 0% 7%);
+  --color-text-200: hsl(60 3% 21%);        /* secundário — #363633 */
+  --color-text-300: hsl(60 3% 21%);
+  --color-text-500: hsl(43 3% 47%);        /* placeholder — #787671 */
 
-  --color-popover: #141820;
-  --color-popover-foreground: #F0F2F5;
+  /* ===== Borders (light mode — base #1F1F1E com alpha por nível) ======= */
+  --color-border-100: hsl(60 2% 12% / 0.08);
+  --color-border-200: hsl(60 2% 12% / 0.12);
+  --color-border-300: hsl(60 2% 12% / 0.20);
+  --color-border-400: hsl(60 2% 12% / 0.30);
 
-  --color-primary: #10B981;
-  --color-primary-foreground: #022C22;
+  /* ===== Accents (universais — não mudam por modo) ===================== */
+  --color-accent-blue-50:    hsl(213 75% 96%);
+  --color-accent-blue-100:   hsl(213 73% 89%);
+  --color-accent-blue-450:   hsl(213 68% 50%);   /* links, web search */
+  --color-accent-blue-600:   hsl(214 72% 34%);
 
-  --color-secondary: #1C2030;
-  --color-secondary-foreground: #F0F2F5;
+  --color-accent-orange-450: hsl(17 69% 45%);    /* Claude logo */
 
-  --color-muted: #1C2030;
-  --color-muted-foreground: #8B92A5;
+  --color-accent-violet-450: hsl(248 67% 63%);   /* Cowork futuro */
 
-  --color-accent: #1E2435;
-  --color-accent-foreground: #F0F2F5;
+  --color-accent-aqua-100:   hsl(158 46% 91%);
+  --color-accent-aqua-600:   hsl(165 88% 20%);   /* success */
 
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #fef2f2;
+  --color-accent-red-100:    hsl(0 78% 91%);
+  --color-accent-red-350:    hsl(0 72% 65%);     /* danger */
 
-  /* Visible border — not invisible */
-  --color-border: #252A38;
-  --color-input: #252A38;
-  --color-ring: #10B981;
+  --color-accent-yellow-100: hsl(41 96% 88%);
+  --color-accent-yellow-450: hsl(38 100% 33%);   /* warning */
 
-  --radius-lg: 0.75rem;
-  --radius-md: 0.5rem;
+  /* ===== Backward compat aliases — refactor incremental =============== */
+  /* Componentes legados usam bg-background, bg-card, text-foreground etc.
+     Mantemos para que /shield, /catalog, /api-keys etc continuem renderizando
+     enquanto o refactor das demais páginas avança em CP1.B/C. */
+  --color-background:           hsl(60 14% 97%);  /* bg-bg-100 */
+  --color-foreground:           hsl(0 0% 7%);     /* bg-text-0 */
+  --color-card:                 hsl(60 11% 95%);  /* bg-bg-200 */
+  --color-card-foreground:      hsl(0 0% 7%);
+  --color-popover:              hsl(0 0% 100%);
+  --color-popover-foreground:   hsl(0 0% 7%);
+  --color-primary:              #10B981;          /* emerald GovAI — preservado */
+  --color-primary-foreground:   #022C22;
+  --color-secondary:            hsl(45 12% 93%);
+  --color-secondary-foreground: hsl(0 0% 7%);
+  --color-muted:                hsl(45 12% 93%);
+  --color-muted-foreground:     hsl(60 3% 21%);
+  --color-accent:               hsl(50 11% 89%);
+  --color-accent-foreground:    hsl(0 0% 7%);
+  --color-destructive:          hsl(0 72% 65%);
+  --color-destructive-foreground: hsl(0 78% 91%);
+  --color-border:               hsl(60 2% 12% / 0.12);
+  --color-input:                hsl(60 2% 12% / 0.12);
+  --color-ring:                 #10B981;
+
+  /* ===== Typography — fontes Google via next/font ===================== */
+  /* Vars --font-inter, --font-dm-serif, --font-jetbrains-mono são
+     setadas em layout.tsx pelo next/font/google. */
+  --font-sans:  var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-dm-serif), Georgia, 'Times New Roman', serif;
+  --font-mono:  var(--font-jetbrains-mono), ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* ===== Radius ======================================================== */
   --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
 }
 
-:root {
-  color-scheme: dark;
+/* ============================================================================
+   Dark mode overrides — ativado via classe .dark no <html>
+   ----------------------------------------------------------------------------
+   ThemeProvider (src/lib/theme.tsx) toggle a classe; NO_FOUC_SCRIPT inline
+   no <head> aplica antes do React montar p/ evitar flash claro→escuro.
+============================================================================ */
+:root.dark {
+  /* Backgrounds invertidos */
+  --color-bg-0:   hsl(60 2% 17%);          /* #2C2C2A */
+  --color-bg-100: hsl(60 2% 12%);          /* #1F1F1E — main */
+  --color-bg-200: hsl(60 2% 9%);           /* #171716 — sidebar */
+  --color-bg-300: hsl(0 0% 7%);            /* #121212 — hover */
+  --color-bg-400: hsl(0 0% 4%);            /* #0A0A0A — active */
+  --color-bg-500: hsl(0 0% 4%);
+
+  /* Text invertido */
+  --color-text-0:   hsl(60 14% 97%);       /* #F8F8F4 */
+  --color-text-100: hsl(60 14% 97%);
+  --color-text-200: hsl(55 9% 74%);        /* #C2C0B5 */
+  --color-text-300: hsl(55 9% 74%);
+  --color-text-500: hsl(48 5% 57%);        /* #928E84 */
+
+  /* Borders invertidas (claras com alpha) */
+  --color-border-100: hsl(53 12% 87% / 0.08);
+  --color-border-200: hsl(53 12% 87% / 0.12);
+  --color-border-300: hsl(53 12% 87% / 0.20);
+  --color-border-400: hsl(53 12% 87% / 0.30);
+
+  /* Accents permanecem iguais (universais) */
+
+  /* Backward compat aliases — também invertidos */
+  --color-background:           hsl(60 2% 12%);
+  --color-foreground:           hsl(60 14% 97%);
+  --color-card:                 hsl(60 2% 9%);
+  --color-card-foreground:      hsl(60 14% 97%);
+  --color-popover:              hsl(60 2% 17%);
+  --color-popover-foreground:   hsl(60 14% 97%);
+  --color-primary:              #10B981;          /* emerald — mantido */
+  --color-primary-foreground:   #022C22;
+  --color-secondary:            hsl(0 0% 7%);
+  --color-secondary-foreground: hsl(60 14% 97%);
+  --color-muted:                hsl(0 0% 7%);
+  --color-muted-foreground:     hsl(55 9% 74%);
+  --color-accent:               hsl(0 0% 4%);
+  --color-accent-foreground:    hsl(60 14% 97%);
+  --color-destructive:          hsl(0 72% 65%);
+  --color-destructive-foreground: hsl(0 78% 91%);
+  --color-border:               hsl(53 12% 87% / 0.12);
+  --color-input:                hsl(53 12% 87% / 0.12);
+  --color-ring:                 #10B981;
 }
+
+:root        { color-scheme: light; }
+:root.dark   { color-scheme: dark; }
 
 body {
-  background-color: var(--color-background);
-  color: var(--color-foreground);
+  background-color: var(--color-bg-100);
+  color: var(--color-text-0);
   -webkit-font-smoothing: antialiased;
 }
 

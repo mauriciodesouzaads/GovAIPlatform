@@ -7,7 +7,9 @@ import { PageHeader } from '@/components/PageHeader';
 import {
     Settings, Plus, X, Loader2, Save, Check, AlertTriangle,
     ChevronUp, ChevronDown, Trash2, Edit2, ToggleLeft, ToggleRight, Bell,
+    Palette,
 } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -411,6 +413,20 @@ export default function SettingsPage() {
                     subtitle="Parâmetros da organização, trilhas de revisão e política de retenção"
                     icon={<Settings className="w-5 h-5" />}
                 />
+
+                {/* ── SEÇÃO 0: Aparência (FASE 14.0/6c.B.3 CP1) ───────── */}
+                <Section title="Aparência" action={<Palette className="w-4 h-4 text-muted-foreground" />}>
+                    <div className="flex items-center justify-between gap-6 flex-wrap">
+                        <div className="min-w-0">
+                            <div className="text-sm font-medium text-text-0">Tema</div>
+                            <div className="text-xs text-text-500 mt-0.5 max-w-md leading-relaxed">
+                                Escolha como a interface aparece. <strong className="text-text-200">Sistema</strong> segue
+                                a preferência do seu OS automaticamente. A escolha é persistida no navegador.
+                            </div>
+                        </div>
+                        <ThemeToggle />
+                    </div>
+                </Section>
 
                 {/* ── SEÇÃO 1: Organização ─────────────────────────────── */}
                 <Section title="Organização">
