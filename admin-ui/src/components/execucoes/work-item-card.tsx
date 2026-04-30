@@ -13,11 +13,17 @@ import { cn } from '@/lib/utils';
  * Layout: status pill | title | runtime badge | tool count |
  *         tokens (if any) | error indicator | created_at
  */
-export function WorkItemCard({ item }: { item: RuntimeWorkItemSummary }) {
+export function WorkItemCard({
+    item,
+    basePath = '/execucoes',  // 6c.B.2 — overridable p/ /evidencias usar mesmo card
+}: {
+    item: RuntimeWorkItemSummary;
+    basePath?: string;
+}) {
     const cleanTitle = item.title.replace(/^Delegated:\s*/, '');
     return (
         <Link
-            href={`/execucoes/${item.id}`}
+            href={`${basePath}/${item.id}`}
             className={cn(
                 'block bg-card/30 border border-border/40 rounded-lg px-4 py-3',
                 'hover:border-primary/30 hover:bg-card/60 transition-colors',

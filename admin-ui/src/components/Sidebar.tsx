@@ -3,10 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-    LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, FileText, ShieldCheck,
+    LayoutDashboard, MessageSquareText, ShieldAlert, Key, LogOut, ShieldCheck,
     ToggleRight, Play, ScanEye, BookOpen, UserCog, Building2, X, Bell,
     ScrollText, AlertTriangle, Settings, ClipboardCheck, ShieldEllipsis, BellRing, Sparkles,
-    Scale, BadgeCheck, Terminal, Shield, Activity, MessageCircle,
+    Scale, BadgeCheck, Terminal, Shield, MessageCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/AuthProvider';
@@ -167,10 +167,9 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         {(isAdmin || showAll) && <SectionLabel label={t('governance')} />}
                         <NavItem href="/shield"     label={t('shield')}         Icon={ScanEye}       isActive={pathname === '/shield'}      accentClass="bg-amber-400" iconActiveClass="text-amber-400" badge={badgeCount}      onClose={onClose} />
                         <NavItem href="/catalog"    label={t('catalog')}        Icon={BookOpen}      isActive={pathname === '/catalog'}     accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
-                        {/* FASE 14.0/5b.1 — superfície de execuções, irmã do Catálogo */}
-                        <NavItem href="/execucoes"  label={t('execucoes')}      Icon={Activity}      isActive={pathname === '/execucoes' || pathname.startsWith('/execucoes/')} accentClass="bg-amber-400" iconActiveClass="text-amber-400" onClose={onClose} />
+                        {/* FASE 14.0/6c.B.2 — /execucoes consolidado em /evidencias com 3 sub-abas (Chat&Code, Diretas, Reality-checks). 'Evidências & Relatórios' (antes /reports) absorvido aqui — não havia conteúdo distinto. */}
+                        <NavItem href="/evidencias" label={t('evidencias')}     Icon={ClipboardCheck} isActive={pathname === '/evidencias' || pathname.startsWith('/evidencias/') || pathname === '/execucoes' || pathname.startsWith('/execucoes/')} accentClass="bg-amber-400" iconActiveClass="text-amber-400" onClose={onClose} />
                         <NavItem href="/approvals"  label={t('approvals')}      Icon={ShieldCheck}   isActive={pathname === '/approvals'}   accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
-                        <NavItem href="/reports"    label={t('reports')}        Icon={FileText}      isActive={pathname === '/reports'}     accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
                         <NavItem href="/compliance" label={t('compliance')}     Icon={ToggleRight}   isActive={pathname === '/compliance'}  accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
                         <NavItem href="/policies"   label={t('policies')}       Icon={ScrollText}    isActive={pathname === '/policies'}    accentClass="bg-amber-400" iconActiveClass="text-amber-400"                         onClose={onClose} />
                         <NavItem href="/exceptions"       label={t('exceptions')}       Icon={AlertTriangle}   isActive={pathname === '/exceptions'}       accentClass="bg-amber-400" iconActiveClass="text-amber-400" badge={exceptionsBadge} onClose={onClose} />

@@ -23,6 +23,9 @@ export interface UseWorkItemsResult {
     loading: boolean;
     error: Error | null;
     total: number | null;
+    /** 6c.B.2 — counts por source p/ as 3 sub-abas em /evidencias.
+     * Vem agregado pelo backend numa query única (sem filtro corrente). */
+    countsBySource: Record<'chat'|'admin'|'api'|'test', number>;
     /** Manual re-fetch — bypasses the visibility gate. */
     refresh: () => Promise<void>;
 }
@@ -36,6 +39,9 @@ export function useWorkItems(
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<Error | null>(null);
     const [total, setTotal] = useState<number | null>(null);
+    const [countsBySource, setCountsBySource] = useState<Record<'chat'|'admin'|'api'|'test', number>>({
+        chat: 0, admin: 0, api: 0, test: 0,
+    });
 
     // JSON-stringify the filters into a stable dep — the user passes
     // a new object each render in practice, and we only care about
@@ -54,6 +60,9 @@ export function useWorkItems(
             if (ctrl.signal.aborted) return;
             setItems(data.items);
             setTotal(data.total_estimate);
+            if (data.counts_by_source) {
+                setCountsBySource(data.counts_by_source);
+            }
             setError(null);
         } catch (e) {
             if ((e as Error).name === 'AbortError') return;
@@ -96,5 +105,5 @@ export function useWorkItems(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [fetchOnce, pollMs]);
 
-    return { items, loading, error, total, refresh: fetchOnce };
+    return { items, loading, error, total, countsBySource, refresh: fetchOnce };
 }

@@ -1,25 +1,29 @@
 'use client';
 
-import { useParams } from 'next/navigation';
-import { ExecucoesLayout } from '@/components/execucoes/execucoes-layout';
-import { WorkItemDetail } from '@/components/execucoes/work-item-detail';
+import { useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 
-export default function WorkItemDetailPage() {
+/**
+ * /execucoes/<id> — FASE 14.0/6c.B.2 redirect para /evidencias/<id>.
+ *
+ * Preserva deep-links de audit reports / slack threads que apontam
+ * para o caminho antigo.
+ */
+export default function ExecucaoDetailRedirectPage() {
+    const router = useRouter();
     const params = useParams();
     const id = params?.id;
     const idStr = Array.isArray(id) ? id[0] : id;
-
-    if (!idStr) {
-        return (
-            <ExecucoesLayout>
-                <div className="text-sm text-muted-foreground">ID inválido</div>
-            </ExecucoesLayout>
-        );
-    }
-
+    useEffect(() => {
+        if (idStr) {
+            router.replace(`/evidencias/${idStr}`);
+        } else {
+            router.replace('/evidencias');
+        }
+    }, [router, idStr]);
     return (
-        <ExecucoesLayout>
-            <WorkItemDetail id={idStr} />
-        </ExecucoesLayout>
+        <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+            Redirecionando para /evidencias/{idStr}…
+        </div>
     );
 }

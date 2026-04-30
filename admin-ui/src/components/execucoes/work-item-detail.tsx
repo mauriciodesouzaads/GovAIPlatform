@@ -23,7 +23,13 @@ const ACTIVE_STATUSES = new Set(['pending', 'in_progress', 'awaiting_approval'])
  * The timeline auto-streams via SSE while the run is active; the
  * useWorkItemDetail hook handles connect/disconnect lifecycles.
  */
-export function WorkItemDetail({ id }: { id: string }) {
+export function WorkItemDetail({
+    id,
+    listHref = '/execucoes',  // 6c.B.2 — /evidencias passa '/evidencias' p/ back-link consistente
+}: {
+    id: string;
+    listHref?: string;
+}) {
     const client = useRuntimeClient();
     const { detail, events, streaming, loading, error, refresh } = useWorkItemDetail(client, id);
     const [viewMode, setViewMode] = useState<ViewMode>('normal');
@@ -78,7 +84,7 @@ export function WorkItemDetail({ id }: { id: string }) {
             {/* Top bar with back link + cancel */}
             <div className="flex items-center justify-between mb-4 flex-shrink-0">
                 <Link
-                    href="/execucoes"
+                    href={listHref}
                     className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
                 >
                     <ChevronLeft className="w-3 h-3" /> Lista
