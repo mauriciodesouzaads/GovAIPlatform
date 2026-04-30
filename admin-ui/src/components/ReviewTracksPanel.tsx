@@ -181,7 +181,7 @@ export function ReviewTracksPanel({ assistantId, orgId, token, onDecisionMade, c
                 rows={2}
                 value={notes[d.track_id] ?? ''}
                 onChange={e => setNotes(prev => ({ ...prev, [d.track_id]: e.target.value }))}
-                className="w-full text-xs bg-background border border-border rounded-md px-2.5 py-1.5 text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:border-white/30"
+                className="w-full text-xs bg-background border border-border rounded-md px-2.5 py-1.5 text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:border-border-400"
               />
               <div className="flex gap-2">
                 <button

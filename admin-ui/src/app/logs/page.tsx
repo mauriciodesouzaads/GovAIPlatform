@@ -82,7 +82,7 @@ export default function AuditLogsPage() {
                                     key={fmt}
                                     onClick={() => exportLogs(fmt)}
                                     disabled={!!exportLoading}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-white/20 transition-colors disabled:opacity-50"
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-border-300 transition-colors disabled:opacity-50"
                                 >
                                     <Download className="w-3.5 h-3.5" />
                                     {exportLoading === fmt ? '...' : fmt.toUpperCase()}

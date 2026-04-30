@@ -17,7 +17,7 @@ import { EvidenciasView } from '@/components/evidencias/evidencias-view';
 export default function EvidenciasPage() {
     return (
         <ExecucoesLayout hideHeader>
-            <Suspense fallback={<div className="text-sm text-zinc-500">Carregando…</div>}>
+            <Suspense fallback={<div className="text-sm text-text-500">Carregando…</div>}>
                 <EvidenciasView />
             </Suspense>
         </ExecucoesLayout>

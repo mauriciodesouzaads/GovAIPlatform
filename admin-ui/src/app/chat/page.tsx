@@ -78,17 +78,17 @@ export default function ChatEntryPage() {
     }
 
     return (
-        <div className="flex-1 flex items-center justify-center text-zinc-300">
+        <div className="flex-1 flex items-center justify-center text-text-100">
             {phase === 'loading' || phase === 'creating' ? (
-                <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
+                <Loader2 className="w-5 h-5 animate-spin text-text-500" />
             ) : (
                 <div className="max-w-md text-center space-y-4">
                     <div className="mx-auto w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
                         <MessageSquare className="w-6 h-6 text-emerald-400" />
                     </div>
                     <div>
-                        <h1 className="text-lg font-semibold text-zinc-100">Bem-vindo ao Chat GovAI</h1>
-                        <p className="text-sm text-zinc-500 mt-1">
+                        <h1 className="text-lg font-semibold text-text-100">Bem-vindo ao Chat GovAI</h1>
+                        <p className="text-sm text-text-500 mt-1">
                             Conversa governada com Claude, GPT e Gemini. Auditada,
                             com DLP e RAG, sob seu controle.
                         </p>

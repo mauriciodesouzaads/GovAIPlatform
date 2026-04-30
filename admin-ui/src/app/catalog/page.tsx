@@ -135,7 +135,7 @@ function ActionModal({
                         <button
                             onClick={onClose}
                             disabled={loading}
-                            className="px-4 py-2 rounded-lg text-sm border border-border text-muted-foreground hover:text-foreground hover:border-white/20 transition-colors disabled:opacity-50"
+                            className="px-4 py-2 rounded-lg text-sm border border-border text-muted-foreground hover:text-foreground hover:border-border-300 transition-colors disabled:opacity-50"
                         >
                             Cancelar
                         </button>
@@ -560,7 +560,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                             {/* Evidence link */}
                             <Link
                                 href={`/evidence/${assistant.id}`}
-                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-white/20 text-sm font-medium transition-colors"
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-border-300 text-sm font-medium transition-colors"
                             >
                                 <FileCheck className="w-4 h-4" />
                                 Ver Evidência de Conformidade

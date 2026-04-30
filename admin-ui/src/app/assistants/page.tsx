@@ -381,7 +381,7 @@ export default function AssistantsPage() {
                                         <Workflow className="w-3.5 h-3.5" /> Delegação Autônoma
                                     </button>
                                     <Link href={`/evidence/${ast.id}`}
-                                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border border-border text-muted-foreground hover:text-foreground hover:border-white/20 transition-all">
+                                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border border-border text-muted-foreground hover:text-foreground hover:border-border-300 transition-all">
                                         <FileCheck className="w-3.5 h-3.5" /> Evidência
                                     </Link>
                                     {ast.status === 'draft' && (
