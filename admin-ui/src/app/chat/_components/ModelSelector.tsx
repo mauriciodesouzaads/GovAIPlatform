@@ -82,8 +82,8 @@ export function ModelSelector({
                     className={[
                         'inline-flex items-center gap-1.5 rounded-md transition-colors',
                         compact
-                            ? 'px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
-                            : 'px-3 py-1.5 text-sm text-zinc-200 bg-white/5 hover:bg-white/10 border border-white/10',
+                            ? 'px-2 py-1 text-xs text-text-200 hover:text-text-100 hover:bg-bg-200'
+                            : 'px-3 py-1.5 text-sm text-text-100 bg-bg-200 hover:bg-bg-300 border border-border-200',
                     ].join(' ')}
                     title={`Modelo atual: ${current?.display_name ?? value}`}
                 >
@@ -96,7 +96,7 @@ export function ModelSelector({
                 <DropdownMenu.Content
                     align="start"
                     sideOffset={4}
-                    className="w-80 rounded-lg border border-white/10 bg-[#141820] shadow-2xl py-1 z-50"
+                    className="w-80 rounded-lg border border-border-200 bg-[#141820] shadow-2xl py-1 z-50"
                 >
                     {/* 6c.B.1: explica restrição p/ usuários que tentam mudar modelo em Modo Code */}
                     {mode === 'code' && (
@@ -110,7 +110,7 @@ export function ModelSelector({
                     )}
                     {Object.entries(grouped).map(([provider, models]) => (
                         <div key={provider} className="py-1">
-                            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-zinc-500 font-medium">
+                            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-text-500 font-medium">
                                 {PROVIDER_LABELS[provider] ?? provider}
                             </div>
                             {models.map(m => (
@@ -121,7 +121,7 @@ export function ModelSelector({
                                         'px-3 py-2 cursor-pointer text-sm outline-none rounded-md mx-1',
                                         m.model_id === value
                                             ? 'bg-emerald-500/10 text-emerald-100'
-                                            : 'text-zinc-200 data-[highlighted]:bg-white/5',
+                                            : 'text-text-100 data-[highlighted]:bg-bg-200',
                                     ].join(' ')}
                                 >
                                     <div className="flex items-center justify-between gap-2">
@@ -136,7 +136,7 @@ export function ModelSelector({
                                         )}
                                     </div>
                                     {m.description && (
-                                        <p className="text-[11px] text-zinc-500 mt-0.5 truncate">
+                                        <p className="text-[11px] text-text-500 mt-0.5 truncate">
                                             {m.description}
                                         </p>
                                     )}
@@ -145,7 +145,7 @@ export function ModelSelector({
                                             {m.capabilities.slice(0, 4).map(cap => (
                                                 <span
                                                     key={cap}
-                                                    className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-zinc-400"
+                                                    className="text-[10px] px-1.5 py-0.5 rounded bg-bg-200 text-text-200"
                                                 >
                                                     {cap.replace(/_/g, ' ')}
                                                 </span>

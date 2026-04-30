@@ -121,7 +121,7 @@ export function ChatInput({
                     'rounded-2xl border bg-[#141820] transition-colors relative',
                     isDragActive
                         ? 'border-emerald-500/60 bg-emerald-500/5'
-                        : 'border-white/10 focus-within:border-emerald-500/40',
+                        : 'border-border-200 focus-within:border-emerald-500/40',
                 ].join(' ')}
             >
                 <input {...getInputProps()} />
@@ -132,7 +132,7 @@ export function ChatInput({
                         {attachments.map((a, i) => (
                             <div
                                 key={i}
-                                className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 text-xs text-zinc-300"
+                                className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-bg-200 text-xs text-text-100"
                             >
                                 {a.uploading && <Loader2 className="w-3 h-3 animate-spin" />}
                                 <span className="truncate max-w-[160px]">{a.file.name}</span>
@@ -140,7 +140,7 @@ export function ChatInput({
                                     onClick={() =>
                                         setAttachments(prev => prev.filter((_, j) => j !== i))
                                     }
-                                    className="text-zinc-500 hover:text-zinc-200"
+                                    className="text-text-500 hover:text-text-100"
                                 >
                                     <X className="w-3 h-3" />
                                 </button>
@@ -158,7 +158,7 @@ export function ChatInput({
                     placeholder="Pergunte qualquer coisa…"
                     rows={1}
                     disabled={disabled}
-                    className="w-full bg-transparent border-none focus:outline-none resize-none px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 leading-6 disabled:opacity-50"
+                    className="w-full bg-transparent border-none focus:outline-none resize-none px-4 py-3 text-sm text-text-100 placeholder:text-text-500 leading-6 disabled:opacity-50"
                     style={{ minHeight: '24px' }}
                 />
 
@@ -168,7 +168,7 @@ export function ChatInput({
                             type="button"
                             onClick={open}
                             disabled={disabled}
-                            className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-white/5 transition-colors disabled:opacity-50"
+                            className="p-1.5 rounded-md text-text-500 hover:text-text-100 hover:bg-bg-200 transition-colors disabled:opacity-50"
                             title="Anexar arquivo"
                         >
                             <Paperclip className="w-4 h-4" />
@@ -195,7 +195,7 @@ export function ChatInput({
                     </div>
                 )}
             </div>
-            <div className="text-[10px] text-zinc-600 text-center mt-2">
+            <div className="text-[10px] text-text-500 text-center mt-2">
                 As mensagens são auditadas e passam por DLP. CPF / CNPJ / cartão são bloqueados.
             </div>
         </div>

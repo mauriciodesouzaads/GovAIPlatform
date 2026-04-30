@@ -289,7 +289,7 @@ export default function ChatConversationPage() {
     if (loading) {
         return (
             <div className="flex-1 flex items-center justify-center">
-                <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
+                <Loader2 className="w-5 h-5 animate-spin text-text-500" />
             </div>
         );
     }
@@ -299,7 +299,7 @@ export default function ChatConversationPage() {
     return (
         <div className="flex flex-col h-full min-h-0">
             {/* Header */}
-            <header className="flex items-center justify-between px-6 py-3 border-b border-white/5">
+            <header className="flex items-center justify-between px-6 py-3 border-b border-border-100">
                 <div className="flex items-center gap-2.5 min-w-0">
                     {/* 6c.A.1 — avatar emoji do agente quando vinculado */}
                     {conv.assistant_id && conv.assistant_avatar && (
@@ -318,11 +318,11 @@ export default function ChatConversationPage() {
                                         if (e.key === 'Escape') setEditingTitle(false);
                                     }}
                                     autoFocus
-                                    className="bg-[#141820] border border-white/10 rounded-md px-2 py-1 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/40"
+                                    className="bg-[#141820] border border-border-200 rounded-md px-2 py-1 text-sm text-text-100 focus:outline-none focus:border-emerald-500/40"
                                 />
                                 <button
                                     onClick={saveTitle}
-                                    className="p-1 text-emerald-400 hover:bg-white/5 rounded"
+                                    className="p-1 text-emerald-400 hover:bg-bg-200 rounded"
                                 >
                                     <Check className="w-4 h-4" />
                                 </button>
@@ -333,15 +333,15 @@ export default function ChatConversationPage() {
                                     setTitleDraft(conv.title);
                                     setEditingTitle(true);
                                 }}
-                                className="text-sm font-medium text-zinc-100 hover:bg-white/5 px-1.5 py-0.5 rounded inline-flex items-center gap-1.5 group truncate max-w-[400px] -ml-1.5"
+                                className="text-sm font-medium text-text-100 hover:bg-bg-200 px-1.5 py-0.5 rounded inline-flex items-center gap-1.5 group truncate max-w-[400px] -ml-1.5"
                                 title={conv.title}
                             >
                                 <span className="truncate">{conv.title}</span>
-                                <Edit2 className="w-3 h-3 text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                                <Edit2 className="w-3 h-3 text-text-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                             </button>
                         )}
                         {conv.assistant_id && conv.assistant_category && (
-                            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium px-1.5">
+                            <div className="text-[10px] uppercase tracking-wider text-text-500 font-medium px-1.5">
                                 Agente · {conv.assistant_category}
                             </div>
                         )}
@@ -412,7 +412,7 @@ function MessageBubble({ msg, streaming }: { msg: UIMessage; streaming: boolean 
     if (msg.role === 'user') {
         return (
             <div className="flex justify-end">
-                <div className="max-w-[80%] rounded-2xl rounded-tr-md bg-[#252A38] px-4 py-2.5 text-sm text-zinc-100 whitespace-pre-wrap leading-relaxed">
+                <div className="max-w-[80%] rounded-2xl rounded-tr-md bg-[#252A38] px-4 py-2.5 text-sm text-text-100 whitespace-pre-wrap leading-relaxed">
                     {msg.content}
                 </div>
             </div>
@@ -439,10 +439,10 @@ function MessageBubble({ msg, streaming }: { msg: UIMessage; streaming: boolean 
                         )}
                     </>
                 ) : (
-                    <Loader2 className="w-4 h-4 animate-spin text-zinc-500" />
+                    <Loader2 className="w-4 h-4 animate-spin text-text-500" />
                 )}
                 {(msg.tokens || msg.latency_ms) && !msg.pending && (
-                    <div className="mt-2 text-[10px] text-zinc-600 flex items-center gap-3">
+                    <div className="mt-2 text-[10px] text-text-500 flex items-center gap-3">
                         {msg.model && <span>{msg.model}</span>}
                         {msg.tokens?.in != null && (
                             <span>{msg.tokens.in} → {msg.tokens.out ?? 0} tokens</span>
@@ -482,11 +482,11 @@ function EmptyState({
                     {conv.assistant_avatar ?? '✦'}
                 </div>
                 <div className="space-y-1">
-                    <h2 className="text-lg font-semibold text-zinc-100">
+                    <h2 className="text-lg font-semibold text-text-100">
                         Olá. Sou {conv.assistant_name ?? conv.title}.
                     </h2>
                     {conv.assistant_description && (
-                        <p className="text-sm text-zinc-400 max-w-xl mx-auto leading-relaxed">
+                        <p className="text-sm text-text-200 max-w-xl mx-auto leading-relaxed">
                             {conv.assistant_description}
                         </p>
                     )}
@@ -497,14 +497,14 @@ function EmptyState({
                             <button
                                 key={i}
                                 onClick={() => onPromptClick(p)}
-                                className="text-left text-sm text-zinc-300 bg-[#141820] border border-white/10 rounded-lg px-3 py-2.5 hover:bg-[#1a1f2a] hover:border-emerald-500/30 transition-colors"
+                                className="text-left text-sm text-text-100 bg-[#141820] border border-border-200 rounded-lg px-3 py-2.5 hover:bg-[#1a1f2a] hover:border-emerald-500/30 transition-colors"
                             >
                                 {p}
                             </button>
                         ))}
                     </div>
                 )}
-                <p className="text-[11px] text-zinc-600 pt-2">
+                <p className="text-[11px] text-text-500 pt-2">
                     Esta conversa é auditada e passa por DLP. Mude o modelo no canto superior direito.
                 </p>
             </div>
@@ -516,8 +516,8 @@ function EmptyState({
             <div className="mx-auto w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
                 <MessageSquare className="w-6 h-6 text-emerald-400" />
             </div>
-            <h2 className="text-base font-semibold text-zinc-100">O que vamos resolver hoje?</h2>
-            <p className="text-sm text-zinc-500 max-w-md mx-auto">
+            <h2 className="text-base font-semibold text-text-100">O que vamos resolver hoje?</h2>
+            <p className="text-sm text-text-500 max-w-md mx-auto">
                 Pergunte qualquer coisa. Esta conversa é auditada e passa por DLP.
                 Mude o modelo a qualquer momento no canto superior direito.
             </p>
@@ -629,10 +629,10 @@ function OutputChip({
         >
             <Icon className="w-4 h-4 text-amber-300 flex-shrink-0" />
             <div className="flex flex-col items-start min-w-0">
-                <span className="text-zinc-100 font-medium truncate max-w-[180px]">
+                <span className="text-text-100 font-medium truncate max-w-[180px]">
                     {file.filename}
                 </span>
-                <span className="text-zinc-500 text-[10px]">
+                <span className="text-text-500 text-[10px]">
                     {formatBytes(file.size_bytes)}
                 </span>
             </div>
@@ -659,7 +659,7 @@ function ModeTabs({
         { key: 'code', label: 'Code', icon: <Terminal className="w-3 h-3" /> },
     ];
     return (
-        <div className="inline-flex items-center gap-0.5 bg-[#141820] border border-white/10 rounded-md p-0.5">
+        <div className="inline-flex items-center gap-0.5 bg-[#141820] border border-border-200 rounded-md p-0.5">
             {tabs.map(t => (
                 <button
                     key={t.key}
@@ -668,7 +668,7 @@ function ModeTabs({
                         'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors ' +
                         (value === t.key
                             ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                            : 'text-zinc-400 hover:text-zinc-200 border border-transparent')
+                            : 'text-text-200 hover:text-text-100 border border-transparent')
                     }
                     title={
                         t.key === 'code'
@@ -743,7 +743,7 @@ function CodeMessageBubble({
                     o link "Ver detalhes técnicos"). Filtra MESSAGE_DELTA
                     p/ não duplicar com o bloco de prosa abaixo. */}
                 {isLive && toolEvents.length > 0 && (
-                    <div className="rounded-md border border-white/5 bg-[#0E1218] p-3">
+                    <div className="rounded-md border border-border-100 bg-[#0E1218] p-3">
                         <TimelineView
                             events={toolEvents as RuntimeWorkItemEvent[]}
                             mode="normal"
@@ -753,7 +753,7 @@ function CodeMessageBubble({
 
                 {/* Loading inicial — antes do primeiro evento chegar */}
                 {!isLive && msg.pending && !msg.content && !msg.error && (
-                    <div className="flex items-center gap-2 text-xs text-zinc-500">
+                    <div className="flex items-center gap-2 text-xs text-text-500">
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         Despachando para o runtime…
                     </div>
@@ -809,7 +809,7 @@ function CodeMessageBubble({
                 {/* Footer: tokens · latency · contador de tools · link */}
                 {(msg.tokens || msg.latency_ms || msg.work_item_id || toolCount != null) &&
                     !msg.pending && (
-                    <div className="text-[10px] text-zinc-600 flex items-center gap-3 flex-wrap">
+                    <div className="text-[10px] text-text-500 flex items-center gap-3 flex-wrap">
                         {msg.model && <span>{msg.model}</span>}
                         {msg.tokens?.in != null && (
                             <span>{msg.tokens.in} → {msg.tokens.out ?? 0} tokens</span>

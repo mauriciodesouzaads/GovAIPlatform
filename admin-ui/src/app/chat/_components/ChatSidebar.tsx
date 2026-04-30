@@ -67,11 +67,11 @@ export function ChatSidebar() {
     return (
         <div className="flex flex-col h-full">
             {/* Header */}
-            <div className="px-3 pt-3 pb-2 border-b border-white/5">
+            <div className="px-3 pt-3 pb-2 border-b border-border-100">
                 <div className="flex items-center justify-between mb-2">
                     <Link
                         href="/"
-                        className="text-xs text-zinc-500 hover:text-zinc-300 inline-flex items-center gap-1 transition-colors"
+                        className="text-xs text-text-500 hover:text-text-100 inline-flex items-center gap-1 transition-colors"
                         title="Voltar ao painel"
                     >
                         <ArrowLeft className="w-3 h-3" />
@@ -87,13 +87,13 @@ export function ChatSidebar() {
                     Nova conversa
                 </button>
                 <div className="relative mt-2">
-                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-500" />
                     <input
                         type="text"
                         value={searchInput}
                         onChange={e => setSearchInput(e.target.value)}
                         placeholder="Buscar conversas…"
-                        className="w-full bg-[#141820] border border-white/5 rounded-md pl-8 pr-3 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
+                        className="w-full bg-[#141820] border border-border-100 rounded-md pl-8 pr-3 py-1.5 text-xs text-text-100 placeholder:text-text-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
                     />
                 </div>
             </div>
@@ -103,7 +103,7 @@ export function ChatSidebar() {
                 {loading && items.length === 0 ? (
                     <SidebarSkeleton />
                 ) : items.length === 0 ? (
-                    <div className="px-2 py-12 text-center text-xs text-zinc-500">
+                    <div className="px-2 py-12 text-center text-xs text-text-500">
                         {search
                             ? 'Nada encontrado.'
                             : 'Nenhuma conversa ainda. Comece uma nova.'}
@@ -112,7 +112,7 @@ export function ChatSidebar() {
                     Object.entries(grouped).map(([groupName, groupItems]) =>
                         groupItems.length === 0 ? null : (
                             <div key={groupName} className="mb-3">
-                                <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-500 font-medium">
+                                <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-text-500 font-medium">
                                     {groupName}
                                 </div>
                                 <div className="space-y-px">
@@ -146,7 +146,7 @@ function ConvCard({ item, active }: { item: Conversation; active: boolean }) {
                 'block rounded-md px-2 py-2 transition-colors text-xs',
                 active
                     ? 'bg-emerald-500/10 text-emerald-100'
-                    : 'text-zinc-300 hover:bg-white/5',
+                    : 'text-text-100 hover:bg-bg-200',
             ].join(' ')}
         >
             <div className="flex items-start gap-2">
@@ -157,13 +157,13 @@ function ConvCard({ item, active }: { item: Conversation; active: boolean }) {
                         {item.assistant_avatar}
                     </span>
                 ) : (
-                    <MessageSquare className="w-3 h-3 text-zinc-600 flex-shrink-0 mt-0.5" />
+                    <MessageSquare className="w-3 h-3 text-text-500 flex-shrink-0 mt-0.5" />
                 )}
                 <div className="flex-1 min-w-0">
                     <div className="truncate text-[13px] leading-tight">
                         {item.title}
                     </div>
-                    <div className="text-[10px] text-zinc-500 mt-0.5">
+                    <div className="text-[10px] text-text-500 mt-0.5">
                         {relativeTime(item.last_message_at || item.created_at)}
                     </div>
                 </div>
@@ -177,8 +177,8 @@ function SidebarSkeleton() {
         <div className="space-y-2 px-2 pt-2">
             {[0, 1, 2, 3, 4].map(i => (
                 <div key={i} className="space-y-1.5 animate-pulse">
-                    <div className="h-3 bg-white/5 rounded w-3/4" />
-                    <div className="h-2 bg-white/5 rounded w-1/3" />
+                    <div className="h-3 bg-bg-200 rounded w-3/4" />
+                    <div className="h-2 bg-bg-200 rounded w-1/3" />
                 </div>
             ))}
         </div>

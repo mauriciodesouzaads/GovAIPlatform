@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 // 6c.B.2 — DNA Claude Desktop:
 //   - header serif para o título primário
 //   - sub-abas pílula com counter à direita
-//   - hover sutil bg-white/[0.03] (não bg-white/10 que é forte demais)
+//   - hover sutil bg-white/[0.03] (não bg-bg-300 que é forte demais)
 //   - rounded-lg generoso (10px+)
 //   - filtros bar separada com bg #0E1218 (panel)
 
@@ -140,8 +140,8 @@ export function EvidenciasView() {
                                 'flex items-center gap-2 px-4 py-2.5 text-sm rounded-t-lg',
                                 'transition-colors border-b-2 -mb-[2px]',
                                 isActive
-                                    ? 'text-foreground border-emerald-400 bg-white/[0.03]'
-                                    : 'text-muted-foreground border-transparent hover:text-foreground/90 hover:bg-white/[0.02]',
+                                    ? 'text-foreground border-emerald-400 bg-bg-300/30'
+                                    : 'text-muted-foreground border-transparent hover:text-foreground/90 hover:bg-bg-300/20',
                             )}
                             title={t.description}
                             aria-pressed={isActive}
@@ -152,7 +152,7 @@ export function EvidenciasView() {
                                 'text-[11px] px-1.5 py-0.5 rounded-md font-mono',
                                 isActive
                                     ? 'bg-emerald-500/15 text-emerald-300'
-                                    : 'bg-white/5 text-muted-foreground',
+                                    : 'bg-bg-200 text-muted-foreground',
                             )}>
                                 {count}
                             </span>

@@ -21,7 +21,7 @@ import 'highlight.js/styles/atom-one-dark.css';
  */
 export function ChatMarkdown({ content }: { content: string }) {
     return (
-        <div className="prose prose-invert prose-sm max-w-none prose-p:leading-relaxed prose-pre:bg-transparent prose-pre:p-0 prose-pre:my-0 prose-code:before:hidden prose-code:after:hidden prose-headings:text-zinc-100 prose-strong:text-zinc-100 prose-a:text-emerald-400 prose-li:my-0">
+        <div className="prose prose-invert prose-sm max-w-none prose-p:leading-relaxed prose-pre:bg-transparent prose-pre:p-0 prose-pre:my-0 prose-code:before:hidden prose-code:after:hidden prose-headings:text-text-100 prose-strong:text-text-100 prose-a:text-emerald-400 prose-li:my-0">
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}
@@ -67,14 +67,14 @@ function CodeBlock({
         } catch { /* ignore */ }
     }
     return (
-        <div className="my-3 rounded-lg overflow-hidden border border-white/10 bg-[#0d1117]">
-            <div className="flex items-center justify-between px-3 py-1.5 bg-white/5 border-b border-white/5">
-                <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+        <div className="my-3 rounded-lg overflow-hidden border border-border-200 bg-[#0d1117]">
+            <div className="flex items-center justify-between px-3 py-1.5 bg-bg-200 border-b border-border-100">
+                <span className="text-[11px] font-mono uppercase tracking-wider text-text-500">
                     {language || 'code'}
                 </span>
                 <button
                     onClick={copy}
-                    className="text-[11px] text-zinc-400 hover:text-zinc-200 inline-flex items-center gap-1 transition-colors"
+                    className="text-[11px] text-text-200 hover:text-text-100 inline-flex items-center gap-1 transition-colors"
                 >
                     {copied ? (
                         <>
