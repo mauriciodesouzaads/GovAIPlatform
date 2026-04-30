@@ -152,6 +152,7 @@ MIGRATIONS=(
     "098_chat_assistant_link.sql"
     "099_chat_mode_code.sql"
     "100_runtime_work_items_source.sql"
+    "101_runtime_work_items_source_trigger_fix.sql"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

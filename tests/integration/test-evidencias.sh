@@ -217,12 +217,91 @@ echo "$DASH_HTML" | grep -q "Evidências" \
     && ok '"Evidências & Relatórios" deletado' \
     || fail '"Evidências & Relatórios" ainda visível'
 
-# ─── Test 8: Regressão suítes anteriores (1 nível, sem cascade) ─────
+# ─── Test 8: Trigger fix da 6c.B.2-fix — replica patterns retrofit ──
+# Migration 101 atualiza a função do trigger BEFORE INSERT para
+# replicar os patterns de title que o retrofit em batch da 100 usou.
+# Sem essa fix, testes recém-criados sempre vazavam para 'admin'.
+echo ""
+echo "═══ Test 8 (6c.B.2-fix): trigger replica patterns ═══"
+
+# 9.1 — INSERT com title 'reality-check-*' sem source explícito
+FIXTURE_NODE="fixture-trigger-$$-$(date +%s)"
+INSERT_RES=$(psql_q "
+WITH ins AS (
+    INSERT INTO runtime_work_items (
+        org_id, node_id, item_type, title, status,
+        execution_hint, execution_mode
+    ) VALUES (
+        '$ORG'::uuid, '$FIXTURE_NODE', 'compliance_check',
+        'reality-check-trigger-validation', 'pending',
+        'openclaude', 'freeform'
+    ) RETURNING source
+)
+SELECT source FROM ins")
+[ "$INSERT_RES" = "test" ] \
+    && ok "trigger classifica 'reality-check-*' como source='test'" \
+    || fail "trigger errou: source=$INSERT_RES"
+psql_q "DELETE FROM runtime_work_items WHERE node_id='$FIXTURE_NODE'" >/dev/null
+
+# 9.2 — INSERT com title '[livre] reality-check*'
+FIXTURE_NODE="fixture-livre-$$-$(date +%s)"
+INSERT_RES=$(psql_q "
+WITH ins AS (
+    INSERT INTO runtime_work_items (
+        org_id, node_id, item_type, title, status,
+        execution_hint, execution_mode
+    ) VALUES (
+        '$ORG'::uuid, '$FIXTURE_NODE', 'compliance_check',
+        '[livre] reality-check-freeform-fixture', 'pending',
+        'openclaude', 'freeform'
+    ) RETURNING source
+)
+SELECT source FROM ins")
+[ "$INSERT_RES" = "test" ] \
+    && ok "trigger classifica '[livre] reality-check*' como test" \
+    || fail "trigger errou em [livre]: source=$INSERT_RES"
+psql_q "DELETE FROM runtime_work_items WHERE node_id='$FIXTURE_NODE'" >/dev/null
+
+# 9.3 — INSERT com title comum (sem pattern de teste) → admin default
+FIXTURE_NODE="fixture-admin-$$-$(date +%s)"
+INSERT_RES=$(psql_q "
+WITH ins AS (
+    INSERT INTO runtime_work_items (
+        org_id, node_id, item_type, title, status,
+        execution_hint, execution_mode
+    ) VALUES (
+        '$ORG'::uuid, '$FIXTURE_NODE', 'compliance_check',
+        'Análise manual de risco', 'pending',
+        'openclaude', 'freeform'
+    ) RETURNING source
+)
+SELECT source FROM ins")
+[ "$INSERT_RES" = "admin" ] \
+    && ok "trigger usa admin como default p/ títulos sem pattern" \
+    || fail "trigger errou no default: source=$INSERT_RES"
+psql_q "DELETE FROM runtime_work_items WHERE node_id='$FIXTURE_NODE'" >/dev/null
+
+# 9.4 — Zero leaks remanescentes pós-101
+LEAKS=$(psql_q "
+SELECT COUNT(*) FROM runtime_work_items
+ WHERE source = 'admin'
+   AND (title LIKE 'reality-check-%'
+        OR title LIKE '[livre] reality-check%'
+        OR title LIKE 'reality-check-agent-mode%'
+        OR title LIKE '6a%test%'
+        OR title LIKE '6a%probe%'
+        OR title LIKE 'smoke-%'
+        OR title LIKE 'test --%')")
+[ "$LEAKS" = "0" ] \
+    && ok "zero leaks: nenhum admin com pattern de teste" \
+    || fail "$LEAKS items admin ainda casam patterns de teste"
+
+# ─── Test 9: Regressão suítes anteriores (1 nível, sem cascade) ─────
 # Cascade evitada: as suítes anteriores já chamam regression entre si.
 # Aqui validamos só test-chat-mode (lib base do /chat) p/ confirmar que
 # o rename da sidebar não quebrou navegação de chat.
 echo ""
-echo "═══ Test 8: regressão sanity (test-chat-mode) ═══"
+echo "═══ Test 9: regressão sanity (test-chat-mode) ═══"
 clear_rl
 if bash tests/integration/test-chat-mode.sh > /tmp/r-test-chat-mode.log 2>&1; then
     ok "test-chat-mode pass"
