@@ -370,10 +370,12 @@ export default function ConsultantPage() {
         <div className="flex-1 overflow-auto">
             <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-8">
 
+                {/* 6c.B.3 CP1.D-B: tag Beta · Multi-tenant indicando feature em desenvolvimento */}
                 <PageHeader
                     title="Painel do Consultor"
-                    subtitle="Visão multi-tenant"
+                    subtitle="Visão multi-tenant somente leitura"
                     icon={<UserCog className="w-5 h-5" />}
+                    badge={{ label: 'Beta · Multi-tenant', variant: 'neutral' }}
                 />
 
                 {/* Readonly notice */}

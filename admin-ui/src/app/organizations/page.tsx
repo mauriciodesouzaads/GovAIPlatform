@@ -5,7 +5,7 @@ import { useEscapeClose } from '@/hooks/useEscapeClose';
 import api, { ENDPOINTS } from '@/lib/api';
 import { useAuth } from '@/components/AuthProvider';
 import { useToast } from '@/components/Toast';
-import { Building2, Plus, UserPlus, Pencil, X, Users, Bot, Clock, Calendar } from 'lucide-react';
+import { Building2, Plus, UserPlus, Pencil, X, Users, Bot, Clock, Calendar, Lock } from 'lucide-react';
 import { SkeletonTable } from '@/components/Skeleton';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge } from '@/components/Badge';
@@ -273,12 +273,53 @@ export default function OrganizationsPage() {
         load();
     }
 
+    // 6c.B.3 CP1.D-B: banner explicativo p/ não-platform_admin (em vez de
+    // mensagem fria 'Acesso restrito'). Indica feature em desenvolvimento +
+    // aponta caminhos alternativos: /settings (org admin) e /consultant
+    // (multi-tenant readonly se houver permissão).
     if (role !== 'platform_admin') {
         return (
-            <div className="flex-1 flex items-center justify-center bg-background min-h-screen">
-                <div className="text-center space-y-3">
-                    <Building2 className="w-12 h-12 text-muted-foreground/20 mx-auto" />
-                    <p className="text-muted-foreground text-sm">Acesso restrito ao administrador da plataforma.</p>
+            <div className="flex-1 overflow-auto">
+                <div className="max-w-3xl mx-auto p-4 sm:p-6">
+                    <PageHeader
+                        title="Organizações"
+                        subtitle="Gestão multi-tenant — recurso de plataforma"
+                        icon={<Building2 className="w-5 h-5" />}
+                    />
+                    <div className="mt-4 rounded-xl border border-border bg-card p-6">
+                        <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-violet-500/10 text-violet-400 flex items-center justify-center">
+                                <Lock className="w-5 h-5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <h2 className="text-base font-semibold text-foreground">
+                                        Recurso de Plataforma
+                                    </h2>
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider bg-violet-500/10 text-violet-400 border border-violet-500/30">
+                                        Beta
+                                    </span>
+                                </div>
+                                <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+                                    A gestão de organizações está disponível apenas para administradores
+                                    da plataforma GovAI. Como administrador desta organização, você tem
+                                    acesso completo às configurações em{' '}
+                                    <a href="/settings" className="text-primary hover:underline">
+                                        Configurações
+                                    </a>
+                                    {' '}e ao{' '}
+                                    <a href="/consultant" className="text-primary hover:underline">
+                                        Painel do Consultor
+                                    </a>
+                                    {' '}(somente leitura) caso tenha permissão de consultoria multi-tenant.
+                                </p>
+                                <p className="text-xs text-muted-foreground/70 mt-3">
+                                    Recurso em desenvolvimento — disponível em release futuro para
+                                    Platform Admins do GovAI SaaS.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         );

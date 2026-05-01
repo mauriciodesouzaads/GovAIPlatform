@@ -198,7 +198,7 @@ function WebhookFormModal({ initial, onClose, onSaved }: FormModalProps) {
                         <button
                             onClick={submit}
                             disabled={loading}
-                            className="px-4 py-2 rounded-lg text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-black transition-colors disabled:opacity-50 flex items-center gap-2"
+                            className="px-4 py-2 rounded-lg text-sm font-semibold bg-primary hover:bg-primary/90 text-primary-foreground transition-colors disabled:opacity-50 flex items-center gap-2"
                         >
                             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                             {isEdit ? 'Salvar' : 'Criar'}
@@ -430,7 +430,7 @@ export default function WebhooksPage() {
                             </button>
                             <button
                                 onClick={() => { setEditTarget(null); setShowForm(true); }}
-                                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-sm font-semibold transition-colors"
+                                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold transition-colors"
                             >
                                 <Plus className="w-4 h-4" />
                                 Novo Webhook

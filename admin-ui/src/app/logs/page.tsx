@@ -158,8 +158,15 @@ export default function AuditLogsPage() {
                                                         : log.action.replace(/_/g, ' ')}
                                                 </Badge>
                                             </td>
+                                            {/* 6c.B.3 CP1.D-B: API retorna trace_id em metadata.traceId
+                                                (camelCase aninhado no JSONB), não top-level. Falback p/
+                                                top-level mantém compat caso o backend mude o shape. */}
                                             <td className="hidden md:table-cell px-4 py-3 font-mono text-xs text-muted-foreground">
-                                                {log.trace_id}
+                                                {(() => {
+                                                    const tid = log.trace_id
+                                                        || (log.metadata as { traceId?: string } | undefined)?.traceId;
+                                                    return tid ? tid.substring(0, 8) + '…' : '—';
+                                                })()}
                                             </td>
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center justify-center">
