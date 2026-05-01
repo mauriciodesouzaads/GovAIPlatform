@@ -518,13 +518,13 @@ export default function SettingsPage() {
                                                 {track.sla_hours}h SLA
                                             </span>
                                             {track.is_required && (
-                                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-warning-bg border-amber-500/20 text-warning-fg">
+                                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-warning-bg border-warning-border text-warning-fg">
                                                     OBRIGATÓRIA
                                                 </span>
                                             )}
                                             <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
                                                 track.is_active
-                                                    ? 'bg-success-bg border-emerald-500/20 text-success-fg'
+                                                    ? 'bg-success-bg border-success-border text-success-fg'
                                                     : 'bg-secondary border-border text-muted-foreground'
                                             }`}>
                                                 {track.is_active ? 'ATIVA' : 'INATIVA'}

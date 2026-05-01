@@ -128,7 +128,7 @@ export function WorkItemDetail({
             {chatConversationId && (
                 <Link
                     href={`/chat/${chatConversationId}`}
-                    className="mb-4 flex items-center gap-2 px-3 py-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 text-xs text-success-fg hover:bg-success-bg transition-colors flex-shrink-0"
+                    className="mb-4 flex items-center gap-2 px-3 py-2 rounded-md border border-success-border bg-emerald-500/5 text-xs text-success-fg hover:bg-success-bg transition-colors flex-shrink-0"
                 >
                     <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
                     <span className="flex-1">
@@ -239,7 +239,7 @@ export function WorkItemDetail({
 
                     {wi.dispatch_error && (
                         <Field label="Erro">
-                            <pre className="text-[11px] text-danger-fg whitespace-pre-wrap break-all bg-rose-500/5 border border-rose-500/20 rounded p-2 max-h-32 overflow-y-auto">
+                            <pre className="text-[11px] text-danger-fg whitespace-pre-wrap break-all bg-rose-500/5 border border-danger-border rounded p-2 max-h-32 overflow-y-auto">
                                 {wi.dispatch_error}
                             </pre>
                         </Field>

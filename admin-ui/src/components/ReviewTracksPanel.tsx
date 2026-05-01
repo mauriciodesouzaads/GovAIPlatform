@@ -123,10 +123,10 @@ export function ReviewTracksPanel({ assistantId, orgId, token, onDecisionMade, c
       {/* Summary banner */}
       <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border
         ${summary.any_rejected
-          ? 'bg-danger-bg border-rose-500/20 text-danger-fg'
+          ? 'bg-danger-bg border-danger-border text-danger-fg'
           : summary.all_required_approved
-          ? 'bg-success-bg border-emerald-500/20 text-success-fg'
-          : 'bg-info-bg border-blue-500/20 text-info-fg'
+          ? 'bg-success-bg border-success-border text-success-fg'
+          : 'bg-info-bg border-info-border text-info-fg'
         }`}>
         {summary.any_rejected
           ? <><XCircle className="w-3.5 h-3.5" /> Revisão rejeitada em uma ou mais tracks</>

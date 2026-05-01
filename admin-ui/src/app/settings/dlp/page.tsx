@@ -51,9 +51,9 @@ const ACTION_LABELS: Record<DlpAction, string> = {
 };
 
 const ACTION_COLORS: Record<DlpAction, string> = {
-    mask:  'bg-warning-bg text-warning-fg border-amber-500/20',
-    block: 'bg-danger-bg text-danger-fg border-rose-500/20',
-    alert: 'bg-info-bg text-info-fg border-blue-500/20',
+    mask:  'bg-warning-bg text-warning-fg border-warning-border',
+    block: 'bg-danger-bg text-danger-fg border-danger-border',
+    alert: 'bg-info-bg text-info-fg border-info-border',
 };
 
 const DETECTOR_LABELS: Record<DetectorType, string> = {
@@ -174,7 +174,7 @@ function AddRuleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
 
                 <form onSubmit={handleSubmit} className="p-5 space-y-4">
                     {error && (
-                        <div className="p-3 rounded-lg bg-danger-bg border border-rose-500/20 flex items-start gap-2">
+                        <div className="p-3 rounded-lg bg-danger-bg border border-danger-border flex items-start gap-2">
                             <AlertCircle className="w-4 h-4 text-danger-fg shrink-0 mt-0.5" />
                             <p className="text-sm text-danger-fg">{error}</p>
                         </div>
@@ -296,7 +296,7 @@ function TestModal({ onClose }: { onClose: () => void }) {
 
                 <div className="p-5 space-y-4">
                     {error && (
-                        <div className="p-3 rounded-lg bg-danger-bg border border-rose-500/20 flex items-start gap-2">
+                        <div className="p-3 rounded-lg bg-danger-bg border border-danger-border flex items-start gap-2">
                             <AlertCircle className="w-4 h-4 text-danger-fg shrink-0 mt-0.5" />
                             <p className="text-sm text-danger-fg">{error}</p>
                         </div>
@@ -325,10 +325,10 @@ function TestModal({ onClose }: { onClose: () => void }) {
                             {/* Status */}
                             <div className={`flex items-center gap-2 p-3 rounded-lg border ${
                                 result.blocked
-                                    ? 'bg-danger-bg border-rose-500/20'
+                                    ? 'bg-danger-bg border-danger-border'
                                     : result.detection_count > 0
-                                        ? 'bg-warning-bg border-amber-500/20'
-                                        : 'bg-success-bg border-emerald-500/20'
+                                        ? 'bg-warning-bg border-warning-border'
+                                        : 'bg-success-bg border-success-border'
                             }`}>
                                 {result.blocked
                                     ? <AlertCircle className="w-4 h-4 text-danger-fg shrink-0" />
@@ -551,7 +551,7 @@ export default function DlpPage() {
             />
 
             {globalError && (
-                <div className="mb-4 p-3 rounded-lg bg-danger-bg border border-rose-500/20 flex items-start gap-2">
+                <div className="mb-4 p-3 rounded-lg bg-danger-bg border border-danger-border flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 text-danger-fg shrink-0 mt-0.5" />
                     <p className="text-sm text-danger-fg">{globalError}</p>
                 </div>

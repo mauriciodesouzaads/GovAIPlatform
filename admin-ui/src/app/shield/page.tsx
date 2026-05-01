@@ -40,10 +40,10 @@ interface Collector {
 
 function severityColor(s: string) {
     switch (s) {
-        case 'critical':      return 'text-danger-fg bg-danger-bg border-rose-500/20';
+        case 'critical':      return 'text-danger-fg bg-danger-bg border-danger-border';
         case 'high':          return 'text-orange-400 bg-orange-500/10 border-orange-500/20';
-        case 'medium':        return 'text-warning-fg bg-warning-bg border-amber-400/20';
-        case 'low':           return 'text-info-fg bg-info-bg border-blue-400/20';
+        case 'medium':        return 'text-warning-fg bg-warning-bg border-warning-border';
+        case 'low':           return 'text-info-fg bg-info-bg border-info-border';
         default:              return 'text-gray-400 bg-gray-400/10 border-gray-400/20';
     }
 }
@@ -62,9 +62,9 @@ function statusColor(s: string) {
 
 function healthColor(h: string) {
     switch (h) {
-        case 'healthy':   return 'text-success-fg bg-success-bg border-emerald-500/20';
-        case 'degraded':  return 'text-warning-fg bg-warning-bg border-amber-400/20';
-        case 'error':     return 'text-danger-fg bg-danger-bg border-rose-500/20';
+        case 'healthy':   return 'text-success-fg bg-success-bg border-success-border';
+        case 'degraded':  return 'text-warning-fg bg-warning-bg border-warning-border';
+        case 'error':     return 'text-danger-fg bg-danger-bg border-danger-border';
         default:          return 'text-gray-400 bg-gray-400/10 border-gray-400/20';
     }
 }
@@ -372,7 +372,7 @@ export default function ShieldPage() {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {/* Card 1 */}
                         <div className="bg-card border border-border rounded-2xl p-5 hover:border-border transition-all">
-                            <div className="w-9 h-9 rounded-xl bg-warning-bg border border-amber-400/20 flex items-center justify-center mb-3">
+                            <div className="w-9 h-9 rounded-xl bg-warning-bg border border-warning-border flex items-center justify-center mb-3">
                                 <Eye className="w-4.5 h-4.5 text-warning-fg" />
                             </div>
                             <div className="text-2xl font-semibold text-foreground">{posture?.open_findings ?? 0}</div>
@@ -380,9 +380,9 @@ export default function ShieldPage() {
                             <p className="text-xs text-amber-400/70 mt-0.5">findings ativos</p>
                         </div>
                         {/* Card 2 */}
-                        <div className="bg-gradient-to-br from-rose-950/40 to-background border border-rose-500/20 rounded-2xl p-5 hover:border-danger-border transition-all relative overflow-hidden">
+                        <div className="bg-gradient-to-br from-rose-950/40 to-background border border-danger-border rounded-2xl p-5 hover:border-danger-border transition-all relative overflow-hidden">
                             <div className="absolute top-0 right-0 w-20 h-20 bg-danger-bg blur-2xl pointer-events-none" />
-                            <div className="w-9 h-9 rounded-xl bg-danger-bg border border-rose-500/20 flex items-center justify-center mb-3">
+                            <div className="w-9 h-9 rounded-xl bg-danger-bg border border-danger-border flex items-center justify-center mb-3">
                                 <AlertTriangle className="w-4.5 h-4.5 text-danger-fg" />
                             </div>
                             <div className="text-2xl font-semibold text-foreground">{posture?.unresolved_critical ?? 0}</div>
@@ -391,7 +391,7 @@ export default function ShieldPage() {
                         </div>
                         {/* Card 3 */}
                         <div className="bg-card border border-border rounded-2xl p-5 hover:border-border transition-all">
-                            <div className="w-9 h-9 rounded-xl bg-success-bg border border-emerald-500/20 flex items-center justify-center mb-3">
+                            <div className="w-9 h-9 rounded-xl bg-success-bg border border-success-border flex items-center justify-center mb-3">
                                 <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500" />
                             </div>
                             <div className="text-2xl font-semibold text-foreground">{posture?.promoted_findings ?? 0}</div>
@@ -461,7 +461,7 @@ export default function ShieldPage() {
                             {isAdmin && (
                                 <>
                                     <button onClick={handleSyncCatalog}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-info-bg hover:bg-info-bg text-info-fg border border-blue-500/20 rounded-lg text-xs font-semibold transition-all">
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-info-bg hover:bg-info-bg text-info-fg border border-info-border rounded-lg text-xs font-semibold transition-all">
                                         <RotateCcw className="w-3 h-3" /> Sincronizar Catálogo
                                     </button>
                                     <button onClick={handleDedupe}
@@ -521,7 +521,7 @@ export default function ShieldPage() {
                                                             <button
                                                                 onClick={() => handleAcknowledge(f.id)}
                                                                 disabled={processingId === f.id}
-                                                                className="px-2 py-1 text-xs font-bold bg-info-bg hover:bg-info-bg text-info-fg border border-blue-500/20 rounded-lg transition-all disabled:opacity-40">
+                                                                className="px-2 py-1 text-xs font-bold bg-info-bg hover:bg-info-bg text-info-fg border border-info-border rounded-lg transition-all disabled:opacity-40">
                                                                 Acknowledger
                                                             </button>
                                                         )}
@@ -529,7 +529,7 @@ export default function ShieldPage() {
                                                             <button
                                                                 onClick={() => handlePromote(f.id)}
                                                                 disabled={processingId === f.id}
-                                                                className="px-2 py-1 text-xs font-bold bg-success-bg hover:bg-success-bg text-success-fg border border-emerald-500/20 rounded-lg transition-all disabled:opacity-40">
+                                                                className="px-2 py-1 text-xs font-bold bg-success-bg hover:bg-success-bg text-success-fg border border-success-border rounded-lg transition-all disabled:opacity-40">
                                                                 Promover
                                                             </button>
                                                         )}
@@ -543,7 +543,7 @@ export default function ShieldPage() {
                                                         {!['dismissed', 'resolved'].includes(f.status) && (
                                                             <button
                                                                 onClick={() => setModal({ type: 'dismiss', findingId: f.id })}
-                                                                className="px-2 py-1 text-xs font-bold bg-danger-bg hover:bg-danger-bg text-danger-fg border border-rose-500/20 rounded-lg transition-all">
+                                                                className="px-2 py-1 text-xs font-bold bg-danger-bg hover:bg-danger-bg text-danger-fg border border-danger-border rounded-lg transition-all">
                                                                 Dispensar
                                                             </button>
                                                         )}

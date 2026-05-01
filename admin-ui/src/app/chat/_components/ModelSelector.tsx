@@ -100,7 +100,7 @@ export function ModelSelector({
                 >
                     {/* 6c.B.1: explica restrição p/ usuários que tentam mudar modelo em Modo Code */}
                     {mode === 'code' && (
-                        <div className="px-3 py-2 mx-1 mb-1 rounded bg-warning-bg border border-amber-500/20 text-[11px] text-amber-200/90 flex items-start gap-2">
+                        <div className="px-3 py-2 mx-1 mb-1 rounded bg-warning-bg border border-warning-border text-[11px] text-amber-200/90 flex items-start gap-2">
                             <Lock className="w-3 h-3 mt-0.5 flex-shrink-0 text-warning-fg" />
                             <span>
                                 Modo Code roda exclusivamente com Claude Code SDK + modelos Anthropic.

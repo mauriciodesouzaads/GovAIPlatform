@@ -151,7 +151,7 @@ function LoginForm() {
 
                     {/* Success message */}
                     {successMsg && (
-                        <div className="mb-5 p-3.5 rounded-lg bg-success-bg border border-emerald-500/20 flex items-start gap-2.5">
+                        <div className="mb-5 p-3.5 rounded-lg bg-success-bg border border-success-border flex items-start gap-2.5">
                             <CheckCircle2 className="w-4 h-4 text-success-fg shrink-0 mt-0.5" />
                             <p className="text-sm text-success-fg">{successMsg}</p>
                         </div>
@@ -159,7 +159,7 @@ function LoginForm() {
 
                     {/* Error message */}
                     {error && (
-                        <div className="mb-5 p-3.5 rounded-lg bg-danger-bg border border-rose-500/20 flex items-start gap-2.5 animate-in fade-in duration-200">
+                        <div className="mb-5 p-3.5 rounded-lg bg-danger-bg border border-danger-border flex items-start gap-2.5 animate-in fade-in duration-200">
                             <AlertCircle className="w-4 h-4 text-danger-fg shrink-0 mt-0.5" />
                             <p className="text-sm text-danger-fg">{error}</p>
                         </div>

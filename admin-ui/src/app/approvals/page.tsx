@@ -197,7 +197,7 @@ export default function ApprovalsPage() {
 
                                 <div className="grid md:grid-cols-2 gap-4">
                                     {/* Risk Reason */}
-                                    <div className="p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl">
+                                    <div className="p-4 bg-danger-bg border border-danger-border rounded-xl">
                                         <div className="flex items-center gap-2 text-danger-fg text-xs font-semibold uppercase tracking-wider mb-2">
                                             <AlertTriangle className="w-3.5 h-3.5" /> Motivo da Interceptação (OPA)
                                         </div>

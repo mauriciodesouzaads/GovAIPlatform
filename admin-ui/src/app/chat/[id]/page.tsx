@@ -427,7 +427,7 @@ function MessageBubble({ msg, streaming }: { msg: UIMessage; streaming: boolean 
             </div>
             <div className="flex-1 min-w-0">
                 {msg.error ? (
-                    <div className="rounded-md border border-danger-border bg-rose-500/5 px-3 py-2 text-xs text-rose-200 flex items-start gap-2">
+                    <div className="rounded-md border border-danger-border bg-danger-bg px-3 py-2 text-xs text-rose-200 flex items-start gap-2">
                         <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                         <span>{msg.error}</span>
                     </div>
@@ -622,7 +622,7 @@ function OutputChip({
             disabled={downloading}
             className={
                 'inline-flex items-center gap-2 px-3 py-2 rounded-md ' +
-                'border border-warning-border bg-amber-500/5 hover:bg-warning-bg ' +
+                'border border-warning-border bg-warning-bg hover:bg-warning-bg ' +
                 'transition-colors text-xs disabled:opacity-50 disabled:cursor-wait'
             }
             title={`Baixar ${file.filename}`}
@@ -765,7 +765,7 @@ function CodeMessageBubble({
                     consolidado, então preferimos esse e descartamos o
                     streamingText pra evitar duplicação. */}
                 {msg.error ? (
-                    <div className="rounded-md border border-danger-border bg-rose-500/5 px-3 py-2 text-xs text-rose-200 flex items-start gap-2">
+                    <div className="rounded-md border border-danger-border bg-danger-bg px-3 py-2 text-xs text-rose-200 flex items-start gap-2">
                         <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                         <span>{msg.error}</span>
                     </div>
@@ -777,7 +777,7 @@ function CodeMessageBubble({
                         )}
                     </div>
                 ) : streamingText ? (
-                    <div className="rounded-md border border-amber-500/10 bg-amber-500/5 px-3 py-2">
+                    <div className="rounded-md border border-warning-border bg-warning-bg px-3 py-2">
                         <ChatMarkdown content={streamingText} />
                         {showCursor && (
                             <span className="inline-block w-1.5 h-4 bg-amber-400 align-middle animate-pulse ml-1" />

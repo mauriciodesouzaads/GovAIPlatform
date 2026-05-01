@@ -52,11 +52,11 @@ interface Assistant {
 
 function lifecycleColor(s?: string) {
     switch (s) {
-        case 'approved':        return 'text-success-fg bg-success-bg border-emerald-500/20';
-        case 'official':        return 'text-success-fg bg-success-bg border-emerald-500/20';
-        case 'under_review':    return 'text-warning-fg bg-warning-bg border-amber-400/20';
-        case 'draft':           return 'text-info-fg bg-info-bg border-blue-400/20';
-        case 'suspended':       return 'text-danger-fg bg-danger-bg border-rose-500/20';
+        case 'approved':        return 'text-success-fg bg-success-bg border-success-border';
+        case 'official':        return 'text-success-fg bg-success-bg border-success-border';
+        case 'under_review':    return 'text-warning-fg bg-warning-bg border-warning-border';
+        case 'draft':           return 'text-info-fg bg-info-bg border-info-border';
+        case 'suspended':       return 'text-danger-fg bg-danger-bg border-danger-border';
         case 'archived':        return 'text-muted-foreground bg-gray-500/10 border-gray-500/20';
         default:                return 'text-muted-foreground bg-gray-400/10 border-gray-400/20';
     }
@@ -64,10 +64,10 @@ function lifecycleColor(s?: string) {
 
 function riskColor(r?: string) {
     switch (r) {
-        case 'critical':    return 'text-danger-fg bg-danger-bg border-rose-500/20';
+        case 'critical':    return 'text-danger-fg bg-danger-bg border-danger-border';
         case 'high':        return 'text-orange-400 bg-orange-500/10 border-orange-500/20';
-        case 'medium':      return 'text-warning-fg bg-warning-bg border-amber-400/20';
-        case 'low':         return 'text-success-fg bg-success-bg border-emerald-500/20';
+        case 'medium':      return 'text-warning-fg bg-warning-bg border-warning-border';
+        case 'low':         return 'text-success-fg bg-success-bg border-success-border';
         default:            return 'text-muted-foreground bg-gray-400/10 border-gray-400/20';
     }
 }
@@ -346,8 +346,8 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                         )}
                                         {assistant.change_type && (
                                             <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium
-                                                ${assistant.change_type === 'major' ? 'bg-danger-bg border-rose-500/20 text-danger-fg'
-                                                  : assistant.change_type === 'minor' ? 'bg-info-bg border-blue-500/20 text-info-fg'
+                                                ${assistant.change_type === 'major' ? 'bg-danger-bg border-danger-border text-danger-fg'
+                                                  : assistant.change_type === 'minor' ? 'bg-info-bg border-info-border text-info-fg'
                                                   : 'bg-secondary border-border text-muted-foreground'}`}>
                                                 {assistant.change_type}
                                             </span>
@@ -1144,7 +1144,7 @@ export default function CatalogPage() {
 
                 {/* Error */}
                 {error && (
-                    <div className="flex items-center gap-3 p-4 rounded-xl bg-danger-bg border border-rose-500/20 text-danger-fg text-sm">
+                    <div className="flex items-center gap-3 p-4 rounded-xl bg-danger-bg border border-danger-border text-danger-fg text-sm">
                         <AlertTriangle className="w-4 h-4 shrink-0" />
                         {error}
                     </div>

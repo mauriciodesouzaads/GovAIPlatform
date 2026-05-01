@@ -359,10 +359,10 @@ export default function AssistantsPage() {
                         assistants.map((ast: Assistant) => (
                             <div key={ast.id} className="bg-card border border-border rounded-xl p-6 shadow-sm flex flex-col hover:border-success-border transition-all hover:shadow-lg group">
                                 <div className="flex justify-between items-start mb-4">
-                                    <div className="w-10 h-10 rounded-xl bg-success-bg flex items-center justify-center border border-emerald-500/20 group-hover:bg-success-bg transition-colors">
+                                    <div className="w-10 h-10 rounded-xl bg-success-bg flex items-center justify-center border border-success-border group-hover:bg-success-bg transition-colors">
                                         <Bot className="w-5 h-5 text-emerald-500" />
                                     </div>
-                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest border ${ast.status === 'published' ? 'bg-success-bg text-emerald-500 border-emerald-500/20' : 'bg-danger-bg text-danger-fg border-rose-500/20'}`}>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest border ${ast.status === 'published' ? 'bg-success-bg text-emerald-500 border-success-border' : 'bg-danger-bg text-danger-fg border-danger-border'}`}>
                                         {ast.status}
                                     </span>
                                 </div>
@@ -440,7 +440,7 @@ export default function AssistantsPage() {
                         aria-labelledby="new-version-title"
                         onClick={(e) => { if (e.target === e.currentTarget) setShowNewVersionModal(false); }}
                     >
-                        <div className="bg-card w-full max-w-2xl rounded-3xl p-8 shadow-[0_0_50px_-12px_rgba(16,185,129,0.3)] border border-emerald-500/20 space-y-6 animate-in zoom-in-95 duration-200">
+                        <div className="bg-card w-full max-w-2xl rounded-3xl p-8 shadow-[0_0_50px_-12px_rgba(16,185,129,0.3)] border border-success-border space-y-6 animate-in zoom-in-95 duration-200">
                             <div className="flex items-start justify-between">
                             <h3 id="new-version-title" className="text-2xl font-bold text-foreground flex items-center gap-3">
                                 <div className="p-2 bg-success-bg rounded-xl border border-success-border">

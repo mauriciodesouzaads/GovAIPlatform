@@ -399,7 +399,7 @@ export default function PoliciesPage() {
                                     <div className="text-sm text-muted-foreground">v{selected.version}</div>
                                 </div>
                                 {viewingOld && (
-                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-warning-bg border border-amber-500/20 rounded-lg text-warning-fg text-xs font-medium">
+                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-warning-bg border border-warning-border rounded-lg text-warning-fg text-xs font-medium">
                                         <Info className="w-3.5 h-3.5" />
                                         Visualizando versão anterior
                                     </div>
@@ -435,7 +435,7 @@ export default function PoliciesPage() {
                                     </div>
 
                                     {/* Strict Mode */}
-                                    <div className={`flex items-center justify-between p-3 rounded-lg transition-colors ${rules.strict_mode ? 'bg-amber-500/5 border border-amber-500/20' : ''}`}>
+                                    <div className={`flex items-center justify-between p-3 rounded-lg transition-colors ${rules.strict_mode ? 'bg-amber-500/5 border border-warning-border' : ''}`}>
                                         <div>
                                             <div className="text-sm font-medium flex items-center gap-2">
                                                 Modo Estrito

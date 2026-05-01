@@ -54,10 +54,10 @@ interface FindingAction {
 
 function severityColor(s: string) {
     switch (s) {
-        case 'critical':     return 'text-danger-fg bg-danger-bg border-rose-500/20';
+        case 'critical':     return 'text-danger-fg bg-danger-bg border-danger-border';
         case 'high':         return 'text-orange-400 bg-orange-500/10 border-orange-500/20';
-        case 'medium':       return 'text-warning-fg bg-warning-bg border-amber-400/20';
-        case 'low':          return 'text-info-fg bg-info-bg border-blue-400/20';
+        case 'medium':       return 'text-warning-fg bg-warning-bg border-warning-border';
+        case 'low':          return 'text-info-fg bg-info-bg border-info-border';
         default:             return 'text-muted-foreground bg-gray-400/10 border-gray-400/20';
     }
 }
@@ -244,7 +244,7 @@ function TenantPanel({ tenant }: { tenant: ConsultantTenant }) {
                 className="w-full flex items-center justify-between p-5 hover:bg-secondary/30 transition-colors"
             >
                 <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-warning-bg border border-amber-500/20 flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-lg bg-warning-bg border border-warning-border flex items-center justify-center">
                         <Shield className="w-4 h-4 text-warning-fg" />
                     </div>
                     <div className="text-left">
@@ -276,7 +276,7 @@ function TenantPanel({ tenant }: { tenant: ConsultantTenant }) {
                     )}
 
                     {error && !loading && (
-                        <div className="flex items-center gap-3 p-4 mt-4 rounded-xl bg-danger-bg border border-rose-500/20 text-danger-fg text-sm">
+                        <div className="flex items-center gap-3 p-4 mt-4 rounded-xl bg-danger-bg border border-danger-border text-danger-fg text-sm">
                             <AlertTriangle className="w-4 h-4 shrink-0" />
                             {error}
                         </div>
@@ -379,7 +379,7 @@ export default function ConsultantPage() {
                 />
 
                 {/* Readonly notice */}
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-500/5 border border-blue-500/20 text-info-fg text-xs">
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-500/5 border border-info-border text-info-fg text-xs">
                     <CheckCircle2 className="w-4 h-4 shrink-0" />
                     Este painel é somente leitura. Ações corretivas devem ser executadas pelos administradores de cada tenant.
                 </div>

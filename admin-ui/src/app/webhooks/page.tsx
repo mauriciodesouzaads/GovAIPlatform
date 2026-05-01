@@ -41,9 +41,9 @@ const ALL_EVENTS = [
 
 function statusBadge(status: string) {
     switch (status) {
-        case 'success':  return 'bg-success-bg text-success-fg border-emerald-500/20';
-        case 'failed':   return 'bg-danger-bg text-danger-fg border-rose-500/20';
-        case 'retrying': return 'bg-warning-bg text-warning-fg border-amber-500/20';
+        case 'success':  return 'bg-success-bg text-success-fg border-success-border';
+        case 'failed':   return 'bg-danger-bg text-danger-fg border-danger-border';
+        case 'retrying': return 'bg-warning-bg text-warning-fg border-warning-border';
         default:         return 'bg-secondary text-muted-foreground border-border';
     }
 }
@@ -317,7 +317,7 @@ function WebhookRow({ webhook, onEdit, onDeactivate }: {
                         <span className="font-semibold text-sm text-foreground">{webhook.name}</span>
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
                             webhook.is_active
-                                ? 'bg-success-bg text-success-fg border-emerald-500/20'
+                                ? 'bg-success-bg text-success-fg border-success-border'
                                 : 'bg-secondary text-muted-foreground border-border'
                         }`}>
                             {webhook.is_active ? 'ATIVO' : 'INATIVO'}
@@ -440,7 +440,7 @@ export default function WebhooksPage() {
                 />
 
                 {/* Info banner */}
-                <div className="flex items-start gap-3 p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl text-xs text-info-fg">
+                <div className="flex items-start gap-3 p-4 bg-blue-500/5 border border-info-border rounded-xl text-xs text-info-fg">
                     <Bell className="w-4 h-4 shrink-0 mt-0.5 text-info-fg" />
                     <div>
                         <strong className="text-info-fg">Assinatura HMAC:</strong> payloads são assinados com{' '}

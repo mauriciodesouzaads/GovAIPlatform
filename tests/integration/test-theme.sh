@@ -167,6 +167,117 @@ echo "$HTML" | grep -q "bg-background" \
     && ok "body usa bg-background semântico (theme-aware)" \
     || fail "body sem bg-background"
 
+# ─── Test 10: zero hex arbitrary values (CP1.D-A) ───────────────────
+# Aceita whitelist de brand colors de produtos terceiros em /settings/notifications
+# (Slack #4A154B, Teams #464EB8 — identidade visual obrigatória).
+echo ""
+echo "═══ Test 10: zero hex arbitrary values (exceto brand 3rd-party) ═══"
+HEX_TOTAL=$( { grep -rE "(bg|text|border|ring|fill|stroke)-\[#[0-9a-fA-F]+\]" \
+    "$ADMIN/src" --include="*.tsx" -n 2>/dev/null || true; } | wc -l | tr -d ' ')
+HEX_NOTIFICATIONS=$( { grep -E "(bg|text|border)-\[#[0-9a-fA-F]+\]" \
+    "$ADMIN/src/app/settings/notifications/page.tsx" 2>/dev/null || true; } | wc -l | tr -d ' ')
+HEX_OTHERS=$((HEX_TOTAL - HEX_NOTIFICATIONS))
+if [ "$HEX_OTHERS" = "0" ]; then
+    ok "ZERO hex arbitrary values fora de /settings/notifications (Slack/Teams brand)"
+else
+    fail "$HEX_OTHERS hex arbitrary values fora da whitelist"
+fi
+
+# ─── Test 11: font-serif aplicado em headings (CP1.D-A) ─────────────
+echo ""
+echo "═══ Test 11: font-serif headings ═══"
+grep -q "font-serif" "$ADMIN/src/components/PageHeader.tsx" \
+    && ok "PageHeader.tsx usa font-serif no h1" \
+    || fail "PageHeader.tsx sem font-serif"
+grep -q "font-serif" "$ADMIN/src/components/Sidebar.tsx" \
+    && ok "Sidebar.tsx usa font-serif no header GovAI" \
+    || fail "Sidebar.tsx sem font-serif"
+
+# ─── Test 12: Semantic tokens declarados (CP1.D-C) ──────────────────
+echo ""
+echo "═══ Test 12: semantic tokens success/warning/danger/info/critical ═══"
+for token in "color-success-bg" "color-success-fg" "color-success-border" \
+             "color-warning-bg" "color-warning-fg" "color-warning-border" \
+             "color-danger-bg" "color-danger-fg" "color-danger-border" \
+             "color-info-bg" "color-info-fg" "color-critical-bg"; do
+    grep -q "\-\-${token}" "$GLOBALS" \
+        && ok "$token declarado" \
+        || fail "$token ausente"
+done
+
+# ─── Test 13: Brand colors hardcoded migrados (CP1.D-C) ─────────────
+# Status indicators NÃO devem mais usar emerald-X/X com alpha (apenas brand
+# emerald-500 sem alpha pode ficar). Outros: amber, rose, red, blue, sky.
+echo ""
+echo "═══ Test 13: brand colors hardcoded migrados ═══"
+EMERALD_HARDCODED=$( { grep -rE "(bg|text|border|ring)-emerald-(400|500)/(10|15|20|30|40)" \
+    "$ADMIN/src" --include="*.tsx" -l 2>/dev/null || true; } | wc -l | tr -d ' ')
+if [ "$EMERALD_HARDCODED" -le 5 ]; then
+    ok "$EMERALD_HARDCODED arquivos com emerald-X/alpha (≤5 = aceitável; resíduos manuais)"
+else
+    fail "$EMERALD_HARDCODED arquivos com emerald-X/alpha (esperado ≤5)"
+fi
+
+AMBER_HARDCODED=$( { grep -rE "(bg|text|border|ring)-(amber|yellow)-(400|500)/(10|15|20|30|40)" \
+    "$ADMIN/src" --include="*.tsx" -l 2>/dev/null || true; } | wc -l | tr -d ' ')
+if [ "$AMBER_HARDCODED" -le 5 ]; then
+    ok "$AMBER_HARDCODED arquivos com amber/yellow-X/alpha (≤5 = aceitável)"
+else
+    fail "$AMBER_HARDCODED arquivos com amber/yellow"
+fi
+
+ROSE_HARDCODED=$( { grep -rE "(bg|text|border|ring)-(rose|red)-(400|500)/(10|15|20|30|40)" \
+    "$ADMIN/src" --include="*.tsx" -l 2>/dev/null || true; } | wc -l | tr -d ' ')
+if [ "$ROSE_HARDCODED" -le 5 ]; then
+    ok "$ROSE_HARDCODED arquivos com rose/red-X/alpha (≤5 = aceitável)"
+else
+    fail "$ROSE_HARDCODED arquivos com rose/red"
+fi
+
+# ─── Test 14: Button component existe (CP1.D-C) ─────────────────────
+echo ""
+echo "═══ Test 14: Button component ═══"
+[ -f "$ADMIN/src/components/ui/Button.tsx" ] && ok "Button.tsx existe" \
+    || fail "Button.tsx ausente"
+grep -q "primary-ai\|inverse\|danger" "$ADMIN/src/components/ui/Button.tsx" 2>/dev/null \
+    && ok "Button tem variants primary-ai/inverse/danger" \
+    || fail "Button variants incompletas"
+
+# ─── Test 15: TRACE ID frontend fallback (CP1.D-B) ──────────────────
+echo ""
+echo "═══ Test 15: /logs frontend lê metadata.traceId ═══"
+grep -q "metadata.*traceId\|metadata.*\.traceId" "$ADMIN/src/app/logs/page.tsx" \
+    && ok "/logs/page.tsx lê metadata.traceId (fallback)" \
+    || fail "/logs sem fallback p/ metadata.traceId"
+
+# ─── Test 16: /webhooks botão consistente (CP1.D-B) ─────────────────
+echo ""
+echo "═══ Test 16: /webhooks botão sem amber/yellow ═══"
+WEBHOOKS_AMBER=$(grep -E "Novo Webhook" "$ADMIN/src/app/webhooks/page.tsx" -A2 \
+    | grep -cE "amber|yellow" || true)
+if [ "$WEBHOOKS_AMBER" = "0" ]; then
+    ok "Botão 'Novo Webhook' sem amber/yellow"
+else
+    fail "Botão 'Novo Webhook' ainda com amber/yellow"
+fi
+
+# ─── Test 17: /chat bundle limpo de hex antigos (CP1.D-A) ───────────
+echo ""
+echo "═══ Test 17: /chat bundle sem hex antigos ═══"
+clear_rl
+CHAT_HTML=$(/usr/bin/curl -sS "$UI/chat")
+CHAT_CHUNK=$(echo "$CHAT_HTML" | grep -oE 'static/chunks/app/chat[^"]+\.js' | head -1)
+if [ -n "$CHAT_CHUNK" ]; then
+    BUNDLE=$(/usr/bin/curl -sS "$UI/_next/$CHAT_CHUNK")
+    if echo "$BUNDLE" | grep -qE "0C0F14|0a0d12|141820|252A38|0E1218|0d1117|1a1f2a"; then
+        fail "Bundle /chat ainda contém hex antigos"
+    else
+        ok "Bundle /chat limpo de hex hardcoded antigos"
+    fi
+else
+    fail "/chat chunk não localizado"
+fi
+
 # ─── Test 9: regressão sanity ───────────────────────────────────────
 echo ""
 echo "═══ Test 9: regressão (test-evidencias) ═══"

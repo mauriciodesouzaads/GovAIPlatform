@@ -45,13 +45,13 @@ const PROVIDER_LABELS: Record<Provider, string> = {
 const PROVIDER_COLORS: Record<Provider, string> = {
     slack: 'bg-[#4A154B]/20 text-[#E01E5A] border-[#4A154B]/40',
     teams: 'bg-[#464EB8]/20 text-[#7B83EB] border-[#464EB8]/40',
-    email: 'bg-success-bg text-success-fg border-emerald-500/20',
+    email: 'bg-success-bg text-success-fg border-success-border',
 };
 
 const SEVERITY_COLORS: Record<string, string> = {
-    critical: 'bg-danger-bg text-danger-fg border-rose-500/20',
-    warning:  'bg-warning-bg text-warning-fg border-amber-500/20',
-    info:     'bg-info-bg text-info-fg border-blue-500/20',
+    critical: 'bg-danger-bg text-danger-fg border-danger-border',
+    warning:  'bg-warning-bg text-warning-fg border-warning-border',
+    info:     'bg-info-bg text-info-fg border-info-border',
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -306,7 +306,7 @@ function ChannelModal({
                 {/* Body */}
                 <div className="flex-1 overflow-y-auto p-6 space-y-5">
                     {error && (
-                        <div className="flex items-center gap-2 p-3 bg-danger-bg border border-rose-500/20 rounded-lg text-danger-fg text-sm">
+                        <div className="flex items-center gap-2 p-3 bg-danger-bg border border-danger-border rounded-lg text-danger-fg text-sm">
                             <AlertCircle className="w-4 h-4 shrink-0" />
                             {error}
                         </div>
@@ -668,7 +668,7 @@ export default function NotificationsPage() {
                 />
 
                 {/* Info box */}
-                <div className="mb-6 p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl text-sm text-info-fg">
+                <div className="mb-6 p-4 bg-blue-500/5 border border-info-border rounded-xl text-sm text-info-fg">
                     <strong className="text-blue-200">Como funciona:</strong> Configure um canal por provedor e selecione os eventos que devem disparar notificações. O GovAI enviará payloads formatados com Slack Blocks API ou Teams Adaptive Cards automaticamente.
                 </div>
 

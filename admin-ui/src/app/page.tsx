@@ -85,10 +85,10 @@ const RISK_COLORS: Record<string, string> = {
 };
 
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: 'bg-danger-bg text-danger-fg border border-rose-500/20',
+  critical: 'bg-danger-bg text-danger-fg border border-danger-border',
   high: 'bg-orange-500/10 text-orange-400 border border-orange-500/20',
-  medium: 'bg-warning-bg text-warning-fg border border-amber-500/20',
-  low: 'bg-success-bg text-success-fg border border-emerald-500/20',
+  medium: 'bg-warning-bg text-warning-fg border border-warning-border',
+  low: 'bg-success-bg text-success-fg border border-success-border',
 };
 
 const TOOLTIP_STYLE = {
@@ -299,14 +299,14 @@ export default function DashboardPage() {
             label="Execuções (60 min)"
             value={realtimeLoading ? '...' : (realtime?.executions_last_hour ?? 0)}
             sub="Prompts processados"
-            color="border-emerald-500/20"
+            color="border-success-border"
           />
           <KpiCard
             icon={<ShieldAlert className="w-5 h-5" />}
             label="Violações (60 min)"
             value={realtimeLoading ? '...' : (realtime?.violations_last_hour ?? 0)}
             sub="Bloqueios OPA"
-            color="border-rose-500/20"
+            color="border-danger-border"
             alert={isViolationAlert}
           />
           {isAdmin && (
@@ -316,7 +316,7 @@ export default function DashboardPage() {
                 label="Latência P95"
                 value={realtimeLoading ? '...' : `${realtime?.latency_p95_ms ?? 0} ms`}
                 sub="Percentil 95 (60 min)"
-                color="border-blue-500/20"
+                color="border-info-border"
                 alert={isLatencyAlert}
               />
               <KpiCard
@@ -530,7 +530,7 @@ export default function DashboardPage() {
                 label="Processamento IA"
                 value={stats?.total_executions ?? 0}
                 sub="Calls processadas"
-                color="border-emerald-500/20"
+                color="border-success-border"
                 href="/logs"
                 tooltip="Volume total de prompts processados (LGPD Art. 37)."
               />
@@ -539,7 +539,7 @@ export default function DashboardPage() {
                 label="Violações OPA"
                 value={stats?.total_violations ?? 0}
                 sub="Bloqueios P0"
-                color="border-rose-500/20"
+                color="border-danger-border"
                 href="/approvals"
                 tooltip="Incidentes mitigados automaticamente (LGPD Art. 46)."
               />
@@ -555,7 +555,7 @@ export default function DashboardPage() {
                 label="Agentes Ativos"
                 value={stats?.total_assistants ?? 0}
                 sub="Modelos em Produção"
-                color="border-blue-500/20"
+                color="border-info-border"
                 href="/assistants"
               />
               <SummaryCard
@@ -563,7 +563,7 @@ export default function DashboardPage() {
                 label="Revisões Pendentes"
                 value={stats?.pending_reviews ?? 0}
                 sub="Aguardando aprovação"
-                color="border-amber-500/20"
+                color="border-warning-border"
                 href="/catalog"
                 tooltip="Assistants no track de revisão aguardando decisão."
               />

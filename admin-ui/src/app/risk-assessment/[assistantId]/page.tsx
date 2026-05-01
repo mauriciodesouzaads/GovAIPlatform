@@ -30,10 +30,10 @@ const CATEGORY_ICONS: Record<CategoryKey, string> = {
 
 function riskLevelConfig(level: string) {
     switch (level) {
-        case 'low':      return { label: 'Risco Baixo',    color: 'text-success-fg', bg: 'bg-success-bg border-emerald-500/20', Icon: CheckCircle2 };
-        case 'medium':   return { label: 'Risco Médio',    color: 'text-warning-fg',   bg: 'bg-warning-bg border-amber-400/20',     Icon: AlertTriangle };
+        case 'low':      return { label: 'Risco Baixo',    color: 'text-success-fg', bg: 'bg-success-bg border-success-border', Icon: CheckCircle2 };
+        case 'medium':   return { label: 'Risco Médio',    color: 'text-warning-fg',   bg: 'bg-warning-bg border-warning-border',     Icon: AlertTriangle };
         case 'high':     return { label: 'Risco Alto',     color: 'text-orange-400',  bg: 'bg-orange-500/10 border-orange-500/20',   Icon: AlertTriangle };
-        case 'critical': return { label: 'Risco Crítico',  color: 'text-danger-fg',    bg: 'bg-danger-bg border-rose-500/20',       Icon: XCircle };
+        case 'critical': return { label: 'Risco Crítico',  color: 'text-danger-fg',    bg: 'bg-danger-bg border-danger-border',       Icon: XCircle };
         default:         return { label: level,            color: 'text-gray-400',    bg: 'bg-gray-500/10 border-gray-500/20',       Icon: AlertOctagon };
     }
 }
@@ -412,7 +412,7 @@ export default function RiskAssessmentPage() {
 
                         {/* Recommendations */}
                         {result.recommendations?.length > 0 && (
-                            <div className="bg-gray-900 border border-amber-500/20 rounded-xl p-4 space-y-2">
+                            <div className="bg-gray-900 border border-warning-border rounded-xl p-4 space-y-2">
                                 <h3 className="text-sm font-medium text-warning-fg flex items-center gap-1.5">
                                     <AlertTriangle className="w-4 h-4" />
                                     Recomendações ({result.recommendations.length})
@@ -429,7 +429,7 @@ export default function RiskAssessmentPage() {
                         )}
 
                         {result.total_score >= 70 && (
-                            <div className="bg-success-bg border border-emerald-500/20 rounded-xl p-3 text-xs text-success-fg">
+                            <div className="bg-success-bg border border-success-border rounded-xl p-3 text-xs text-success-fg">
                                 ✓ Score ≥ 70 — controles de gerenciamento de risco atualizados automaticamente no Compliance Hub.
                             </div>
                         )}

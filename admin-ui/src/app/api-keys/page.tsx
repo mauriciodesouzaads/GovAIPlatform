@@ -105,7 +105,7 @@ export default function ApiKeysPage() {
                     </div>
 
                     {createdKey && (
-                        <div className="bg-success-bg border border-emerald-500/20 rounded-xl p-4 space-y-3 animate-in fade-in duration-300">
+                        <div className="bg-success-bg border border-success-border rounded-xl p-4 space-y-3 animate-in fade-in duration-300">
                             <div className="flex items-center gap-2 text-success-fg text-xs font-semibold uppercase tracking-wider">
                                 <ShieldCheck className="w-4 h-4" /> Chave criada com sucesso
                             </div>

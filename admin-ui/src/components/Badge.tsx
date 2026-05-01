@@ -10,10 +10,10 @@ interface BadgeProps {
 }
 
 const styles: Record<BadgeVariant, string> = {
-  success: 'bg-success-bg text-success-fg border-emerald-500/20',
-  warning: 'bg-warning-bg text-warning-fg border-amber-500/20',
-  error:   'bg-danger-bg text-danger-fg border-rose-500/20',
-  info:    'bg-info-bg text-info-fg border-blue-500/20',
+  success: 'bg-success-bg text-success-fg border-success-border',
+  warning: 'bg-warning-bg text-warning-fg border-warning-border',
+  error:   'bg-danger-bg text-danger-fg border-danger-border',
+  info:    'bg-info-bg text-info-fg border-info-border',
   neutral: 'bg-secondary text-muted-foreground border-border',
 };
 
