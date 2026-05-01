@@ -93,7 +93,7 @@ export function ChatSidebar() {
                         value={searchInput}
                         onChange={e => setSearchInput(e.target.value)}
                         placeholder="Buscar conversas…"
-                        className="w-full bg-[#141820] border border-border-100 rounded-md pl-8 pr-3 py-1.5 text-xs text-text-100 placeholder:text-text-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
+                        className="w-full bg-bg-200 border border-border-100 rounded-md pl-8 pr-3 py-1.5 text-xs text-text-100 placeholder:text-text-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
                     />
                 </div>
             </div>

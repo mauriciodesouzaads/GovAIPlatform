@@ -67,7 +67,7 @@ function CodeBlock({
         } catch { /* ignore */ }
     }
     return (
-        <div className="my-3 rounded-lg overflow-hidden border border-border-200 bg-[#0d1117]">
+        <div className="my-3 rounded-lg overflow-hidden border border-border-200 bg-bg-200">
             <div className="flex items-center justify-between px-3 py-1.5 bg-bg-200 border-b border-border-100">
                 <span className="text-[11px] font-mono uppercase tracking-wider text-text-500">
                     {language || 'code'}

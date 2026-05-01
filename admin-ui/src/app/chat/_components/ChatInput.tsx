@@ -118,7 +118,7 @@ export function ChatInput({
             <div
                 {...getRootProps()}
                 className={[
-                    'rounded-2xl border bg-[#141820] transition-colors relative',
+                    'rounded-2xl border bg-bg-200 transition-colors relative',
                     isDragActive
                         ? 'border-emerald-500/60 bg-emerald-500/5'
                         : 'border-border-200 focus-within:border-emerald-500/40',

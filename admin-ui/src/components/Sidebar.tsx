@@ -146,9 +146,12 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-lg shadow-emerald-500/20 text-black flex items-center justify-center font-black text-lg">
                         G
                     </div>
+                    {/* 6c.B.3 CP1.D-A: font-serif (DM Serif Display) p/ marca GovAI.
+                        Peso normal — DM Serif tem peso visual forte por padrão.
+                        Subtitle PLATFORM em font-mono small caps (estilo Anthropic). */}
                     <div className="flex flex-col">
-                        <span className="font-bold text-lg leading-tight tracking-tight text-foreground">GovAI</span>
-                        <span className="text-[10px] text-emerald-500 font-semibold tracking-widest uppercase">Platform</span>
+                        <span className="font-serif text-lg leading-none text-foreground">GovAI</span>
+                        <span className="text-[10px] text-emerald-500 font-mono tracking-[0.18em] uppercase leading-none mt-1">Platform</span>
                     </div>
                 </Link>
                 {onClose && (

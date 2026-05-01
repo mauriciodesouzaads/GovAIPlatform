@@ -30,7 +30,10 @@ export function PageHeader({ title, subtitle, icon, actions, badge }: PageHeader
           </div>
         )}
         <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">{title}</h1>
+          {/* 6c.B.3 CP1.D-A: font-serif (DM Serif Display) p/ headings principais.
+              Peso 400 — DM Serif tem peso visual forte; bold ficaria pesado demais.
+              Estilo Claude.ai: serif elegante em h1 de página, sans para resto. */}
+          <h1 className="text-2xl font-serif font-normal text-foreground tracking-tight leading-tight">{title}</h1>
           {subtitle && (
             <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
           )}

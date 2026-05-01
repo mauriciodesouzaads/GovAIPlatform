@@ -96,7 +96,7 @@ export function ModelSelector({
                 <DropdownMenu.Content
                     align="start"
                     sideOffset={4}
-                    className="w-80 rounded-lg border border-border-200 bg-[#141820] shadow-2xl py-1 z-50"
+                    className="w-80 rounded-lg border border-border-200 bg-bg-200 shadow-2xl py-1 z-50"
                 >
                     {/* 6c.B.1: explica restrição p/ usuários que tentam mudar modelo em Modo Code */}
                     {mode === 'code' && (

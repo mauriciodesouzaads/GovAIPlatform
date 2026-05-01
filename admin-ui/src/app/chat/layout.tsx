@@ -19,8 +19,8 @@ import { Toaster } from 'sonner';
  */
 export default function ChatLayout({ children }: { children: React.ReactNode }) {
     return (
-        <div className="fixed inset-0 bg-[#0C0F14] text-text-100 flex font-sans antialiased">
-            <aside className="hidden md:flex w-72 flex-shrink-0 border-r border-border-100 bg-[#0a0d12] flex-col">
+        <div className="fixed inset-0 bg-bg-100 text-text-100 flex font-sans antialiased">
+            <aside className="hidden md:flex w-72 flex-shrink-0 border-r border-border-100 bg-bg-200 flex-col">
                 <ChatSidebar />
             </aside>
             <main className="flex-1 flex flex-col min-w-0">{children}</main>
@@ -30,7 +30,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
                 richColors
                 toastOptions={{
                     classNames: {
-                        toast: 'bg-[#141820] border border-border-200 text-text-100',
+                        toast: 'bg-bg-200 border border-border-200 text-text-100',
                     },
                 }}
             />

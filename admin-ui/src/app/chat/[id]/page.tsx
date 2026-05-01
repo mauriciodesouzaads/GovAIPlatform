@@ -318,7 +318,7 @@ export default function ChatConversationPage() {
                                         if (e.key === 'Escape') setEditingTitle(false);
                                     }}
                                     autoFocus
-                                    className="bg-[#141820] border border-border-200 rounded-md px-2 py-1 text-sm text-text-100 focus:outline-none focus:border-emerald-500/40"
+                                    className="bg-bg-200 border border-border-200 rounded-md px-2 py-1 text-sm text-text-100 focus:outline-none focus:border-emerald-500/40"
                                 />
                                 <button
                                     onClick={saveTitle}
@@ -412,7 +412,7 @@ function MessageBubble({ msg, streaming }: { msg: UIMessage; streaming: boolean 
     if (msg.role === 'user') {
         return (
             <div className="flex justify-end">
-                <div className="max-w-[80%] rounded-2xl rounded-tr-md bg-[#252A38] px-4 py-2.5 text-sm text-text-100 whitespace-pre-wrap leading-relaxed">
+                <div className="max-w-[80%] rounded-2xl rounded-tr-md bg-bg-300 px-4 py-2.5 text-sm text-text-100 whitespace-pre-wrap leading-relaxed">
                     {msg.content}
                 </div>
             </div>
@@ -497,7 +497,7 @@ function EmptyState({
                             <button
                                 key={i}
                                 onClick={() => onPromptClick(p)}
-                                className="text-left text-sm text-text-100 bg-[#141820] border border-border-200 rounded-lg px-3 py-2.5 hover:bg-[#1a1f2a] hover:border-emerald-500/30 transition-colors"
+                                className="text-left text-sm text-text-100 bg-bg-200 border border-border-200 rounded-lg px-3 py-2.5 hover:bg-bg-300 hover:border-emerald-500/30 transition-colors"
                             >
                                 {p}
                             </button>
@@ -659,7 +659,7 @@ function ModeTabs({
         { key: 'code', label: 'Code', icon: <Terminal className="w-3 h-3" /> },
     ];
     return (
-        <div className="inline-flex items-center gap-0.5 bg-[#141820] border border-border-200 rounded-md p-0.5">
+        <div className="inline-flex items-center gap-0.5 bg-bg-200 border border-border-200 rounded-md p-0.5">
             {tabs.map(t => (
                 <button
                     key={t.key}
@@ -743,7 +743,7 @@ function CodeMessageBubble({
                     o link "Ver detalhes técnicos"). Filtra MESSAGE_DELTA
                     p/ não duplicar com o bloco de prosa abaixo. */}
                 {isLive && toolEvents.length > 0 && (
-                    <div className="rounded-md border border-border-100 bg-[#0E1218] p-3">
+                    <div className="rounded-md border border-border-100 bg-bg-200 p-3">
                         <TimelineView
                             events={toolEvents as RuntimeWorkItemEvent[]}
                             mode="normal"
