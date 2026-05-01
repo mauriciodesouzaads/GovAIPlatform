@@ -357,16 +357,16 @@ export default function AssistantsPage() {
                         </div>
                     ) : (
                         assistants.map((ast: Assistant) => (
-                            <div key={ast.id} className="bg-card border border-border rounded-xl p-6 shadow-sm flex flex-col hover:border-emerald-500/30 transition-all hover:shadow-lg group">
+                            <div key={ast.id} className="bg-card border border-border rounded-xl p-6 shadow-sm flex flex-col hover:border-success-border transition-all hover:shadow-lg group">
                                 <div className="flex justify-between items-start mb-4">
-                                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 group-hover:bg-emerald-500/20 transition-colors">
+                                    <div className="w-10 h-10 rounded-xl bg-success-bg flex items-center justify-center border border-emerald-500/20 group-hover:bg-success-bg transition-colors">
                                         <Bot className="w-5 h-5 text-emerald-500" />
                                     </div>
-                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest border ${ast.status === 'published' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border-rose-500/20'}`}>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest border ${ast.status === 'published' ? 'bg-success-bg text-emerald-500 border-emerald-500/20' : 'bg-danger-bg text-danger-fg border-rose-500/20'}`}>
                                         {ast.status}
                                     </span>
                                 </div>
-                                <h3 className="font-bold text-lg text-foreground group-hover:text-emerald-400 transition-colors">{ast.name}</h3>
+                                <h3 className="font-bold text-lg text-foreground group-hover:text-success-fg transition-colors">{ast.name}</h3>
                                 <p className="text-[10px] text-muted-foreground font-mono mt-1 flex items-center gap-1.5">
                                     <Lock className="w-3 h-3" />
                                     {ast.id}
@@ -398,9 +398,9 @@ export default function AssistantsPage() {
 
                 {/* RAG Upload Modal */}
                 {selectedAssistant && kbId && (
-                    <div className="bg-card border-2 border-blue-500/30 rounded-xl p-6 shadow-lg space-y-4">
+                    <div className="bg-card border-2 border-info-border rounded-xl p-6 shadow-lg space-y-4">
                         <h3 className="font-semibold text-lg flex items-center gap-2">
-                            <Upload className="w-5 h-5 text-blue-500" /> Upload de Documento para RAG
+                            <Upload className="w-5 h-5 text-info-fg" /> Upload de Documento para RAG
                         </h3>
                         <p className="text-sm text-muted-foreground">Cole o conteúdo do documento abaixo. O sistema irá fatiar, vetorizar e armazenar para busca semântica.</p>
 
@@ -443,7 +443,7 @@ export default function AssistantsPage() {
                         <div className="bg-card w-full max-w-2xl rounded-3xl p-8 shadow-[0_0_50px_-12px_rgba(16,185,129,0.3)] border border-emerald-500/20 space-y-6 animate-in zoom-in-95 duration-200">
                             <div className="flex items-start justify-between">
                             <h3 id="new-version-title" className="text-2xl font-bold text-foreground flex items-center gap-3">
-                                <div className="p-2 bg-emerald-500/20 rounded-xl border border-emerald-500/30">
+                                <div className="p-2 bg-success-bg rounded-xl border border-success-border">
                                     <Upload className="w-6 h-6 text-emerald-500" />
                                 </div>
                                 Publicar Versão de Segurança

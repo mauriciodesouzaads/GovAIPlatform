@@ -100,8 +100,8 @@ export function ModelSelector({
                 >
                     {/* 6c.B.1: explica restrição p/ usuários que tentam mudar modelo em Modo Code */}
                     {mode === 'code' && (
-                        <div className="px-3 py-2 mx-1 mb-1 rounded bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-200/90 flex items-start gap-2">
-                            <Lock className="w-3 h-3 mt-0.5 flex-shrink-0 text-amber-300" />
+                        <div className="px-3 py-2 mx-1 mb-1 rounded bg-warning-bg border border-amber-500/20 text-[11px] text-amber-200/90 flex items-start gap-2">
+                            <Lock className="w-3 h-3 mt-0.5 flex-shrink-0 text-warning-fg" />
                             <span>
                                 Modo Code roda exclusivamente com Claude Code SDK + modelos Anthropic.
                                 Para usar GPT-4, Gemini, etc., alterne para Modo Chat.
@@ -120,7 +120,7 @@ export function ModelSelector({
                                     className={[
                                         'px-3 py-2 cursor-pointer text-sm outline-none rounded-md mx-1',
                                         m.model_id === value
-                                            ? 'bg-emerald-500/10 text-emerald-100'
+                                            ? 'bg-success-bg text-emerald-100'
                                             : 'text-text-100 data-[highlighted]:bg-bg-200',
                                     ].join(' ')}
                                 >
@@ -130,7 +130,7 @@ export function ModelSelector({
                                             <span className="font-medium truncate">{m.display_name}</span>
                                         </div>
                                         {m.is_default && (
-                                            <span className="text-[10px] text-emerald-400/80 flex-shrink-0">
+                                            <span className="text-[10px] text-success-fg flex-shrink-0">
                                                 recomendado
                                             </span>
                                         )}

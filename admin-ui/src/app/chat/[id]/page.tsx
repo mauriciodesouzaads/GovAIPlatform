@@ -303,7 +303,7 @@ export default function ChatConversationPage() {
                 <div className="flex items-center gap-2.5 min-w-0">
                     {/* 6c.A.1 — avatar emoji do agente quando vinculado */}
                     {conv.assistant_id && conv.assistant_avatar && (
-                        <div className="w-8 h-8 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-base flex-shrink-0">
+                        <div className="w-8 h-8 rounded-full bg-success-bg border border-success-border flex items-center justify-center text-base flex-shrink-0">
                             {conv.assistant_avatar}
                         </div>
                     )}
@@ -318,11 +318,11 @@ export default function ChatConversationPage() {
                                         if (e.key === 'Escape') setEditingTitle(false);
                                     }}
                                     autoFocus
-                                    className="bg-bg-200 border border-border-200 rounded-md px-2 py-1 text-sm text-text-100 focus:outline-none focus:border-emerald-500/40"
+                                    className="bg-bg-200 border border-border-200 rounded-md px-2 py-1 text-sm text-text-100 focus:outline-none focus:border-success-border"
                                 />
                                 <button
                                     onClick={saveTitle}
-                                    className="p-1 text-emerald-400 hover:bg-bg-200 rounded"
+                                    className="p-1 text-success-fg hover:bg-bg-200 rounded"
                                 >
                                     <Check className="w-4 h-4" />
                                 </button>
@@ -422,12 +422,12 @@ function MessageBubble({ msg, streaming }: { msg: UIMessage; streaming: boolean 
     const showCursor = msg.pending && streaming && !msg.error;
     return (
         <div className="flex gap-3">
-            <div className="flex-shrink-0 w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-xs">
+            <div className="flex-shrink-0 w-7 h-7 rounded-full bg-success-bg border border-success-border flex items-center justify-center text-xs">
                 ✦
             </div>
             <div className="flex-1 min-w-0">
                 {msg.error ? (
-                    <div className="rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-200 flex items-start gap-2">
+                    <div className="rounded-md border border-danger-border bg-rose-500/5 px-3 py-2 text-xs text-rose-200 flex items-start gap-2">
                         <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                         <span>{msg.error}</span>
                     </div>
@@ -478,7 +478,7 @@ function EmptyState({
     if (hasAgent) {
         return (
             <div className="text-center py-12 space-y-5">
-                <div className="mx-auto w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-3xl">
+                <div className="mx-auto w-16 h-16 rounded-3xl bg-success-bg border border-success-border flex items-center justify-center text-3xl">
                     {conv.assistant_avatar ?? '✦'}
                 </div>
                 <div className="space-y-1">
@@ -497,7 +497,7 @@ function EmptyState({
                             <button
                                 key={i}
                                 onClick={() => onPromptClick(p)}
-                                className="text-left text-sm text-text-100 bg-bg-200 border border-border-200 rounded-lg px-3 py-2.5 hover:bg-bg-300 hover:border-emerald-500/30 transition-colors"
+                                className="text-left text-sm text-text-100 bg-bg-200 border border-border-200 rounded-lg px-3 py-2.5 hover:bg-bg-300 hover:border-success-border transition-colors"
                             >
                                 {p}
                             </button>
@@ -513,8 +513,8 @@ function EmptyState({
 
     return (
         <div className="text-center py-16 space-y-3">
-            <div className="mx-auto w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
-                <MessageSquare className="w-6 h-6 text-emerald-400" />
+            <div className="mx-auto w-12 h-12 rounded-2xl bg-success-bg border border-success-border flex items-center justify-center">
+                <MessageSquare className="w-6 h-6 text-success-fg" />
             </div>
             <h2 className="text-base font-semibold text-text-100">O que vamos resolver hoje?</h2>
             <p className="text-sm text-text-500 max-w-md mx-auto">
@@ -622,12 +622,12 @@ function OutputChip({
             disabled={downloading}
             className={
                 'inline-flex items-center gap-2 px-3 py-2 rounded-md ' +
-                'border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 ' +
+                'border border-warning-border bg-amber-500/5 hover:bg-warning-bg ' +
                 'transition-colors text-xs disabled:opacity-50 disabled:cursor-wait'
             }
             title={`Baixar ${file.filename}`}
         >
-            <Icon className="w-4 h-4 text-amber-300 flex-shrink-0" />
+            <Icon className="w-4 h-4 text-warning-fg flex-shrink-0" />
             <div className="flex flex-col items-start min-w-0">
                 <span className="text-text-100 font-medium truncate max-w-[180px]">
                     {file.filename}
@@ -637,8 +637,8 @@ function OutputChip({
                 </span>
             </div>
             {downloading
-                ? <Loader2 className="w-3 h-3 text-amber-400 ml-1 animate-spin" />
-                : <Download className="w-3 h-3 text-amber-400 ml-1" />}
+                ? <Loader2 className="w-3 h-3 text-warning-fg ml-1 animate-spin" />
+                : <Download className="w-3 h-3 text-warning-fg ml-1" />}
         </button>
     );
 }
@@ -667,7 +667,7 @@ function ModeTabs({
                     className={
                         'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors ' +
                         (value === t.key
-                            ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                            ? 'bg-success-bg text-success-fg border border-success-border'
                             : 'text-text-200 hover:text-text-100 border border-transparent')
                     }
                     title={
@@ -731,11 +731,11 @@ function CodeMessageBubble({
 
     return (
         <div className="flex gap-3">
-            <div className="flex-shrink-0 w-7 h-7 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center">
-                <Terminal className="w-3.5 h-3.5 text-amber-300" />
+            <div className="flex-shrink-0 w-7 h-7 rounded-full bg-warning-bg border border-warning-border flex items-center justify-center">
+                <Terminal className="w-3.5 h-3.5 text-warning-fg" />
             </div>
             <div className="flex-1 min-w-0 space-y-3">
-                <div className="text-[10px] uppercase tracking-wider text-amber-300/80 font-medium">
+                <div className="text-[10px] uppercase tracking-wider text-warning-fg font-medium">
                     Code · Claude Code SDK
                 </div>
 
@@ -765,7 +765,7 @@ function CodeMessageBubble({
                     consolidado, então preferimos esse e descartamos o
                     streamingText pra evitar duplicação. */}
                 {msg.error ? (
-                    <div className="rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-200 flex items-start gap-2">
+                    <div className="rounded-md border border-danger-border bg-rose-500/5 px-3 py-2 text-xs text-rose-200 flex items-start gap-2">
                         <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                         <span>{msg.error}</span>
                     </div>
@@ -791,7 +791,7 @@ function CodeMessageBubble({
                     autenticado via Blob (downloadWorkItemFile). */}
                 {(msg.outputs?.length ?? 0) > 0 && msg.work_item_id && (
                     <div className="space-y-2 pt-1">
-                        <div className="text-[10px] uppercase tracking-wider text-amber-300/80 font-medium">
+                        <div className="text-[10px] uppercase tracking-wider text-warning-fg font-medium">
                             Arquivos gerados ({msg.outputs!.length})
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -825,7 +825,7 @@ function CodeMessageBubble({
                                 href={`/execucoes/${msg.work_item_id}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300"
+                                className="inline-flex items-center gap-1 text-success-fg hover:text-success-fg"
                             >
                                 Ver detalhes técnicos
                                 <ExternalLink className="w-2.5 h-2.5" />

@@ -358,15 +358,15 @@ export default function PoliciesPage() {
                                         )}
                                         {diffResult.changes.filter(c => c.type !== 'unchanged').map(change => (
                                             <div key={change.key} className={`rounded p-2 text-xs ${
-                                                change.type === 'added'   ? 'bg-emerald-500/10 text-emerald-300' :
-                                                change.type === 'removed' ? 'bg-rose-500/10 text-rose-300' :
-                                                'bg-amber-500/10 text-amber-300'
+                                                change.type === 'added'   ? 'bg-success-bg text-success-fg' :
+                                                change.type === 'removed' ? 'bg-danger-bg text-danger-fg' :
+                                                'bg-warning-bg text-warning-fg'
                                             }`}>
                                                 <span className="font-semibold font-mono">{change.key}</span>
                                                 {change.type === 'changed' && (
                                                     <div className="mt-0.5 font-mono text-[10px] space-y-0.5">
-                                                        <div className="text-rose-400 line-through">{JSON.stringify(change.before)}</div>
-                                                        <div className="text-emerald-400">{JSON.stringify(change.after)}</div>
+                                                        <div className="text-danger-fg line-through">{JSON.stringify(change.before)}</div>
+                                                        <div className="text-success-fg">{JSON.stringify(change.after)}</div>
                                                     </div>
                                                 )}
                                                 {change.type === 'added' && (
@@ -399,7 +399,7 @@ export default function PoliciesPage() {
                                     <div className="text-sm text-muted-foreground">v{selected.version}</div>
                                 </div>
                                 {viewingOld && (
-                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-400 text-xs font-medium">
+                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-warning-bg border border-amber-500/20 rounded-lg text-warning-fg text-xs font-medium">
                                         <Info className="w-3.5 h-3.5" />
                                         Visualizando versão anterior
                                     </div>
@@ -439,7 +439,7 @@ export default function PoliciesPage() {
                                         <div>
                                             <div className="text-sm font-medium flex items-center gap-2">
                                                 Modo Estrito
-                                                {rules.strict_mode && <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />}
+                                                {rules.strict_mode && <AlertTriangle className="w-3.5 h-3.5 text-warning-fg" />}
                                             </div>
                                             <div className="text-xs text-muted-foreground">Bloqueia a execução em vez de alertar quando uma regra é violada</div>
                                         </div>

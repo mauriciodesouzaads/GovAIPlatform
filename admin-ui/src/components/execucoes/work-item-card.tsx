@@ -27,7 +27,7 @@ export function WorkItemCard({
             className={cn(
                 'block bg-card/30 border border-border/40 rounded-lg px-4 py-3',
                 'hover:border-primary/30 hover:bg-card/60 transition-colors',
-                item.has_error && 'border-rose-500/30',
+                item.has_error && 'border-danger-border',
             )}
         >
             <div className="flex items-center gap-3 flex-wrap">
@@ -64,10 +64,10 @@ export function WorkItemCard({
                         </span>
                     )}
                     {item.has_error && (
-                        <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                        <AlertTriangle className="w-3.5 h-3.5 text-danger-fg" />
                     )}
                     {(item.status === 'in_progress' || item.status === 'pending') && (
-                        <Activity className="w-3 h-3 text-sky-400 animate-pulse" />
+                        <Activity className="w-3 h-3 text-info-fg animate-pulse" />
                     )}
                 </div>
 

@@ -86,11 +86,11 @@ export function ExitPerimeterModal({ open, onClose, assistant, targetUrl }: Exit
 
                     <div className="px-6 pb-6 space-y-5">
                         {/* Warning header — amber theme */}
-                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-5">
+                        <div className="bg-warning-bg border border-warning-border rounded-xl p-5">
                             <div className="flex items-start gap-3">
-                                <AlertTriangle className="w-7 h-7 text-amber-400 shrink-0 mt-0.5" aria-hidden="true" />
+                                <AlertTriangle className="w-7 h-7 text-warning-fg shrink-0 mt-0.5" aria-hidden="true" />
                                 <div>
-                                    <h3 id="exit-modal-title" className="text-base font-bold text-amber-300">
+                                    <h3 id="exit-modal-title" className="text-base font-bold text-warning-fg">
                                         Saída do Ambiente Governado
                                     </h3>
                                     <p id="exit-modal-description" className="text-sm text-amber-200/80 mt-1">
@@ -121,7 +121,7 @@ export function ExitPerimeterModal({ open, onClose, assistant, targetUrl }: Exit
                                 </p>
                             </div>
                             <div className="flex items-start gap-2.5">
-                                <Scale className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" aria-hidden="true" />
+                                <Scale className="w-4 h-4 text-warning-fg mt-0.5 shrink-0" aria-hidden="true" />
                                 <p className="text-sm text-muted-foreground">
                                     A{' '}
                                     <strong className="text-foreground">responsabilidade por violações regulatórias</strong>{' '}

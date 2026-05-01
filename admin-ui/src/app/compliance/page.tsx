@@ -199,15 +199,15 @@ export default function CompliancePage() {
                         </div>
                         <div className="rounded-xl border border-border bg-card/60 p-4">
                             <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Sem Consentimento</p>
-                            <p className="text-2xl font-bold text-yellow-500">{orgs.length - consentedCount}</p>
+                            <p className="text-2xl font-bold text-warning-fg">{orgs.length - consentedCount}</p>
                         </div>
                     </>
                 )}
             </div>
 
             {/* Warning banner */}
-            <div className="flex items-start gap-3 rounded-xl border border-yellow-500/30 bg-yellow-500/5 px-4 py-3 text-sm text-yellow-300">
-                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-yellow-400" />
+            <div className="flex items-start gap-3 rounded-xl border border-warning-border bg-yellow-500/5 px-4 py-3 text-sm text-warning-fg">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-warning-fg" />
                 <span>
                     <strong>Atenção:</strong> Ao habilitar a telemetria, prompts e completions dos usuários
                     serão enviados ao Langfuse. Use <strong>PII Strip</strong> para enviar apenas métricas
@@ -281,7 +281,7 @@ export default function CompliancePage() {
                                         <td className="px-4 py-3">
                                             <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
                                                 org.status === 'active'
-                                                    ? 'bg-emerald-500/10 text-emerald-400'
+                                                    ? 'bg-success-bg text-success-fg'
                                                     : 'bg-muted/40 text-muted-foreground'
                                             }`}>
                                                 {org.status}
@@ -328,7 +328,7 @@ export default function CompliancePage() {
                                                 aria-label={`PII Strip: ${org.telemetry_pii_strip ? 'ativo' : 'inativo'} para ${org.name}`}
                                             >
                                                 {org.telemetry_pii_strip
-                                                    ? <EyeOff className="w-5 h-5 text-blue-400" />
+                                                    ? <EyeOff className="w-5 h-5 text-info-fg" />
                                                     : <Eye className="w-5 h-5 text-muted-foreground/40" />
                                                 }
                                             </button>

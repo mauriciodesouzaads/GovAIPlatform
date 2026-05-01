@@ -33,7 +33,7 @@ function CodeBlock({ code, lang = 'bash' }: { code: string; lang?: string }) {
                     }}
                     className="inline-flex items-center gap-1 text-xs hover:text-foreground"
                 >
-                    {copied ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    {copied ? <CheckCircle2 className="w-3 h-3 text-success-fg" /> : <Copy className="w-3 h-3" />}
                     {copied ? 'Copied' : 'Copy'}
                 </button>
             </div>
@@ -114,9 +114,9 @@ for a in list_assistants.sync(client=client):
                 estão publicados ainda (npm/PyPI 404). Banner informa que
                 os exemplos abaixo são prévia da experiência final + aponta
                 alternativa real (cURL + openapi.yaml + openapi-generator-cli). */}
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+            <div className="rounded-xl border border-warning-border bg-amber-500/5 p-4">
                 <div className="flex items-start gap-3">
-                    <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <AlertTriangle className="w-5 h-5 text-warning-fg flex-shrink-0 mt-0.5" />
                     <div className="min-w-0">
                         <h3 className="text-sm font-semibold text-foreground">
                             SDKs em desenvolvimento

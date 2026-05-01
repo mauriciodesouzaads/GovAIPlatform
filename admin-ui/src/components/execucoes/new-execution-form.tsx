@@ -90,11 +90,11 @@ export function NewExecutionForm({
                         Carregando catálogo…
                     </div>
                 ) : error ? (
-                    <div className="rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-200">
+                    <div className="rounded-md border border-danger-border bg-rose-500/5 px-3 py-2 text-xs text-rose-200">
                         Falha ao carregar agentes: {error.message}
                     </div>
                 ) : assistants.length === 0 ? (
-                    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
+                    <div className="rounded-md border border-warning-border bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
                         Nenhum agente publicado. Crie um em <code className="text-[11px] bg-black/30 px-1 rounded">/assistants</code> ou
                         use o <strong>Modo Livre</strong> ao lado.
                     </div>
@@ -125,7 +125,7 @@ export function NewExecutionForm({
                                                 </span>
                                             )}
                                             {a.shield_level && a.shield_level >= 2 && (
-                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-200">
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-warning-bg text-amber-200">
                                                     <Shield className="h-2.5 w-2.5" />
                                                     nível {a.shield_level}
                                                 </span>
@@ -205,7 +205,7 @@ export function NewExecutionForm({
             </section>
 
             {submitError && (
-                <div className="flex items-start gap-2 rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-200">
+                <div className="flex items-start gap-2 rounded-md border border-danger-border bg-rose-500/5 px-3 py-2 text-xs text-rose-200">
                     <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
                     <span>{submitError}</span>
                 </div>

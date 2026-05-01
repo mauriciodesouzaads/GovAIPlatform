@@ -9,12 +9,12 @@ const STATUS_STYLES: Record<string, {
 }> = {
     pending: {
         label: 'Aguardando',
-        pill: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+        pill: 'bg-warning-bg text-warning-fg border-warning-border',
         dot: 'bg-amber-400',
     },
     in_progress: {
         label: 'Em andamento',
-        pill: 'bg-sky-500/10 text-sky-300 border-sky-500/30',
+        pill: 'bg-info-bg text-info-fg border-info-border',
         dot: 'bg-sky-400 animate-pulse',
     },
     awaiting_approval: {
@@ -24,17 +24,17 @@ const STATUS_STYLES: Record<string, {
     },
     done: {
         label: 'Concluída',
-        pill: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+        pill: 'bg-success-bg text-success-fg border-success-border',
         dot: 'bg-emerald-400',
     },
     failed: {
         label: 'Falhou',
-        pill: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
+        pill: 'bg-danger-bg text-danger-fg border-danger-border',
         dot: 'bg-rose-400',
     },
     blocked: {
         label: 'Bloqueada',
-        pill: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
+        pill: 'bg-danger-bg text-danger-fg border-danger-border',
         dot: 'bg-rose-400',
     },
     cancelled: {

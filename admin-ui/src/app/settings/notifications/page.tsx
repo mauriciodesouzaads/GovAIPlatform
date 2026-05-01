@@ -45,13 +45,13 @@ const PROVIDER_LABELS: Record<Provider, string> = {
 const PROVIDER_COLORS: Record<Provider, string> = {
     slack: 'bg-[#4A154B]/20 text-[#E01E5A] border-[#4A154B]/40',
     teams: 'bg-[#464EB8]/20 text-[#7B83EB] border-[#464EB8]/40',
-    email: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    email: 'bg-success-bg text-success-fg border-emerald-500/20',
 };
 
 const SEVERITY_COLORS: Record<string, string> = {
-    critical: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
-    warning:  'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    info:     'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    critical: 'bg-danger-bg text-danger-fg border-rose-500/20',
+    warning:  'bg-warning-bg text-warning-fg border-amber-500/20',
+    info:     'bg-info-bg text-info-fg border-blue-500/20',
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -152,7 +152,7 @@ function ChannelCard({
                         className="p-2 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
                     >
                         {channel.is_active
-                            ? <ToggleRight className="w-4 h-4 text-emerald-400" />
+                            ? <ToggleRight className="w-4 h-4 text-success-fg" />
                             : <ToggleLeft className="w-4 h-4" />}
                     </button>
                     {/* Test */}
@@ -176,7 +176,7 @@ function ChannelCard({
                     <button
                         onClick={() => onDelete(channel.id)}
                         title="Remover"
-                        className="p-2 rounded-lg hover:bg-rose-500/10 transition-colors text-muted-foreground hover:text-rose-400"
+                        className="p-2 rounded-lg hover:bg-danger-bg transition-colors text-muted-foreground hover:text-danger-fg"
                     >
                         <Trash2 className="w-4 h-4" />
                     </button>
@@ -306,7 +306,7 @@ function ChannelModal({
                 {/* Body */}
                 <div className="flex-1 overflow-y-auto p-6 space-y-5">
                     {error && (
-                        <div className="flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-sm">
+                        <div className="flex items-center gap-2 p-3 bg-danger-bg border border-rose-500/20 rounded-lg text-danger-fg text-sm">
                             <AlertCircle className="w-4 h-4 shrink-0" />
                             {error}
                         </div>
@@ -469,7 +469,7 @@ function ChannelModal({
                             className="transition-colors"
                         >
                             {isActive
-                                ? <ToggleRight className="w-7 h-7 text-emerald-400" />
+                                ? <ToggleRight className="w-7 h-7 text-success-fg" />
                                 : <ToggleLeft  className="w-7 h-7 text-muted-foreground" />}
                         </button>
                         <span className="text-sm text-foreground">Canal ativo</span>
@@ -509,8 +509,8 @@ function DeleteConfirm({ name, onConfirm, onCancel, deleting }: {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
             <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-sm shadow-2xl">
                 <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-full bg-rose-500/10 flex items-center justify-center">
-                        <Trash2 className="w-5 h-5 text-rose-400" />
+                    <div className="w-10 h-10 rounded-full bg-danger-bg flex items-center justify-center">
+                        <Trash2 className="w-5 h-5 text-danger-fg" />
                     </div>
                     <div>
                         <h3 className="font-semibold text-foreground text-sm">Remover canal</h3>
@@ -546,8 +546,8 @@ function Toast({ message, type }: { message: string; type: 'success' | 'error' }
     return (
         <div className={`fixed bottom-6 right-6 z-[60] flex items-center gap-2 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border ${
             type === 'success'
-                ? 'bg-emerald-950 border-emerald-500/30 text-emerald-300'
-                : 'bg-rose-950 border-rose-500/30 text-rose-300'
+                ? 'bg-emerald-950 border-success-border text-success-fg'
+                : 'bg-rose-950 border-danger-border text-danger-fg'
         }`}>
             {type === 'success'
                 ? <CheckCircle2 className="w-4 h-4 shrink-0" />
@@ -668,7 +668,7 @@ export default function NotificationsPage() {
                 />
 
                 {/* Info box */}
-                <div className="mb-6 p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl text-sm text-blue-300">
+                <div className="mb-6 p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl text-sm text-info-fg">
                     <strong className="text-blue-200">Como funciona:</strong> Configure um canal por provedor e selecione os eventos que devem disparar notificações. O GovAI enviará payloads formatados com Slack Blocks API ou Teams Adaptive Cards automaticamente.
                 </div>
 

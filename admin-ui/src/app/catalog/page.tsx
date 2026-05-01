@@ -52,11 +52,11 @@ interface Assistant {
 
 function lifecycleColor(s?: string) {
     switch (s) {
-        case 'approved':        return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
-        case 'official':        return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
-        case 'under_review':    return 'text-amber-400 bg-amber-400/10 border-amber-400/20';
-        case 'draft':           return 'text-blue-400 bg-blue-400/10 border-blue-400/20';
-        case 'suspended':       return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
+        case 'approved':        return 'text-success-fg bg-success-bg border-emerald-500/20';
+        case 'official':        return 'text-success-fg bg-success-bg border-emerald-500/20';
+        case 'under_review':    return 'text-warning-fg bg-warning-bg border-amber-400/20';
+        case 'draft':           return 'text-info-fg bg-info-bg border-blue-400/20';
+        case 'suspended':       return 'text-danger-fg bg-danger-bg border-rose-500/20';
         case 'archived':        return 'text-muted-foreground bg-gray-500/10 border-gray-500/20';
         default:                return 'text-muted-foreground bg-gray-400/10 border-gray-400/20';
     }
@@ -64,10 +64,10 @@ function lifecycleColor(s?: string) {
 
 function riskColor(r?: string) {
     switch (r) {
-        case 'critical':    return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
+        case 'critical':    return 'text-danger-fg bg-danger-bg border-rose-500/20';
         case 'high':        return 'text-orange-400 bg-orange-500/10 border-orange-500/20';
-        case 'medium':      return 'text-amber-400 bg-amber-400/10 border-amber-400/20';
-        case 'low':         return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+        case 'medium':      return 'text-warning-fg bg-warning-bg border-amber-400/20';
+        case 'low':         return 'text-success-fg bg-success-bg border-emerald-500/20';
         default:            return 'text-muted-foreground bg-gray-400/10 border-gray-400/20';
     }
 }
@@ -125,7 +125,7 @@ function ActionModal({
                                 placeholder={inputRequired ? `Mínimo ${inputMin} caracteres` : 'Opcional'}
                             />
                             {inputRequired && value.trim().length > 0 && value.trim().length < inputMin && (
-                                <p className="text-xs text-rose-400">
+                                <p className="text-xs text-danger-fg">
                                     Mínimo {inputMin} caracteres ({value.trim().length}/{inputMin})
                                 </p>
                             )}
@@ -266,7 +266,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                             onClick={() => setTab(t.key)}
                             className={`flex-1 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
                                 tab === t.key
-                                    ? 'border-amber-500 text-amber-400'
+                                    ? 'border-amber-500 text-warning-fg'
                                     : 'border-transparent text-muted-foreground hover:text-foreground/80'
                             }`}
                         >
@@ -346,8 +346,8 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                         )}
                                         {assistant.change_type && (
                                             <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium
-                                                ${assistant.change_type === 'major' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
-                                                  : assistant.change_type === 'minor' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                                                ${assistant.change_type === 'major' ? 'bg-danger-bg border-rose-500/20 text-danger-fg'
+                                                  : assistant.change_type === 'minor' ? 'bg-info-bg border-blue-500/20 text-info-fg'
                                                   : 'bg-secondary border-border text-muted-foreground'}`}>
                                                 {assistant.change_type}
                                             </span>
@@ -422,7 +422,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                         <button
                                             onClick={() => setModal({ type: 'reject' })}
                                             disabled={actionLoading}
-                                            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-rose-500/50 text-rose-400 hover:bg-rose-500/10 font-semibold text-sm transition-colors disabled:opacity-50"
+                                            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-rose-500/50 text-danger-fg hover:bg-danger-bg font-semibold text-sm transition-colors disabled:opacity-50"
                                         >
                                             <AlertTriangle className="w-4 h-4" />
                                             Rejeitar (legacy)
@@ -448,7 +448,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                     <button
                                         onClick={() => setModal({ type: 'suspend' })}
                                         disabled={actionLoading}
-                                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-amber-500/50 text-amber-400 hover:bg-amber-500/10 font-semibold text-sm transition-colors disabled:opacity-50"
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-amber-500/50 text-warning-fg hover:bg-warning-bg font-semibold text-sm transition-colors disabled:opacity-50"
                                     >
                                         <ShieldAlert className="w-4 h-4" />
                                         Suspender
@@ -459,7 +459,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                     <div className="text-xs text-muted-foreground bg-secondary/30 border border-border/50 rounded-lg p-3 leading-relaxed">
                                         Para publicar como <strong className="text-foreground">oficial</strong>, publique uma versão do assistente
                                         na página{' '}
-                                        <a href="/assistants" className="text-amber-400 hover:underline">Assistentes</a>.
+                                        <a href="/assistants" className="text-warning-fg hover:underline">Assistentes</a>.
                                     </div>
                                 )}
 
@@ -491,7 +491,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                             {state === 'official' ? (
                                 <div className="space-y-3">
                                     <div className="flex items-center gap-2">
-                                        <Link2 className="w-4 h-4 text-emerald-400" />
+                                        <Link2 className="w-4 h-4 text-success-fg" />
                                         <p className="text-sm font-semibold text-foreground">Link Governado</p>
                                     </div>
                                     <p className="text-xs text-muted-foreground leading-relaxed">
@@ -514,7 +514,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                                 toast('Não foi possível copiar', 'error');
                                             });
                                         }}
-                                        className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 text-sm font-medium transition-colors"
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-success-border text-success-fg hover:bg-success-bg text-sm font-medium transition-colors"
                                     >
                                         <Copy className="w-4 h-4" />
                                         Copiar Link Base
@@ -574,12 +574,12 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                                     </p>
                                     <button
                                         onClick={() => onOpenExitModal(assistant)}
-                                        className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 text-sm font-medium transition-colors"
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-warning-border text-warning-fg hover:bg-warning-bg text-sm font-medium transition-colors"
                                     >
                                         <ExternalLink className="w-4 h-4" />
                                         Abrir na Origem ↗
                                     </button>
-                                    <p className="text-[11px] text-amber-500/60 mt-1 text-center">
+                                    <p className="text-[11px] text-warning-fg mt-1 text-center">
                                         Dados não serão auditados nem mascarados
                                     </p>
                                 </div>
@@ -654,7 +654,7 @@ function AssistantDrawer({ assistant: initialAssistant, onClose, onReload, isAdm
                     inputRequired={true}
                     inputMin={5}
                     confirmLabel="Suspender"
-                    confirmClass="border border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
+                    confirmClass="border border-amber-500/50 text-warning-fg hover:bg-warning-bg"
                     onConfirm={reason => doSuspend(reason)}
                     onClose={() => setModal(null)}
                     loading={actionLoading}
@@ -819,16 +819,16 @@ function getAssistantIcon(tags?: string[]): string {
 function govBadge(state?: string): { cls: string; label: string } {
     switch (state) {
         case 'official':     return { cls: 'bg-green-500/10 text-green-500',   label: '✓ Governado' };
-        case 'approved':     return { cls: 'bg-blue-500/10 text-blue-500',     label: '✓ Aprovado' };
-        case 'under_review': return { cls: 'bg-yellow-500/10 text-yellow-500', label: '⏳ Em Revisão' };
+        case 'approved':     return { cls: 'bg-info-bg text-info-fg',     label: '✓ Aprovado' };
+        case 'under_review': return { cls: 'bg-warning-bg text-warning-fg', label: '⏳ Em Revisão' };
         default:             return { cls: 'bg-muted text-muted-foreground',   label: 'Rascunho' };
     }
 }
 
 function classificationBadge(dc?: string): { cls: string; label: string } {
     switch (dc) {
-        case 'confidential': return { cls: 'bg-yellow-500/10 text-yellow-500', label: '🔒 Confidencial' };
-        case 'restricted':   return { cls: 'bg-red-500/10 text-red-500',       label: '🔐 Restrito' };
+        case 'confidential': return { cls: 'bg-warning-bg text-warning-fg', label: '🔒 Confidencial' };
+        case 'restricted':   return { cls: 'bg-danger-bg text-danger-fg',       label: '🔐 Restrito' };
         default:             return { cls: 'bg-muted text-muted-foreground',   label: '🔓 Interno' };
     }
 }
@@ -836,9 +836,9 @@ function classificationBadge(dc?: string): { cls: string; label: string } {
 function riskBadgeCard(r?: string): { cls: string; label: string } {
     switch (r) {
         case 'low':      return { cls: 'bg-green-500/10 text-green-500',   label: 'Baixo' };
-        case 'medium':   return { cls: 'bg-yellow-500/10 text-yellow-500', label: 'Médio' };
+        case 'medium':   return { cls: 'bg-warning-bg text-warning-fg', label: 'Médio' };
         case 'high':     return { cls: 'bg-orange-500/10 text-orange-500', label: 'Alto' };
-        case 'critical': return { cls: 'bg-red-500/10 text-red-500',       label: 'Crítico' };
+        case 'critical': return { cls: 'bg-danger-bg text-danger-fg',       label: 'Crítico' };
         default:         return { cls: 'bg-muted text-muted-foreground',   label: r ?? '—' };
     }
 }
@@ -886,8 +886,8 @@ function AssistantCard({ assistant, onManage, onToggleFavorite, onOpenExitModal,
                     onClick={e => { e.stopPropagation(); onToggleFavorite(assistant, e); }}
                     className={`absolute top-3 right-3 p-1 rounded transition-colors ${
                         assistant.is_favorited
-                            ? 'text-amber-400 hover:text-amber-300'
-                            : 'text-muted-foreground/40 hover:text-amber-400'
+                            ? 'text-warning-fg hover:text-warning-fg'
+                            : 'text-muted-foreground/40 hover:text-warning-fg'
                     }`}
                     title={assistant.is_favorited ? 'Remover favorito' : 'Adicionar favorito'}
                 >
@@ -1127,7 +1127,7 @@ export default function CatalogPage() {
                             onClick={() => setActiveTab(t.key)}
                             className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-colors ${
                                 activeTab === t.key
-                                    ? 'border-amber-500 text-amber-400'
+                                    ? 'border-amber-500 text-warning-fg'
                                     : 'border-transparent text-muted-foreground hover:text-foreground'
                             }`}
                         >
@@ -1144,7 +1144,7 @@ export default function CatalogPage() {
 
                 {/* Error */}
                 {error && (
-                    <div className="flex items-center gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm">
+                    <div className="flex items-center gap-3 p-4 rounded-xl bg-danger-bg border border-rose-500/20 text-danger-fg text-sm">
                         <AlertTriangle className="w-4 h-4 shrink-0" />
                         {error}
                     </div>

@@ -151,7 +151,7 @@ export function EvidenciasView() {
                             <span className={cn(
                                 'text-[11px] px-1.5 py-0.5 rounded-md font-mono',
                                 isActive
-                                    ? 'bg-emerald-500/15 text-emerald-300'
+                                    ? 'bg-success-bg text-success-fg'
                                     : 'bg-bg-200 text-muted-foreground',
                             )}>
                                 {count}
@@ -172,7 +172,7 @@ export function EvidenciasView() {
                         onChange={e => setSearch(e.target.value)}
                         className="w-full pl-9 pr-3 py-2 bg-card/40 border border-border/40 rounded-lg
                                    text-sm text-foreground/95 placeholder:text-muted-foreground/70
-                                   focus:outline-none focus:border-emerald-400/40
+                                   focus:outline-none focus:border-success-border
                                    transition-colors"
                     />
                 </div>
@@ -180,7 +180,7 @@ export function EvidenciasView() {
                     value={statusFilter}
                     onChange={e => setStatusFilter(e.target.value)}
                     className="bg-card/40 border border-border/40 rounded-lg text-xs px-3 py-2
-                               text-foreground/90 focus:outline-none focus:ring-1 focus:ring-emerald-400/40"
+                               text-foreground/90 focus:outline-none focus:ring-1 focus:ring-success-fg"
                     aria-label="Filtrar por status"
                 >
                     {STATUS_OPTIONS.map(o => (
@@ -191,7 +191,7 @@ export function EvidenciasView() {
                     value={runtimeFilter}
                     onChange={e => setRuntimeFilter(e.target.value)}
                     className="bg-card/40 border border-border/40 rounded-lg text-xs px-3 py-2
-                               text-foreground/90 focus:outline-none focus:ring-1 focus:ring-emerald-400/40"
+                               text-foreground/90 focus:outline-none focus:ring-1 focus:ring-success-fg"
                     aria-label="Filtrar por runtime"
                 >
                     {RUNTIME_OPTIONS.map(o => (

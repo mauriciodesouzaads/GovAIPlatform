@@ -518,13 +518,13 @@ export default function SettingsPage() {
                                                 {track.sla_hours}h SLA
                                             </span>
                                             {track.is_required && (
-                                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-amber-500/10 border-amber-500/20 text-amber-400">
+                                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-warning-bg border-amber-500/20 text-warning-fg">
                                                     OBRIGATÓRIA
                                                 </span>
                                             )}
                                             <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
                                                 track.is_active
-                                                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                                    ? 'bg-success-bg border-emerald-500/20 text-success-fg'
                                                     : 'bg-secondary border-border text-muted-foreground'
                                             }`}>
                                                 {track.is_active ? 'ATIVA' : 'INATIVA'}
@@ -551,7 +551,7 @@ export default function SettingsPage() {
                                                 }
                                             }}
                                             disabled={deleting === track.id}
-                                            className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+                                            className="p-1.5 rounded-lg text-muted-foreground hover:text-danger-fg hover:bg-danger-bg transition-colors disabled:opacity-50"
                                             title="Remover"
                                         >
                                             {deleting === track.id
@@ -634,7 +634,7 @@ export default function SettingsPage() {
                                 {previewLoading
                                     ? <span className="text-muted-foreground text-xs animate-pulse">Calculando...</span>
                                     : <span>
-                                        <strong className={previewCount && previewCount > 0 ? 'text-amber-400' : 'text-foreground'}>
+                                        <strong className={previewCount && previewCount > 0 ? 'text-warning-fg' : 'text-foreground'}>
                                             {previewCount?.toLocaleString('pt-BR') ?? 0}
                                         </strong>
                                         <span className="text-muted-foreground"> logs serão arquivados</span>

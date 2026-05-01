@@ -30,19 +30,19 @@ const CATEGORY_ICONS: Record<CategoryKey, string> = {
 
 function riskLevelConfig(level: string) {
     switch (level) {
-        case 'low':      return { label: 'Risco Baixo',    color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', Icon: CheckCircle2 };
-        case 'medium':   return { label: 'Risco Médio',    color: 'text-amber-400',   bg: 'bg-amber-400/10 border-amber-400/20',     Icon: AlertTriangle };
+        case 'low':      return { label: 'Risco Baixo',    color: 'text-success-fg', bg: 'bg-success-bg border-emerald-500/20', Icon: CheckCircle2 };
+        case 'medium':   return { label: 'Risco Médio',    color: 'text-warning-fg',   bg: 'bg-warning-bg border-amber-400/20',     Icon: AlertTriangle };
         case 'high':     return { label: 'Risco Alto',     color: 'text-orange-400',  bg: 'bg-orange-500/10 border-orange-500/20',   Icon: AlertTriangle };
-        case 'critical': return { label: 'Risco Crítico',  color: 'text-rose-400',    bg: 'bg-rose-500/10 border-rose-500/20',       Icon: XCircle };
+        case 'critical': return { label: 'Risco Crítico',  color: 'text-danger-fg',    bg: 'bg-danger-bg border-rose-500/20',       Icon: XCircle };
         default:         return { label: level,            color: 'text-gray-400',    bg: 'bg-gray-500/10 border-gray-500/20',       Icon: AlertOctagon };
     }
 }
 
 function scoreColor(score: number) {
-    if (score >= 75) return 'text-emerald-400';
-    if (score >= 50) return 'text-amber-400';
+    if (score >= 75) return 'text-success-fg';
+    if (score >= 50) return 'text-warning-fg';
     if (score >= 25) return 'text-orange-400';
-    return 'text-rose-400';
+    return 'text-danger-fg';
 }
 
 // ── Question Component ────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ function QuestionItem({
                     ))}
                     {answer !== undefined && (
                         <span className={`text-xs ml-2 self-center font-medium ${
-                            (question.scoring[answer] ?? 0) >= 50 ? 'text-emerald-400' : 'text-rose-400'
+                            (question.scoring[answer] ?? 0) >= 50 ? 'text-success-fg' : 'text-danger-fg'
                         }`}>
                             {question.scoring[answer] ?? 0} pts
                         </span>
@@ -126,7 +126,7 @@ function QuestionItem({
                     ))}
                     {answer !== undefined && (
                         <span className={`text-xs ml-1 self-center font-medium ${
-                            (question.scoring[answer] ?? 0) >= 50 ? 'text-emerald-400' : 'text-rose-400'
+                            (question.scoring[answer] ?? 0) >= 50 ? 'text-success-fg' : 'text-danger-fg'
                         }`}>
                             {question.scoring[answer] ?? 0} pts
                         </span>
@@ -413,14 +413,14 @@ export default function RiskAssessmentPage() {
                         {/* Recommendations */}
                         {result.recommendations?.length > 0 && (
                             <div className="bg-gray-900 border border-amber-500/20 rounded-xl p-4 space-y-2">
-                                <h3 className="text-sm font-medium text-amber-400 flex items-center gap-1.5">
+                                <h3 className="text-sm font-medium text-warning-fg flex items-center gap-1.5">
                                     <AlertTriangle className="w-4 h-4" />
                                     Recomendações ({result.recommendations.length})
                                 </h3>
                                 <ul className="space-y-1.5">
                                     {result.recommendations.map((rec: string, i: number) => (
                                         <li key={i} className="text-xs text-gray-400 flex gap-2">
-                                            <span className="text-amber-400 mt-0.5">•</span>
+                                            <span className="text-warning-fg mt-0.5">•</span>
                                             {rec}
                                         </li>
                                     ))}
@@ -429,7 +429,7 @@ export default function RiskAssessmentPage() {
                         )}
 
                         {result.total_score >= 70 && (
-                            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 text-xs text-emerald-400">
+                            <div className="bg-success-bg border border-emerald-500/20 rounded-xl p-3 text-xs text-success-fg">
                                 ✓ Score ≥ 70 — controles de gerenciamento de risco atualizados automaticamente no Compliance Hub.
                             </div>
                         )}

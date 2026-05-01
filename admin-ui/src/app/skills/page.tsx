@@ -30,10 +30,10 @@ interface CatalogSkill {
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
-    analysis:   'text-blue-400 bg-blue-500/10 border-blue-500/20',
-    generation: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    analysis:   'text-info-fg bg-info-bg border-blue-500/20',
+    generation: 'text-success-fg bg-success-bg border-emerald-500/20',
     review:     'text-violet-400 bg-violet-500/10 border-violet-500/20',
-    data:       'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    data:       'text-warning-fg bg-warning-bg border-amber-500/20',
     automation: 'text-muted-foreground bg-secondary/30 border-border/40',
 };
 
@@ -104,7 +104,7 @@ function SkillModal({
                             {isEdit ? 'Editar Skill' : 'Nova Skill'}
                         </h2>
                         {isSystem && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-md bg-warning-bg text-warning-fg border border-amber-500/20">
                                 <Lock className="w-3 h-3" /> sistema
                             </span>
                         )}
@@ -198,7 +198,7 @@ function SkillModal({
                         </div>
 
                         {error && (
-                            <div className="flex items-center gap-2 text-rose-400 text-xs bg-rose-500/10 border border-rose-500/20 rounded px-3 py-2">
+                            <div className="flex items-center gap-2 text-danger-fg text-xs bg-danger-bg border border-rose-500/20 rounded px-3 py-2">
                                 <AlertCircle className="w-4 h-4" />
                                 {error}
                             </div>
@@ -245,7 +245,7 @@ function SkillDetail({ skill, onClose }: { skill: CatalogSkill; onClose: () => v
                             <Sparkles className="w-4 h-4 text-violet-400 shrink-0" />
                             <h2 className="text-lg font-semibold text-foreground truncate">{skill.name}</h2>
                             {skill.is_system && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-md bg-warning-bg text-warning-fg border border-amber-500/20 shrink-0">
                                     <Lock className="w-3 h-3" /> sistema
                                 </span>
                             )}
@@ -492,7 +492,7 @@ function SkillCard({
                     )}
                 </div>
                 {skill.is_system && (
-                    <Lock className="w-3 h-3 text-amber-400 shrink-0 mt-1" />
+                    <Lock className="w-3 h-3 text-warning-fg shrink-0 mt-1" />
                 )}
             </div>
 
@@ -537,7 +537,7 @@ function SkillCard({
                         {!skill.is_system && (
                             <button
                                 onClick={onDelete}
-                                className="px-2 py-1.5 text-xs rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors"
+                                className="px-2 py-1.5 text-xs rounded-md bg-danger-bg text-danger-fg border border-rose-500/20 hover:bg-danger-bg transition-colors"
                                 title="Deletar"
                             >
                                 <Trash2 className="w-3.5 h-3.5" />

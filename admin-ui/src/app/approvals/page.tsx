@@ -114,7 +114,7 @@ export default function ApprovalsPage() {
                                 : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'
                                 }`}
                         >
-                            {t === 'pending' && <Clock className={`w-4 h-4 ${tab === t ? 'text-amber-500' : ''}`} />}
+                            {t === 'pending' && <Clock className={`w-4 h-4 ${tab === t ? 'text-warning-fg' : ''}`} />}
                             {t === 'approved' && <CheckCircle className={`w-4 h-4 ${tab === t ? 'text-emerald-500' : ''}`} />}
                             {t === 'rejected' && <XCircle className={`w-4 h-4 ${tab === t ? 'text-destructive' : ''}`} />}
                             {t === 'pending' ? 'Fila Pendente' : t === 'approved' ? 'Aprovados' : 'Rejeitados (Blocks)'}
@@ -198,7 +198,7 @@ export default function ApprovalsPage() {
                                 <div className="grid md:grid-cols-2 gap-4">
                                     {/* Risk Reason */}
                                     <div className="p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl">
-                                        <div className="flex items-center gap-2 text-rose-400 text-xs font-semibold uppercase tracking-wider mb-2">
+                                        <div className="flex items-center gap-2 text-danger-fg text-xs font-semibold uppercase tracking-wider mb-2">
                                             <AlertTriangle className="w-3.5 h-3.5" /> Motivo da Interceptação (OPA)
                                         </div>
                                         <p className="text-sm font-medium leading-relaxed">{a.justification || a.policy_reason}</p>

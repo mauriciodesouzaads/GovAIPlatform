@@ -55,9 +55,9 @@ interface Summary {
 function statusBadge(status: string | null) {
     if (!status) return <span className="text-xs text-gray-500 bg-gray-500/10 px-2 py-0.5 rounded-full">Não avaliado</span>;
     const map: Record<string, string> = {
-        compliant: 'text-emerald-400 bg-emerald-500/10',
-        partial: 'text-amber-400 bg-amber-400/10',
-        non_compliant: 'text-rose-400 bg-rose-500/10',
+        compliant: 'text-success-fg bg-success-bg',
+        partial: 'text-warning-fg bg-warning-bg',
+        non_compliant: 'text-danger-fg bg-danger-bg',
     };
     const label: Record<string, string> = {
         compliant: 'Conforme',
@@ -83,9 +83,9 @@ function ProgressBar({ value, color = 'bg-emerald-500' }: { value: number; color
 }
 
 function rateColor(rate: number) {
-    if (rate >= 80) return 'text-emerald-400';
-    if (rate >= 50) return 'text-amber-400';
-    return 'text-rose-400';
+    if (rate >= 80) return 'text-success-fg';
+    if (rate >= 50) return 'text-warning-fg';
+    return 'text-danger-fg';
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────
@@ -214,8 +214,8 @@ export default function ComplianceHubPage() {
             {/* Summary cards */}
             {summary && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <SummaryCard label="Frameworks Ativos" value={summary.total_frameworks} icon={<BarChart2 className="w-4 h-4 text-blue-400" />} />
-                    <SummaryCard label="Conformes" value={summary.compliant} icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />} color="text-emerald-400" />
+                    <SummaryCard label="Frameworks Ativos" value={summary.total_frameworks} icon={<BarChart2 className="w-4 h-4 text-info-fg" />} />
+                    <SummaryCard label="Conformes" value={summary.compliant} icon={<CheckCircle2 className="w-4 h-4 text-success-fg" />} color="text-success-fg" />
                     <SummaryCard label="Não Avaliados" value={summary.not_assessed} icon={<Clock className="w-4 h-4 text-gray-400" />} color="text-gray-400" />
                     <SummaryCard label="Taxa Global" value={`${summary.compliance_rate}%`} icon={<BarChart2 className="w-4 h-4 text-violet-400" />} color={rateColor(summary.compliance_rate)} />
                 </div>
@@ -262,8 +262,8 @@ export default function ComplianceHubPage() {
                                             />
                                             <div className="flex gap-2 mt-1 text-xs text-gray-600">
                                                 <span className="text-emerald-500">{fw.compliant_count}✓</span>
-                                                <span className="text-amber-400">{fw.partial_count}~</span>
-                                                <span className="text-rose-500">{fw.non_compliant_count}✗</span>
+                                                <span className="text-warning-fg">{fw.partial_count}~</span>
+                                                <span className="text-danger-fg">{fw.non_compliant_count}✗</span>
                                             </div>
                                         </div>
 

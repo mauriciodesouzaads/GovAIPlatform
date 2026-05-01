@@ -151,17 +151,17 @@ function LoginForm() {
 
                     {/* Success message */}
                     {successMsg && (
-                        <div className="mb-5 p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-start gap-2.5">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                            <p className="text-sm text-emerald-400">{successMsg}</p>
+                        <div className="mb-5 p-3.5 rounded-lg bg-success-bg border border-emerald-500/20 flex items-start gap-2.5">
+                            <CheckCircle2 className="w-4 h-4 text-success-fg shrink-0 mt-0.5" />
+                            <p className="text-sm text-success-fg">{successMsg}</p>
                         </div>
                     )}
 
                     {/* Error message */}
                     {error && (
-                        <div className="mb-5 p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-start gap-2.5 animate-in fade-in duration-200">
-                            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                            <p className="text-sm text-rose-400">{error}</p>
+                        <div className="mb-5 p-3.5 rounded-lg bg-danger-bg border border-rose-500/20 flex items-start gap-2.5 animate-in fade-in duration-200">
+                            <AlertCircle className="w-4 h-4 text-danger-fg shrink-0 mt-0.5" />
+                            <p className="text-sm text-danger-fg">{error}</p>
                         </div>
                     )}
 

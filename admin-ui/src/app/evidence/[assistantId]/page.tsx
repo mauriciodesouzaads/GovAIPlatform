@@ -272,14 +272,14 @@ function VersionDiffPanel({ assistantId }: { assistantId: string }) {
                 <div className="space-y-4">
                     {/* Stats bar */}
                     <div className="flex items-center gap-4 text-xs font-mono">
-                        <span className="text-emerald-400">+{diff.stats.lines_added} linhas</span>
-                        <span className="text-rose-400">−{diff.stats.lines_removed} linhas</span>
+                        <span className="text-success-fg">+{diff.stats.lines_added} linhas</span>
+                        <span className="text-danger-fg">−{diff.stats.lines_removed} linhas</span>
                         <span className="text-muted-foreground">{diff.stats.lines_unchanged} inalteradas</span>
                         {diff.tools_diff.added.length > 0 && (
-                            <span className="text-blue-400">+{diff.tools_diff.added.length} tools</span>
+                            <span className="text-info-fg">+{diff.tools_diff.added.length} tools</span>
                         )}
                         {diff.tools_diff.removed.length > 0 && (
-                            <span className="text-amber-400">−{diff.tools_diff.removed.length} tools</span>
+                            <span className="text-warning-fg">−{diff.tools_diff.removed.length} tools</span>
                         )}
                     </div>
 
@@ -294,8 +294,8 @@ function VersionDiffPanel({ assistantId }: { assistantId: string }) {
                                     <div
                                         key={i}
                                         className={`px-3 py-0.5 whitespace-pre-wrap break-all ${
-                                            line.type === 'added'   ? 'bg-emerald-500/10 text-emerald-300' :
-                                            line.type === 'removed' ? 'bg-rose-500/10 text-rose-300' :
+                                            line.type === 'added'   ? 'bg-success-bg text-success-fg' :
+                                            line.type === 'removed' ? 'bg-danger-bg text-danger-fg' :
                                             'text-muted-foreground'
                                         }`}
                                     >
@@ -314,12 +314,12 @@ function VersionDiffPanel({ assistantId }: { assistantId: string }) {
                         <div className="rounded-lg border border-border p-3 space-y-2">
                             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tools</p>
                             {diff.tools_diff.added.map(t => (
-                                <div key={t} className="flex items-center gap-2 text-xs text-emerald-400 font-mono">
+                                <div key={t} className="flex items-center gap-2 text-xs text-success-fg font-mono">
                                     <span className="opacity-60">+</span> {t}
                                 </div>
                             ))}
                             {diff.tools_diff.removed.map(t => (
-                                <div key={t} className="flex items-center gap-2 text-xs text-rose-400 font-mono">
+                                <div key={t} className="flex items-center gap-2 text-xs text-danger-fg font-mono">
                                     <span className="opacity-60">−</span> {t}
                                 </div>
                             ))}
@@ -328,7 +328,7 @@ function VersionDiffPanel({ assistantId }: { assistantId: string }) {
 
                     {/* Policy diff */}
                     {diff.policy_diff.changed && (
-                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-300">
+                        <div className="rounded-lg border border-warning-border bg-amber-500/5 p-3 text-xs text-warning-fg">
                             <p className="font-semibold mb-1">Política alterada</p>
                             <p className="font-mono text-muted-foreground">
                                 {diff.policy_diff.before_id?.slice(0, 8) ?? '—'} → {diff.policy_diff.after_id?.slice(0, 8) ?? '—'}
@@ -554,7 +554,7 @@ export default function EvidencePage({ params }: { params: { assistantId: string
                                                         {item.explanation.split(':')[0]}
                                                     </span>
                                                     <span className={`shrink-0 font-mono text-xs font-semibold ${
-                                                        item.score > 0 ? 'text-amber-400' : 'text-muted-foreground'
+                                                        item.score > 0 ? 'text-warning-fg' : 'text-muted-foreground'
                                                     }`}>
                                                         +{item.score}
                                                     </span>
@@ -806,7 +806,7 @@ export default function EvidencePage({ params }: { params: { assistantId: string
                                         <span className="text-foreground font-semibold">Integridade:</span>{' '}
                                         Hash {integrity.evidence_hash.slice(0, 24)}...
                                     </div>
-                                    <div className="text-emerald-400">
+                                    <div className="text-success-fg">
                                         Assinatura HMAC-SHA256 verificada
                                     </div>
                                     <div>

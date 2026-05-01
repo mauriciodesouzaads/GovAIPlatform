@@ -38,10 +38,10 @@ interface ReviewTracksPanelProps {
 }
 
 function decisionIcon(decision: string) {
-  if (decision === 'approved') return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
-  if (decision === 'rejected') return <XCircle className="w-4 h-4 text-rose-400" />;
-  if (decision === 'escalated') return <AlertCircle className="w-4 h-4 text-amber-400" />;
-  return <Clock className="w-4 h-4 text-blue-400" />;
+  if (decision === 'approved') return <CheckCircle2 className="w-4 h-4 text-success-fg" />;
+  if (decision === 'rejected') return <XCircle className="w-4 h-4 text-danger-fg" />;
+  if (decision === 'escalated') return <AlertCircle className="w-4 h-4 text-warning-fg" />;
+  return <Clock className="w-4 h-4 text-info-fg" />;
 }
 
 function decisionVariant(decision: string): 'success' | 'error' | 'warning' | 'info' {
@@ -123,10 +123,10 @@ export function ReviewTracksPanel({ assistantId, orgId, token, onDecisionMade, c
       {/* Summary banner */}
       <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border
         ${summary.any_rejected
-          ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+          ? 'bg-danger-bg border-rose-500/20 text-danger-fg'
           : summary.all_required_approved
-          ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-          : 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+          ? 'bg-success-bg border-emerald-500/20 text-success-fg'
+          : 'bg-info-bg border-blue-500/20 text-info-fg'
         }`}>
         {summary.any_rejected
           ? <><XCircle className="w-3.5 h-3.5" /> Revisão rejeitada em uma ou mais tracks</>
@@ -187,7 +187,7 @@ export function ReviewTracksPanel({ assistantId, orgId, token, onDecisionMade, c
                 <button
                   disabled={!!submitting}
                   onClick={() => decide(d.track_id, 'approved')}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-medium hover:bg-emerald-500/25 transition-colors disabled:opacity-50"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-success-bg text-success-fg border border-success-border text-xs font-medium hover:bg-emerald-500/25 transition-colors disabled:opacity-50"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   {submitting === d.track_id ? 'Salvando...' : 'Aprovar'}
@@ -195,7 +195,7 @@ export function ReviewTracksPanel({ assistantId, orgId, token, onDecisionMade, c
                 <button
                   disabled={!!submitting}
                   onClick={() => decide(d.track_id, 'rejected')}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-rose-500/15 text-rose-400 border border-rose-500/30 text-xs font-medium hover:bg-rose-500/25 transition-colors disabled:opacity-50"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-danger-bg text-danger-fg border border-danger-border text-xs font-medium hover:bg-rose-500/25 transition-colors disabled:opacity-50"
                 >
                   <XCircle className="w-3.5 h-3.5" />
                   {submitting === d.track_id ? 'Salvando...' : 'Rejeitar'}

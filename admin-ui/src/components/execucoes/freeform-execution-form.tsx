@@ -135,14 +135,14 @@ export function FreeformExecutionForm({
                                 className={[
                                     'flex items-center gap-2 rounded-md border px-3 py-2.5 text-left transition-colors',
                                     active
-                                        ? 'border-emerald-500/60 bg-emerald-500/10'
+                                        ? 'border-emerald-500/60 bg-success-bg'
                                         : 'border-border/40 bg-card/30 hover:bg-card/50',
                                     !available && 'opacity-40 cursor-not-allowed',
                                 ].filter(Boolean).join(' ')}
                             >
                                 <Cpu className={[
                                     'h-3.5 w-3.5 flex-shrink-0',
-                                    active ? 'text-emerald-300' : 'text-muted-foreground',
+                                    active ? 'text-success-fg' : 'text-muted-foreground',
                                 ].join(' ')} />
                                 <div className="min-w-0">
                                     <div className="text-sm font-medium text-foreground/95">
@@ -277,7 +277,7 @@ export function FreeformExecutionForm({
                                 className={[
                                     'flex items-center gap-2 rounded-md border px-2 py-1.5 cursor-pointer transition-colors',
                                     selectedMcps.includes(s.id)
-                                        ? 'border-emerald-500/60 bg-emerald-500/10'
+                                        ? 'border-emerald-500/60 bg-success-bg'
                                         : 'border-border/40 bg-card/30 hover:bg-card/50',
                                 ].join(' ')}
                             >
@@ -327,7 +327,7 @@ export function FreeformExecutionForm({
             </section>
 
             {submitError && (
-                <div className="flex items-start gap-2 rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-200">
+                <div className="flex items-start gap-2 rounded-md border border-danger-border bg-rose-500/5 px-3 py-2 text-xs text-rose-200">
                     <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
                     <span>{submitError}</span>
                 </div>

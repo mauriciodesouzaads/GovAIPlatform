@@ -83,8 +83,8 @@ export default function ChatEntryPage() {
                 <Loader2 className="w-5 h-5 animate-spin text-text-500" />
             ) : (
                 <div className="max-w-md text-center space-y-4">
-                    <div className="mx-auto w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
-                        <MessageSquare className="w-6 h-6 text-emerald-400" />
+                    <div className="mx-auto w-12 h-12 rounded-2xl bg-success-bg border border-success-border flex items-center justify-center">
+                        <MessageSquare className="w-6 h-6 text-success-fg" />
                     </div>
                     <div>
                         <h1 className="text-lg font-semibold text-text-100">Bem-vindo ao Chat GovAI</h1>

@@ -96,6 +96,39 @@
   --radius-sm: 0.25rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
+
+  /* ===== Semantic state tokens (FASE 14.0/6c.B.3 CP1.D-C) ============== */
+  /* Drivem badges, alertas e status indicators espalhados pela admin-ui.
+     Brand emerald (--color-primary #10B981) PRESERVADO para CTA principal —
+     estes tokens são para SUCCESS state, não para action. Light + Dark
+     mode com fg invertido em dark p/ legibilidade.
+
+     Mapeamento:
+       success → Conforme, Concluída, ATIVO, OK, healthy
+       warning → Pendente, Em revisão, Expira em X dias
+       danger  → Falhou, Bloqueado, Iniciar Rejeição, ERROR
+       info    → Banners informativos, web search, links
+       critical→ CRITICAL severities (/shield)                            */
+
+  --color-success-bg:     hsl(158 46% 91%);            /* aqua-100 */
+  --color-success-fg:     hsl(165 88% 20%);            /* aqua-600 #066956 */
+  --color-success-border: hsl(165 88% 20% / 0.30);
+
+  --color-warning-bg:     hsl(41 96% 88%);             /* yellow-100 */
+  --color-warning-fg:     hsl(38 100% 33%);            /* yellow-450 #A86E00 */
+  --color-warning-border: hsl(38 100% 33% / 0.30);
+
+  --color-danger-bg:      hsl(0 78% 91%);              /* red-100 */
+  --color-danger-fg:      hsl(0 72% 45%);              /* red darker p/ contraste light */
+  --color-danger-border:  hsl(0 72% 65% / 0.30);
+
+  --color-info-bg:        hsl(213 75% 96%);            /* blue-50 */
+  --color-info-fg:        hsl(213 68% 50%);            /* blue-450 #3478D9 */
+  --color-info-border:    hsl(213 68% 50% / 0.30);
+
+  --color-critical-bg:    hsl(0 78% 91%);              /* light red-100 */
+  --color-critical-fg:    hsl(0 84% 45%);              /* red mais saturado */
+  --color-critical-border: hsl(0 84% 45% / 0.30);
 }
 
 /* ============================================================================
@@ -148,6 +181,28 @@
   --color-border:               hsl(53 12% 87% / 0.12);
   --color-input:                hsl(53 12% 87% / 0.12);
   --color-ring:                 #10B981;
+
+  /* Semantic state tokens — em dark mode invertemos bg/fg para
+     legibilidade (bg fica escuro com alpha sutil, fg fica claro). */
+  --color-success-bg:     hsl(165 88% 20% / 0.15);
+  --color-success-fg:     hsl(158 46% 80%);
+  --color-success-border: hsl(158 46% 80% / 0.30);
+
+  --color-warning-bg:     hsl(38 100% 33% / 0.15);
+  --color-warning-fg:     hsl(41 96% 75%);
+  --color-warning-border: hsl(41 96% 75% / 0.30);
+
+  --color-danger-bg:      hsl(0 72% 65% / 0.15);
+  --color-danger-fg:      hsl(0 78% 80%);
+  --color-danger-border:  hsl(0 78% 80% / 0.30);
+
+  --color-info-bg:        hsl(213 68% 50% / 0.15);
+  --color-info-fg:        hsl(213 73% 80%);
+  --color-info-border:    hsl(213 73% 80% / 0.30);
+
+  --color-critical-bg:    hsl(0 84% 50% / 0.15);
+  --color-critical-fg:    hsl(0 78% 80%);
+  --color-critical-border: hsl(0 78% 80% / 0.30);
 }
 
 :root        { color-scheme: light; }

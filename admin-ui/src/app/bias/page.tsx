@@ -79,9 +79,9 @@ const emptyGroupRow = (key = ''): GroupFormRow => ({
 
 function verdictBadge(verdict: Assessment['verdict'] | null | undefined) {
     const map: Record<string, { cls: string; label: string; Icon: React.ElementType }> = {
-        pass: { cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30', label: 'Pass', Icon: CheckCircle2 },
-        warn: { cls: 'text-amber-400 bg-amber-400/10 border-amber-400/30', label: 'Warn', Icon: AlertTriangle },
-        fail: { cls: 'text-rose-400 bg-rose-500/10 border-rose-500/30', label: 'Fail', Icon: XCircle },
+        pass: { cls: 'text-success-fg bg-success-bg border-success-border', label: 'Pass', Icon: CheckCircle2 },
+        warn: { cls: 'text-warning-fg bg-warning-bg border-warning-border', label: 'Warn', Icon: AlertTriangle },
+        fail: { cls: 'text-danger-fg bg-danger-bg border-danger-border', label: 'Fail', Icon: XCircle },
     };
     if (!verdict) {
         return <span className="text-xs text-gray-400 bg-gray-400/10 px-2 py-0.5 rounded-full">—</span>;
@@ -300,12 +300,12 @@ export default function BiasPage() {
                     {assessments
                         .filter((a) => a.raw_results?.violations && a.raw_results.violations.length > 0)
                         .map((a) => (
-                            <div key={a.id} className="border border-rose-500/30 bg-rose-500/5 rounded-lg p-3">
+                            <div key={a.id} className="border border-danger-border bg-rose-500/5 rounded-lg p-3">
                                 <div className="flex items-center justify-between mb-2">
                                     <span className="text-sm font-medium">{a.test_dataset_name}</span>
                                     {verdictBadge(a.verdict)}
                                 </div>
-                                <ul className="list-disc list-inside text-xs text-rose-300 space-y-0.5">
+                                <ul className="list-disc list-inside text-xs text-danger-fg space-y-0.5">
                                     {a.raw_results!.violations!.map((v, i) => <li key={i}>{v}</li>)}
                                 </ul>
                             </div>
@@ -328,9 +328,9 @@ export default function BiasPage() {
 // ── Summary card ─────────────────────────────────────────────────────────
 function SummaryCard({ label, count, color }: { label: string; count: number; color: 'emerald' | 'amber' | 'rose' }) {
     const colorMap: Record<string, string> = {
-        emerald: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
-        amber: 'text-amber-400 bg-amber-400/10 border-amber-400/30',
-        rose: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
+        emerald: 'text-success-fg bg-success-bg border-success-border',
+        amber: 'text-warning-fg bg-warning-bg border-warning-border',
+        rose: 'text-danger-fg bg-danger-bg border-danger-border',
     };
     return (
         <div className={`border rounded-xl p-4 ${colorMap[color]}`}>
@@ -505,7 +505,7 @@ function SubmitModal({
                                     <button
                                         onClick={() => setRows(rows.filter((_, i) => i !== idx))}
                                         disabled={rows.length <= 2}
-                                        className="col-span-2 text-rose-400 hover:text-rose-300 disabled:opacity-30 text-xs flex items-center gap-1 justify-center"
+                                        className="col-span-2 text-danger-fg hover:text-danger-fg disabled:opacity-30 text-xs flex items-center gap-1 justify-center"
                                     >
                                         <Trash2 className="w-3 h-3" /> remover
                                     </button>

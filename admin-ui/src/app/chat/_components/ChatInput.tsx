@@ -121,7 +121,7 @@ export function ChatInput({
                     'rounded-2xl border bg-bg-200 transition-colors relative',
                     isDragActive
                         ? 'border-emerald-500/60 bg-emerald-500/5'
-                        : 'border-border-200 focus-within:border-emerald-500/40',
+                        : 'border-border-200 focus-within:border-success-border',
                 ].join(' ')}
             >
                 <input {...getInputProps()} />
@@ -190,7 +190,7 @@ export function ChatInput({
                 </div>
 
                 {isDragActive && (
-                    <div className="absolute inset-0 flex items-center justify-center text-sm text-emerald-300 pointer-events-none">
+                    <div className="absolute inset-0 flex items-center justify-center text-sm text-success-fg pointer-events-none">
                         Solte os arquivos aqui
                     </div>
                 )}

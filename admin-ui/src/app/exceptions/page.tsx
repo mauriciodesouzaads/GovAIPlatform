@@ -51,7 +51,7 @@ function daysUntilExpiry(expiresAt: string): number {
 function UrgencyBadge({ days }: { days: number }) {
     if (days <= 0)  return <span className="text-xs font-medium text-destructive">Expirado</span>;
     if (days < 7)   return <span className="text-xs font-medium text-destructive bg-destructive/10 px-2 py-0.5 rounded-full">⚠️ Expira em {days} dias!</span>;
-    if (days <= 30) return <span className="text-xs font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">⚠️ Expira em {days} dias</span>;
+    if (days <= 30) return <span className="text-xs font-medium text-warning-fg bg-warning-bg px-2 py-0.5 rounded-full">⚠️ Expira em {days} dias</span>;
     return <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">Expira em {days} dias</span>;
 }
 
@@ -247,7 +247,7 @@ export default function ExceptionsPage() {
                             {t.label}
                             {t.count > 0 && (
                                 <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${
-                                    t.key === 'pending' ? 'bg-amber-500/20 text-amber-400' : 'bg-muted text-muted-foreground'
+                                    t.key === 'pending' ? 'bg-warning-bg text-warning-fg' : 'bg-muted text-muted-foreground'
                                 }`}>
                                     {t.count}
                                 </span>
@@ -291,7 +291,7 @@ export default function ExceptionsPage() {
                                                 </span>
                                                 {ex.status === 'approved' && <UrgencyBadge days={days} />}
                                                 {ex.status === 'pending' && (
-                                                    <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded-full text-xs font-medium">Pendente</span>
+                                                    <span className="px-2 py-0.5 bg-warning-bg text-warning-fg rounded-full text-xs font-medium">Pendente</span>
                                                 )}
                                                 {ex.status === 'rejected' && (
                                                     <span className="px-2 py-0.5 bg-destructive/10 text-destructive rounded-full text-xs font-medium">Rejeitada</span>
@@ -370,7 +370,7 @@ export default function ExceptionsPage() {
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/70 backdrop-blur-sm">
                     <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4">
                         <div className="flex items-center gap-3">
-                            <AlertTriangle className="w-5 h-5 text-amber-400" />
+                            <AlertTriangle className="w-5 h-5 text-warning-fg" />
                             <h3 className="text-base font-semibold">Revogar Exceção</h3>
                         </div>
                         <p className="text-sm text-muted-foreground">Esta ação é imediata e não pode ser desfeita. A exceção será desativada.</p>
@@ -462,7 +462,7 @@ export default function ExceptionsPage() {
                                     rows={4}
                                     className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
                                 />
-                                <div className={`text-xs text-right ${newJustification.length < 20 ? 'text-muted-foreground' : 'text-emerald-400'}`}>
+                                <div className={`text-xs text-right ${newJustification.length < 20 ? 'text-muted-foreground' : 'text-success-fg'}`}>
                                     {newJustification.length} / 20 mín.
                                 </div>
                             </div>

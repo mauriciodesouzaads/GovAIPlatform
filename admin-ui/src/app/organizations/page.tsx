@@ -111,7 +111,7 @@ function CreateOrgModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
                     <input className={inputCls} type="number" min={1} max={168} value={hitlHours}
                         onChange={e => setHitlHours(Number(e.target.value))} />
                 </Field>
-                {error && <p className="text-xs text-rose-400">{error}</p>}
+                {error && <p className="text-xs text-danger-fg">{error}</p>}
                 <div className="flex gap-3 pt-1">
                     <button type="button" onClick={onClose}
                         className="flex-1 px-4 py-2.5 rounded-lg border border-border text-sm text-foreground/60 hover:text-foreground hover:border-border transition-colors">
@@ -170,7 +170,7 @@ function InviteAdminModal({ org, onClose, onSuccess }: {
                     <input className={inputCls} type="password" value={password}
                         onChange={e => setPassword(e.target.value)} placeholder="••••••••••••" />
                 </Field>
-                {error && <p className="text-xs text-rose-400">{error}</p>}
+                {error && <p className="text-xs text-danger-fg">{error}</p>}
                 <div className="flex gap-3 pt-1">
                     <button type="button" onClick={onClose}
                         className="flex-1 px-4 py-2.5 rounded-lg border border-border text-sm text-foreground/60 hover:text-foreground hover:border-border transition-colors">
@@ -227,7 +227,7 @@ function EditOrgModal({ org, onClose, onSuccess }: {
                     <input className={inputCls} type="number" min={1} max={168} value={hitlHours}
                         onChange={e => setHitlHours(Number(e.target.value))} />
                 </Field>
-                {error && <p className="text-xs text-rose-400">{error}</p>}
+                {error && <p className="text-xs text-danger-fg">{error}</p>}
                 <div className="flex gap-3 pt-1">
                     <button type="button" onClick={onClose}
                         className="flex-1 px-4 py-2.5 rounded-lg border border-border text-sm text-foreground/60 hover:text-foreground hover:border-border transition-colors">
@@ -350,7 +350,7 @@ export default function OrganizationsPage() {
                     ].map(({ label, value, icon: Icon, color }) => (
                         <div key={label} className="bg-card border border-border rounded-2xl p-5 flex items-center gap-4">
                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center
-                                ${color === 'indigo' ? 'bg-indigo-500/15 text-indigo-400' : color === 'emerald' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'}`}>
+                                ${color === 'indigo' ? 'bg-indigo-500/15 text-indigo-400' : color === 'emerald' ? 'bg-success-bg text-success-fg' : 'bg-warning-bg text-warning-fg'}`}>
                                 <Icon className="w-5 h-5" />
                             </div>
                             <div>

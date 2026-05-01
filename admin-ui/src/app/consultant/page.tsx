@@ -54,22 +54,22 @@ interface FindingAction {
 
 function severityColor(s: string) {
     switch (s) {
-        case 'critical':     return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
+        case 'critical':     return 'text-danger-fg bg-danger-bg border-rose-500/20';
         case 'high':         return 'text-orange-400 bg-orange-500/10 border-orange-500/20';
-        case 'medium':       return 'text-amber-400 bg-amber-400/10 border-amber-400/20';
-        case 'low':          return 'text-blue-400 bg-blue-400/10 border-blue-400/20';
+        case 'medium':       return 'text-warning-fg bg-warning-bg border-amber-400/20';
+        case 'low':          return 'text-info-fg bg-info-bg border-blue-400/20';
         default:             return 'text-muted-foreground bg-gray-400/10 border-gray-400/20';
     }
 }
 
 function statusColor(s: string) {
     switch (s) {
-        case 'open':         return 'text-amber-400';
-        case 'acknowledged': return 'text-blue-400';
+        case 'open':         return 'text-warning-fg';
+        case 'acknowledged': return 'text-info-fg';
         case 'promoted':     return 'text-emerald-500';
         case 'accepted_risk':return 'text-muted-foreground';
         case 'dismissed':    return 'text-muted-foreground';
-        case 'resolved':     return 'text-emerald-400';
+        case 'resolved':     return 'text-success-fg';
         default:             return 'text-muted-foreground';
     }
 }
@@ -185,7 +185,7 @@ function FindingRow({ finding, tenantOrgId }: { finding: ConsultantFinding; tena
                         {finding.status.replace('_', ' ')}
                     </span>
                 </td>
-                <td className="py-3 px-4 text-xs text-amber-400 font-mono">{finding.risk_score.toFixed(2)}</td>
+                <td className="py-3 px-4 text-xs text-warning-fg font-mono">{finding.risk_score.toFixed(2)}</td>
                 <td className="py-3 px-4 text-xs text-muted-foreground">{finding.observation_count}</td>
                 <td className="py-3 px-4 text-xs text-muted-foreground hidden md:table-cell">{fmtDate(finding.last_seen_at)}</td>
             </tr>
@@ -244,8 +244,8 @@ function TenantPanel({ tenant }: { tenant: ConsultantTenant }) {
                 className="w-full flex items-center justify-between p-5 hover:bg-secondary/30 transition-colors"
             >
                 <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-                        <Shield className="w-4 h-4 text-amber-400" />
+                    <div className="w-8 h-8 rounded-lg bg-warning-bg border border-amber-500/20 flex items-center justify-center">
+                        <Shield className="w-4 h-4 text-warning-fg" />
                     </div>
                     <div className="text-left">
                         <p className="text-sm font-semibold text-foreground">{tenant.orgName}</p>
@@ -255,8 +255,8 @@ function TenantPanel({ tenant }: { tenant: ConsultantTenant }) {
                 <div className="flex items-center gap-3">
                     {posture && !loading && (
                         <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                            <span className="text-rose-400 font-semibold">{posture.criticalFindings} crítico{posture.criticalFindings !== 1 ? 's' : ''}</span>
-                            <span className="text-amber-400">{posture.openFindings} aberto{posture.openFindings !== 1 ? 's' : ''}</span>
+                            <span className="text-danger-fg font-semibold">{posture.criticalFindings} crítico{posture.criticalFindings !== 1 ? 's' : ''}</span>
+                            <span className="text-warning-fg">{posture.openFindings} aberto{posture.openFindings !== 1 ? 's' : ''}</span>
                             <span className="text-muted-foreground">Score: <span className="text-foreground">{posture.overallScore.toFixed(0)}</span></span>
                         </div>
                     )}
@@ -276,7 +276,7 @@ function TenantPanel({ tenant }: { tenant: ConsultantTenant }) {
                     )}
 
                     {error && !loading && (
-                        <div className="flex items-center gap-3 p-4 mt-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm">
+                        <div className="flex items-center gap-3 p-4 mt-4 rounded-xl bg-danger-bg border border-rose-500/20 text-danger-fg text-sm">
                             <AlertTriangle className="w-4 h-4 shrink-0" />
                             {error}
                         </div>
@@ -286,9 +286,9 @@ function TenantPanel({ tenant }: { tenant: ConsultantTenant }) {
                         <>
                             {/* Posture Cards */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-                                <PostureCard label="Findings Abertos" value={posture.openFindings} accent="text-amber-400" />
-                                <PostureCard label="Críticos" value={posture.criticalFindings} accent="text-rose-400" />
-                                <PostureCard label="Promovidos" value={posture.promotedFindings} accent="text-emerald-400" />
+                                <PostureCard label="Findings Abertos" value={posture.openFindings} accent="text-warning-fg" />
+                                <PostureCard label="Críticos" value={posture.criticalFindings} accent="text-danger-fg" />
+                                <PostureCard label="Promovidos" value={posture.promotedFindings} accent="text-success-fg" />
                                 <PostureCard label="Risco Aceito" value={posture.acceptedRisk} accent="text-muted-foreground" />
                             </div>
 
@@ -379,7 +379,7 @@ export default function ConsultantPage() {
                 />
 
                 {/* Readonly notice */}
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-500/5 border border-blue-500/20 text-blue-400 text-xs">
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-500/5 border border-blue-500/20 text-info-fg text-xs">
                     <CheckCircle2 className="w-4 h-4 shrink-0" />
                     Este painel é somente leitura. Ações corretivas devem ser executadas pelos administradores de cada tenant.
                 </div>

@@ -14,9 +14,9 @@ interface PageHeaderProps {
 }
 
 const badgeVariants: Record<BadgeDef['variant'], string> = {
-  success: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-  warning: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
-  error:   'bg-rose-500/10 text-rose-400 border border-rose-500/20',
+  success: 'bg-success-bg text-success-fg border border-emerald-500/20',
+  warning: 'bg-warning-bg text-warning-fg border border-amber-500/20',
+  error:   'bg-danger-bg text-danger-fg border border-rose-500/20',
   neutral: 'bg-secondary text-muted-foreground border border-border',
 };
 

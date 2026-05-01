@@ -39,12 +39,12 @@ function statusBadge(c: Certificate) {
         return <span className="text-xs px-2 py-0.5 rounded-full border border-gray-500/30 bg-gray-500/10 text-gray-400">Desativado</span>;
     }
     if (c.is_expired) {
-        return <span className="text-xs px-2 py-0.5 rounded-full border border-rose-500/30 bg-rose-500/10 text-rose-400 inline-flex items-center gap-1"><XCircle className="w-3 h-3" />Expirado</span>;
+        return <span className="text-xs px-2 py-0.5 rounded-full border border-danger-border bg-danger-bg text-danger-fg inline-flex items-center gap-1"><XCircle className="w-3 h-3" />Expirado</span>;
     }
     if (c.expires_in_30d) {
-        return <span className="text-xs px-2 py-0.5 rounded-full border border-amber-400/30 bg-amber-400/10 text-amber-400 inline-flex items-center gap-1"><AlertTriangle className="w-3 h-3" />Expira em ≤30d</span>;
+        return <span className="text-xs px-2 py-0.5 rounded-full border border-warning-border bg-warning-bg text-warning-fg inline-flex items-center gap-1"><AlertTriangle className="w-3 h-3" />Expira em ≤30d</span>;
     }
-    return <span className="text-xs px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />Ativo</span>;
+    return <span className="text-xs px-2 py-0.5 rounded-full border border-success-border bg-success-bg text-success-fg inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />Ativo</span>;
 }
 
 export default function IcpBrasilPage() {
@@ -154,7 +154,7 @@ export default function IcpBrasilPage() {
                                 <td className="p-3 font-mono text-xs">{c.subject_cnpj || '—'}</td>
                                 <td className="p-3 text-xs">{c.issuer_cn}</td>
                                 <td className="p-3">
-                                    <span className={`text-xs px-2 py-0.5 rounded-md border ${c.cert_type === 'A3' ? 'border-indigo-400/30 bg-indigo-500/10 text-indigo-400' : 'border-sky-400/30 bg-sky-500/10 text-sky-400'}`}>
+                                    <span className={`text-xs px-2 py-0.5 rounded-md border ${c.cert_type === 'A3' ? 'border-indigo-400/30 bg-indigo-500/10 text-indigo-400' : 'border-info-border bg-info-bg text-info-fg'}`}>
                                         {c.cert_type}
                                     </span>
                                     {c.cert_type === 'A3' && (
@@ -178,7 +178,7 @@ export default function IcpBrasilPage() {
                                             </button>
                                             <button
                                                 onClick={() => onDeactivate(c.id)}
-                                                className="text-xs px-2 py-1 rounded-md border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 inline-flex items-center gap-1"
+                                                className="text-xs px-2 py-1 rounded-md border border-danger-border bg-danger-bg text-danger-fg hover:bg-danger-bg inline-flex items-center gap-1"
                                             >
                                                 <Trash2 className="w-3 h-3" />
                                                 Desativar

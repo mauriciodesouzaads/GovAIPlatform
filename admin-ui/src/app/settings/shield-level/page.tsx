@@ -71,9 +71,9 @@ function levelShort(n: number, t: (k: string) => string): string {
 }
 
 function levelAccent(n: number): { dot: string; ring: string; bg: string; text: string } {
-    if (n === 1) return { dot: 'bg-emerald-400', ring: 'ring-emerald-500/30', bg: 'bg-emerald-500/5', text: 'text-emerald-400' };
-    if (n === 2) return { dot: 'bg-amber-400', ring: 'ring-amber-500/30', bg: 'bg-amber-500/5', text: 'text-amber-400' };
-    return { dot: 'bg-rose-400', ring: 'ring-rose-500/30', bg: 'bg-rose-500/5', text: 'text-rose-400' };
+    if (n === 1) return { dot: 'bg-emerald-400', ring: 'ring-success-fg', bg: 'bg-emerald-500/5', text: 'text-success-fg' };
+    if (n === 2) return { dot: 'bg-amber-400', ring: 'ring-warning-fg', bg: 'bg-amber-500/5', text: 'text-warning-fg' };
+    return { dot: 'bg-rose-400', ring: 'ring-danger-fg', bg: 'bg-rose-500/5', text: 'text-danger-fg' };
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────
@@ -281,7 +281,7 @@ export default function ShieldLevelPage() {
                             <div className="flex items-center gap-2">
                                 {targetLevel > curLevel
                                     ? <Shield className="w-5 h-5 text-primary" />
-                                    : <AlertTriangle className="w-5 h-5 text-amber-400" />}
+                                    : <AlertTriangle className="w-5 h-5 text-warning-fg" />}
                                 <h2 className="text-lg font-semibold">
                                     {levelShort(curLevel, t)} → {levelShort(targetLevel, t)}
                                 </h2>

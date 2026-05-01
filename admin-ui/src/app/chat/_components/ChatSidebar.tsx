@@ -81,7 +81,7 @@ export function ChatSidebar() {
                 <button
                     onClick={newConversation}
                     disabled={creating}
-                    className="w-full flex items-center justify-center gap-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-200 text-sm font-medium px-3 py-2 transition-colors disabled:opacity-50"
+                    className="w-full flex items-center justify-center gap-2 rounded-lg bg-success-bg hover:bg-emerald-500/25 border border-success-border text-emerald-200 text-sm font-medium px-3 py-2 transition-colors disabled:opacity-50"
                 >
                     {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                     Nova conversa
@@ -93,7 +93,7 @@ export function ChatSidebar() {
                         value={searchInput}
                         onChange={e => setSearchInput(e.target.value)}
                         placeholder="Buscar conversas…"
-                        className="w-full bg-bg-200 border border-border-100 rounded-md pl-8 pr-3 py-1.5 text-xs text-text-100 placeholder:text-text-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
+                        className="w-full bg-bg-200 border border-border-100 rounded-md pl-8 pr-3 py-1.5 text-xs text-text-100 placeholder:text-text-500 focus:outline-none focus:ring-1 focus:ring-success-fg"
                     />
                 </div>
             </div>
@@ -145,13 +145,13 @@ function ConvCard({ item, active }: { item: Conversation; active: boolean }) {
             className={[
                 'block rounded-md px-2 py-2 transition-colors text-xs',
                 active
-                    ? 'bg-emerald-500/10 text-emerald-100'
+                    ? 'bg-success-bg text-emerald-100'
                     : 'text-text-100 hover:bg-bg-200',
             ].join(' ')}
         >
             <div className="flex items-start gap-2">
                 {item.pinned ? (
-                    <Pin className="w-3 h-3 text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                    <Pin className="w-3 h-3 text-success-fg flex-shrink-0 mt-0.5" />
                 ) : hasAgent ? (
                     <span className="text-[14px] leading-none flex-shrink-0 mt-0.5" aria-hidden>
                         {item.assistant_avatar}

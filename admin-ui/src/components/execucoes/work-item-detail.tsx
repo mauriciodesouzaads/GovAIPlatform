@@ -46,7 +46,7 @@ export function WorkItemDetail({
 
     if (error && !detail) {
         return (
-            <div className="text-sm text-rose-300 py-8">
+            <div className="text-sm text-danger-fg py-8">
                 Falha ao carregar: {error.message}
             </div>
         );
@@ -95,7 +95,7 @@ export function WorkItemDetail({
                         disabled={cancelling}
                         className={cn(
                             'inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded border',
-                            'border-rose-500/40 text-rose-300 hover:bg-rose-500/10 transition-colors',
+                            'border-danger-border text-danger-fg hover:bg-danger-bg transition-colors',
                             cancelling && 'opacity-50 cursor-not-allowed',
                         )}
                     >
@@ -113,7 +113,7 @@ export function WorkItemDetail({
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                     <StatusBadge status={wi.status} />
                     {streaming && (
-                        <span className="text-[11px] text-emerald-400 inline-flex items-center gap-1">
+                        <span className="text-[11px] text-success-fg inline-flex items-center gap-1">
                             <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
                             ao vivo
                         </span>
@@ -128,13 +128,13 @@ export function WorkItemDetail({
             {chatConversationId && (
                 <Link
                     href={`/chat/${chatConversationId}`}
-                    className="mb-4 flex items-center gap-2 px-3 py-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 text-xs text-emerald-300 hover:bg-emerald-500/10 transition-colors flex-shrink-0"
+                    className="mb-4 flex items-center gap-2 px-3 py-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 text-xs text-success-fg hover:bg-success-bg transition-colors flex-shrink-0"
                 >
                     <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
                     <span className="flex-1">
                         Esta execução foi iniciada a partir de uma conversa no Chat.
                     </span>
-                    <span className="inline-flex items-center gap-1 text-emerald-400 group-hover:underline">
+                    <span className="inline-flex items-center gap-1 text-success-fg group-hover:underline">
                         Voltar à conversa
                         <ArrowUpRight className="w-3 h-3" />
                     </span>
@@ -239,7 +239,7 @@ export function WorkItemDetail({
 
                     {wi.dispatch_error && (
                         <Field label="Erro">
-                            <pre className="text-[11px] text-rose-300 whitespace-pre-wrap break-all bg-rose-500/5 border border-rose-500/20 rounded p-2 max-h-32 overflow-y-auto">
+                            <pre className="text-[11px] text-danger-fg whitespace-pre-wrap break-all bg-rose-500/5 border border-rose-500/20 rounded p-2 max-h-32 overflow-y-auto">
                                 {wi.dispatch_error}
                             </pre>
                         </Field>

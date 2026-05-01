@@ -51,9 +51,9 @@ const ACTION_LABELS: Record<DlpAction, string> = {
 };
 
 const ACTION_COLORS: Record<DlpAction, string> = {
-    mask:  'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    block: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
-    alert: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    mask:  'bg-warning-bg text-warning-fg border-amber-500/20',
+    block: 'bg-danger-bg text-danger-fg border-rose-500/20',
+    alert: 'bg-info-bg text-info-fg border-blue-500/20',
 };
 
 const DETECTOR_LABELS: Record<DetectorType, string> = {
@@ -174,9 +174,9 @@ function AddRuleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
 
                 <form onSubmit={handleSubmit} className="p-5 space-y-4">
                     {error && (
-                        <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-start gap-2">
-                            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                            <p className="text-sm text-rose-400">{error}</p>
+                        <div className="p-3 rounded-lg bg-danger-bg border border-rose-500/20 flex items-start gap-2">
+                            <AlertCircle className="w-4 h-4 text-danger-fg shrink-0 mt-0.5" />
+                            <p className="text-sm text-danger-fg">{error}</p>
                         </div>
                     )}
 
@@ -296,9 +296,9 @@ function TestModal({ onClose }: { onClose: () => void }) {
 
                 <div className="p-5 space-y-4">
                     {error && (
-                        <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-start gap-2">
-                            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                            <p className="text-sm text-rose-400">{error}</p>
+                        <div className="p-3 rounded-lg bg-danger-bg border border-rose-500/20 flex items-start gap-2">
+                            <AlertCircle className="w-4 h-4 text-danger-fg shrink-0 mt-0.5" />
+                            <p className="text-sm text-danger-fg">{error}</p>
                         </div>
                     )}
 
@@ -325,21 +325,21 @@ function TestModal({ onClose }: { onClose: () => void }) {
                             {/* Status */}
                             <div className={`flex items-center gap-2 p-3 rounded-lg border ${
                                 result.blocked
-                                    ? 'bg-rose-500/10 border-rose-500/20'
+                                    ? 'bg-danger-bg border-rose-500/20'
                                     : result.detection_count > 0
-                                        ? 'bg-amber-500/10 border-amber-500/20'
-                                        : 'bg-emerald-500/10 border-emerald-500/20'
+                                        ? 'bg-warning-bg border-amber-500/20'
+                                        : 'bg-success-bg border-emerald-500/20'
                             }`}>
                                 {result.blocked
-                                    ? <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                                    ? <AlertCircle className="w-4 h-4 text-danger-fg shrink-0" />
                                     : result.detection_count > 0
-                                        ? <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                                        : <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                        ? <AlertCircle className="w-4 h-4 text-warning-fg shrink-0" />
+                                        : <CheckCircle2 className="w-4 h-4 text-success-fg shrink-0" />
                                 }
                                 <p className={`text-sm font-medium ${
-                                    result.blocked ? 'text-rose-400'
-                                    : result.detection_count > 0 ? 'text-amber-400'
-                                    : 'text-emerald-400'
+                                    result.blocked ? 'text-danger-fg'
+                                    : result.detection_count > 0 ? 'text-warning-fg'
+                                    : 'text-success-fg'
                                 }`}>
                                     {result.blocked
                                         ? `Mensagem bloqueada — ${result.block_reason}`
@@ -430,7 +430,7 @@ function DeleteConfirm({ rule, onClose, onDeleted }: {
                 <p className="text-sm text-muted-foreground mb-4">
                     Tem certeza que deseja excluir a regra <span className="font-medium text-foreground">"{rule.name}"</span>? Esta ação não pode ser desfeita.
                 </p>
-                {error && <p className="text-sm text-rose-400 mb-3">{error}</p>}
+                {error && <p className="text-sm text-danger-fg mb-3">{error}</p>}
                 <div className="flex gap-3">
                     <button onClick={onClose} className="flex-1 border border-border text-muted-foreground hover:text-foreground text-sm font-medium py-2 rounded-lg transition-colors">
                         Cancelar
@@ -551,9 +551,9 @@ export default function DlpPage() {
             />
 
             {globalError && (
-                <div className="mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                    <p className="text-sm text-rose-400">{globalError}</p>
+                <div className="mb-4 p-3 rounded-lg bg-danger-bg border border-rose-500/20 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-danger-fg shrink-0 mt-0.5" />
+                    <p className="text-sm text-danger-fg">{globalError}</p>
                 </div>
             )}
 
@@ -725,7 +725,7 @@ function RuleRow({
                             </button>
                         )}
                         {isSuccess && !hasPending && (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                            <CheckCircle2 className="w-4 h-4 text-success-fg shrink-0" />
                         )}
                         {!hasPending && !isSuccess && <ActionBadge action={rule.action} />}
                     </div>
@@ -736,7 +736,7 @@ function RuleRow({
                 {/* Delete */}
                 {showDelete && isAdmin && (
                     <button onClick={() => onDeleteClick(rule)}
-                        className="text-muted-foreground hover:text-rose-400 transition-colors shrink-0">
+                        className="text-muted-foreground hover:text-danger-fg transition-colors shrink-0">
                         <Trash2 className="w-4 h-4" />
                     </button>
                 )}

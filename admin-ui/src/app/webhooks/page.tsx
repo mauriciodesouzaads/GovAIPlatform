@@ -41,9 +41,9 @@ const ALL_EVENTS = [
 
 function statusBadge(status: string) {
     switch (status) {
-        case 'success':  return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-        case 'failed':   return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
-        case 'retrying': return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+        case 'success':  return 'bg-success-bg text-success-fg border-emerald-500/20';
+        case 'failed':   return 'bg-danger-bg text-danger-fg border-rose-500/20';
+        case 'retrying': return 'bg-warning-bg text-warning-fg border-amber-500/20';
         default:         return 'bg-secondary text-muted-foreground border-border';
     }
 }
@@ -165,7 +165,7 @@ function WebhookFormModal({ initial, onClose, onSaved }: FormModalProps) {
                                         onClick={() => toggleEvent(ev)}
                                         className={`text-left px-2 py-1.5 rounded-lg text-xs border transition-colors font-mono ${
                                             form.events.includes(ev)
-                                                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                                                ? 'bg-warning-bg border-warning-border text-warning-fg'
                                                 : 'border-border text-muted-foreground hover:border-border/80 hover:text-foreground'
                                         }`}
                                     >
@@ -273,7 +273,7 @@ function DeliveryLog({ webhookId }: { webhookId: string }) {
                             <td className="py-2 pr-3 text-muted-foreground">
                                 <span>{fmtDate(d.created_at)}</span>
                                 {d.status === 'retrying' && d.next_retry_at && (
-                                    <span className="block text-amber-400 mt-0.5">→ {fmtDate(d.next_retry_at)}</span>
+                                    <span className="block text-warning-fg mt-0.5">→ {fmtDate(d.next_retry_at)}</span>
                                 )}
                             </td>
                             <td className="py-2">
@@ -281,7 +281,7 @@ function DeliveryLog({ webhookId }: { webhookId: string }) {
                                     <button
                                         onClick={() => retry(d.id)}
                                         disabled={retrying === d.id}
-                                        className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+                                        className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold border border-warning-border text-warning-fg hover:bg-warning-bg transition-colors disabled:opacity-50"
                                         title="Reenviar"
                                     >
                                         {retrying === d.id
@@ -317,7 +317,7 @@ function WebhookRow({ webhook, onEdit, onDeactivate }: {
                         <span className="font-semibold text-sm text-foreground">{webhook.name}</span>
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
                             webhook.is_active
-                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                ? 'bg-success-bg text-success-fg border-emerald-500/20'
                                 : 'bg-secondary text-muted-foreground border-border'
                         }`}>
                             {webhook.is_active ? 'ATIVO' : 'INATIVO'}
@@ -353,7 +353,7 @@ function WebhookRow({ webhook, onEdit, onDeactivate }: {
                     {webhook.is_active && (
                         <button
                             onClick={onDeactivate}
-                            className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-danger-fg hover:bg-danger-bg transition-colors"
                             title="Desativar"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -440,10 +440,10 @@ export default function WebhooksPage() {
                 />
 
                 {/* Info banner */}
-                <div className="flex items-start gap-3 p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl text-xs text-blue-300">
-                    <Bell className="w-4 h-4 shrink-0 mt-0.5 text-blue-400" />
+                <div className="flex items-start gap-3 p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl text-xs text-info-fg">
+                    <Bell className="w-4 h-4 shrink-0 mt-0.5 text-info-fg" />
                     <div>
-                        <strong className="text-blue-300">Assinatura HMAC:</strong> payloads são assinados com{' '}
+                        <strong className="text-info-fg">Assinatura HMAC:</strong> payloads são assinados com{' '}
                         <code className="font-mono text-blue-200">X-GovAI-Signature: sha256=...</code> quando um secret é configurado.
                         Deixe o campo de eventos vazio para receber todos os eventos.
                     </div>
@@ -461,7 +461,7 @@ export default function WebhooksPage() {
                         <p className="text-sm">Nenhum webhook configurado.</p>
                         <button
                             onClick={() => { setEditTarget(null); setShowForm(true); }}
-                            className="text-xs text-amber-400 hover:underline"
+                            className="text-xs text-warning-fg hover:underline"
                         >
                             Criar primeiro webhook
                         </button>

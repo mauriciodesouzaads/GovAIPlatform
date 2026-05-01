@@ -24,7 +24,7 @@ export function ModeTabs() {
             label: 'Modo Livre',
             description: 'Harness inline',
             icon: FlaskConical,
-            colorActive: 'border-emerald-500/60 bg-emerald-500/10 text-emerald-200',
+            colorActive: 'border-emerald-500/60 bg-success-bg text-emerald-200',
         },
     ];
 

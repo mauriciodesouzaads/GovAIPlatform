@@ -43,9 +43,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                         aria-live="polite"
                         className={`
               pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border backdrop-blur-md animate-in slide-in-from-right-full duration-300
-              ${t.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : ''}
-              ${t.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' : ''}
-              ${t.type === 'info' ? 'bg-blue-500/10 border-blue-500/20 text-blue-500' : ''}
+              ${t.type === 'success' ? 'bg-success-bg border-emerald-500/20 text-emerald-500' : ''}
+              ${t.type === 'error' ? 'bg-danger-bg border-red-500/20 text-danger-fg' : ''}
+              ${t.type === 'info' ? 'bg-info-bg border-blue-500/20 text-info-fg' : ''}
             `}
                     >
                         {t.type === 'success' && <CheckCircle2 className="w-5 h-5" />}

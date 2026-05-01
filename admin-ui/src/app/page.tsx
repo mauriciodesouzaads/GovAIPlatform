@@ -85,10 +85,10 @@ const RISK_COLORS: Record<string, string> = {
 };
 
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: 'bg-rose-500/10 text-rose-400 border border-rose-500/20',
+  critical: 'bg-danger-bg text-danger-fg border border-rose-500/20',
   high: 'bg-orange-500/10 text-orange-400 border border-orange-500/20',
-  medium: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
-  low: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+  medium: 'bg-warning-bg text-warning-fg border border-amber-500/20',
+  low: 'bg-success-bg text-success-fg border border-emerald-500/20',
 };
 
 const TOOLTIP_STYLE = {
@@ -141,14 +141,14 @@ function KpiCard({ icon, label, value, sub, color, alert }: {
   color: string; alert?: boolean;
 }) {
   return (
-    <div className={`bg-card border ${alert ? 'border-rose-500/40' : color} rounded-xl p-4 flex flex-col gap-2`}>
+    <div className={`bg-card border ${alert ? 'border-danger-border' : color} rounded-xl p-4 flex flex-col gap-2`}>
       <div className="flex items-center justify-between">
-        <span className={alert ? 'text-rose-400' : 'text-muted-foreground'}>{icon}</span>
-        {alert && <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />}
+        <span className={alert ? 'text-danger-fg' : 'text-muted-foreground'}>{icon}</span>
+        {alert && <AlertTriangle className="w-3.5 h-3.5 text-danger-fg" />}
       </div>
       <div>
         <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">{label}</p>
-        <div className={`text-xl font-bold mt-0.5 ${alert ? 'text-rose-400' : 'text-foreground'}`}>
+        <div className={`text-xl font-bold mt-0.5 ${alert ? 'text-danger-fg' : 'text-foreground'}`}>
           {typeof value === 'number' ? value.toLocaleString() : value}
         </div>
         <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>
@@ -335,16 +335,16 @@ export default function DashboardPage() {
         {hasAlerts && (
           <div className={`rounded-xl border p-4 space-y-2 ${
             criticalAlerts.length > 0
-              ? 'bg-rose-500/5 border-rose-500/30'
-              : 'bg-amber-500/5 border-amber-500/30'
+              ? 'bg-rose-500/5 border-danger-border'
+              : 'bg-amber-500/5 border-warning-border'
           }`}>
             <div className="flex items-center gap-2 mb-1">
-              <Bell className={`w-4 h-4 ${criticalAlerts.length > 0 ? 'text-rose-400' : 'text-amber-400'}`} />
+              <Bell className={`w-4 h-4 ${criticalAlerts.length > 0 ? 'text-danger-fg' : 'text-warning-fg'}`} />
               <span className="text-sm font-semibold text-foreground">
                 {criticalAlerts.length > 0 ? 'Alertas Críticos' : 'Alertas de Atenção'}
               </span>
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                criticalAlerts.length > 0 ? 'bg-rose-500/20 text-rose-400' : 'bg-amber-500/20 text-amber-400'
+                criticalAlerts.length > 0 ? 'bg-danger-bg text-danger-fg' : 'bg-warning-bg text-warning-fg'
               }`}>
                 {alerts.length}
               </span>
@@ -354,7 +354,7 @@ export default function DashboardPage() {
                 <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.severity === 'critical' ? 'bg-rose-500' : 'bg-amber-500'}`} />
                   <span>{a.message}</span>
-                  <span className={`ml-auto font-semibold ${a.severity === 'critical' ? 'text-rose-400' : 'text-amber-400'}`}>
+                  <span className={`ml-auto font-semibold ${a.severity === 'critical' ? 'text-danger-fg' : 'text-warning-fg'}`}>
                     {a.severity === 'critical' ? 'CRÍTICO' : 'AVISO'}
                   </span>
                 </div>
@@ -371,16 +371,16 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-emerald-400" />
+                  <TrendingUp className="w-4 h-4 text-success-fg" />
                   Tendência (30 dias)
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">Execuções e violações por dia</p>
               </div>
               <div className="flex gap-3">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-success-fg">
                   <span className="w-2 h-2 rounded bg-emerald-500" /> Exec.
                 </div>
-                <div className="flex items-center gap-1.5 text-xs font-medium text-rose-400">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-danger-fg">
                   <span className="w-2 h-2 rounded bg-rose-500" /> Viol.
                 </div>
               </div>
@@ -419,7 +419,7 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-blue-400" />
+                    <Zap className="w-4 h-4 text-info-fg" />
                     Latência P95 (30 dias)
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">Percentil 95 por dia (ms)</p>
@@ -450,7 +450,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                  <Bot className="w-4 h-4 text-blue-400" />
+                  <Bot className="w-4 h-4 text-info-fg" />
                   Top Assistants (60 min)
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">Maior volume na última hora</p>
@@ -473,7 +473,7 @@ export default function DashboardPage() {
                       <td className="py-2.5 pr-4 font-medium text-foreground truncate max-w-[200px]">{a.assistant_name}</td>
                       <td className="py-2.5 pr-4 text-right text-foreground">{a.exec_count.toLocaleString()}</td>
                       <td className="py-2.5 pr-4 text-right">
-                        <span className={a.violation_count > 0 ? 'text-rose-400 font-semibold' : 'text-muted-foreground'}>
+                        <span className={a.violation_count > 0 ? 'text-danger-fg font-semibold' : 'text-muted-foreground'}>
                           {a.violation_count.toLocaleString()}
                         </span>
                       </td>
@@ -526,7 +526,7 @@ export default function DashboardPage() {
             {/* ── SECTION 5 — Summary Cards ── */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               <SummaryCard
-                icon={<Activity className="h-5 w-5 text-emerald-400" />}
+                icon={<Activity className="h-5 w-5 text-success-fg" />}
                 label="Processamento IA"
                 value={stats?.total_executions ?? 0}
                 sub="Calls processadas"
@@ -535,7 +535,7 @@ export default function DashboardPage() {
                 tooltip="Volume total de prompts processados (LGPD Art. 37)."
               />
               <SummaryCard
-                icon={<ShieldAlert className="h-5 w-5 text-rose-400" />}
+                icon={<ShieldAlert className="h-5 w-5 text-danger-fg" />}
                 label="Violações OPA"
                 value={stats?.total_violations ?? 0}
                 sub="Bloqueios P0"
@@ -551,7 +551,7 @@ export default function DashboardPage() {
                 color="border-violet-500/20"
               />
               <SummaryCard
-                icon={<Bot className="h-5 w-5 text-blue-400" />}
+                icon={<Bot className="h-5 w-5 text-info-fg" />}
                 label="Agentes Ativos"
                 value={stats?.total_assistants ?? 0}
                 sub="Modelos em Produção"
@@ -559,7 +559,7 @@ export default function DashboardPage() {
                 href="/assistants"
               />
               <SummaryCard
-                icon={<Clock className="h-5 w-5 text-amber-400" />}
+                icon={<Clock className="h-5 w-5 text-warning-fg" />}
                 label="Revisões Pendentes"
                 value={stats?.pending_reviews ?? 0}
                 sub="Aguardando aprovação"
@@ -585,7 +585,7 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      <ShieldCheck className="w-4 h-4 text-success-fg" />
                       Postura de Segurança
                     </h3>
                     <p className="text-xs text-muted-foreground mt-0.5">Score de risco consolidado nos últimos 6 snapshots</p>
@@ -653,7 +653,7 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-400" />
+                      <AlertTriangle className="w-4 h-4 text-warning-fg" />
                       Shadow AI — Ameaças Detectadas
                     </h3>
                     <p className="text-xs text-muted-foreground mt-0.5">Top 5 findings críticos do AI Shield</p>
@@ -703,10 +703,10 @@ export default function DashboardPage() {
                     <p className="text-xs text-muted-foreground mt-0.5">Tráfego limpo vs. requisições interceptadas no Edge</p>
                   </div>
                   <div className="flex gap-4">
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-success-fg">
                       <span className="w-2 h-2 rounded bg-emerald-500" /> Clean
                     </div>
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-rose-400">
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-danger-fg">
                       <span className="w-2 h-2 rounded bg-rose-500" /> OPA Block
                     </div>
                   </div>
@@ -743,7 +743,7 @@ export default function DashboardPage() {
                 <div className="mb-4">
                   <h3 className="text-sm font-semibold text-foreground flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      <ShieldCheck className="w-4 h-4 text-success-fg" />
                       Protection Rate
                     </div>
                     <span title="Índice de Eficácia de Controles (BCB 4.557).">
@@ -768,7 +768,7 @@ export default function DashboardPage() {
                         </RadialBarChart>
                       </ResponsiveContainer>
                       <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className={`text-2xl font-bold ${interceptionRate > 5 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        <span className={`text-2xl font-bold ${interceptionRate > 5 ? 'text-danger-fg' : 'text-success-fg'}`}>
                           {interceptionRate}%
                         </span>
                         <span className="text-xs uppercase font-semibold text-muted-foreground tracking-wider mt-1">Interceptado</span>
@@ -780,7 +780,7 @@ export default function DashboardPage() {
                   {stats && (
                     <div className="mt-6 text-center bg-secondary/30 border border-border/50 rounded-xl p-4 w-full">
                       <p className="text-sm text-muted-foreground leading-relaxed">
-                        <span className="text-rose-400 font-semibold">{stats.total_violations}</span> incidentes de{' '}
+                        <span className="text-danger-fg font-semibold">{stats.total_violations}</span> incidentes de{' '}
                         <span className="text-foreground font-semibold">{stats.total_executions + stats.total_violations}</span> transações
                       </p>
                     </div>
@@ -830,9 +830,9 @@ function HealthStatus() {
         return (
           <div key={i} className="flex items-center gap-2">
             {i > 0 && <div className="w-px h-4 bg-border mr-2" />}
-            <span className={up ? 'text-emerald-500' : 'text-rose-500'}>{item.icon}</span>
+            <span className={up ? 'text-emerald-500' : 'text-danger-fg'}>{item.icon}</span>
             <span className="text-xs font-semibold text-foreground uppercase tracking-tight">{item.label}</span>
-            <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ${up ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+            <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ${up ? 'bg-success-bg text-success-fg' : 'bg-danger-bg text-danger-fg'}`}>
               {up ? 'UP' : 'DOWN'}
             </span>
           </div>

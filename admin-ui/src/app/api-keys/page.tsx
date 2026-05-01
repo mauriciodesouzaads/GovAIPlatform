@@ -105,12 +105,12 @@ export default function ApiKeysPage() {
                     </div>
 
                     {createdKey && (
-                        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 space-y-3 animate-in fade-in duration-300">
-                            <div className="flex items-center gap-2 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
+                        <div className="bg-success-bg border border-emerald-500/20 rounded-xl p-4 space-y-3 animate-in fade-in duration-300">
+                            <div className="flex items-center gap-2 text-success-fg text-xs font-semibold uppercase tracking-wider">
                                 <ShieldCheck className="w-4 h-4" /> Chave criada com sucesso
                             </div>
                             <div className="flex items-center gap-3">
-                                <code className="bg-background border border-border px-4 py-2.5 rounded-lg font-mono text-sm flex-1 select-all text-emerald-400">
+                                <code className="bg-background border border-border px-4 py-2.5 rounded-lg font-mono text-sm flex-1 select-all text-success-fg">
                                     {createdKey}
                                 </code>
                                 <button
@@ -121,7 +121,7 @@ export default function ApiKeysPage() {
                                     {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                                 </button>
                             </div>
-                            <p className="text-xs text-emerald-400/80 font-medium">
+                            <p className="text-xs text-success-fg font-medium">
                                 Guarde esta chave em segurança. Por motivos de segurança, ela não será exibida novamente.
                             </p>
                         </div>
@@ -201,7 +201,7 @@ export default function ApiKeysPage() {
                                                     ) : (
                                                         <button
                                                             onClick={() => setConfirmRevoke(k.id)}
-                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-rose-400/70 hover:text-rose-400 hover:bg-rose-500/10 transition-colors text-xs font-semibold"
+                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-rose-400/70 hover:text-danger-fg hover:bg-danger-bg transition-colors text-xs font-semibold"
                                                         >
                                                             <Trash2 className="w-3.5 h-3.5" />
                                                             <span className="hidden sm:inline">Revogar</span>
